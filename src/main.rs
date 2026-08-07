@@ -253,18 +253,41 @@ fn main() -> Result<()> {
     let mut child = cmd.spawn().context("Failed to spawn FFmpeg process. Is it installed and in your PATH?")?;
     let stderr = child.stderr.take().ok_or_else(|| anyhow!("Failed to capture FFmpeg stderr"))?;
 
-    use std::io::{BufRead, BufReader};
-    let reader = BufReader::new(stderr);
+    use std::io::{BufRead, BufReader, Read};
+    let mut reader = BufReader::new(stderr);
     let mut total_seconds: Option<f64> = None;
 
     let target_film_info = film_name.as_deref().unwrap_or("Unknown DVD Title");
     println!("\nRipping Film: {}", target_film_info);
 
-    for line_result in reader.lines() {
-        let line = match line_result {
-            Ok(l) => l,
-            Err(_) => break,
-        };
+    let mut line_bytes = Vec::new();
+    loop {
+        line_bytes.clear();
+        let mut byte = [0u8; 1];
+        let mut read_bytes = 0;
+        
+        loop {
+            match reader.read_exact(&mut byte) {
+                Ok(_) => {
+                    read_bytes += 1;
+                    if byte[0] == b'\r' || byte[0] == b'\n' {
+                        break;
+                    }
+                    line_bytes.push(byte[0]);
+                }
+                Err(_) => break,
+            }
+        }
+
+        if read_bytes == 0 {
+            if let Ok(Some(_)) = child.try_wait() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+            continue;
+        }
+
+        let line = String::from_utf8_lossy(&line_bytes);
 
         if total_seconds.is_none() {
             if let Some(idx) = line.find("Duration: ") {
