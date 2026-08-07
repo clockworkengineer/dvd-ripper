@@ -1,3 +1,12 @@
+/**
+ * @file main.rs
+ * @brief DVD Ripper CLI Utility
+ *
+ * This utility uses FFmpeg's native `dvdvideo` demuxer to rip individual titles
+ * from a DVD. It queries the IMDb suggest API to lookup movie details (title and year)
+ * using the volume label, sanitizes path names, and displays a real-time progress bar.
+ */
+
 use std::path::PathBuf;
 use std::process::Command;
 use anyhow::{anyhow, Context, Result};
@@ -6,6 +15,7 @@ use serde::Deserialize;
 use windows::core::PCWSTR;
 use windows::Win32::Storage::FileSystem::GetVolumeInformationW;
 
+/// Command line arguments parsed by clap.
 #[derive(Parser, Debug)]
 #[command(
     name = "dvd-ripper",
@@ -38,18 +48,30 @@ struct Args {
     ffmpeg: String,
 }
 
+/// Represents a single movie search result from the IMDb suggestion database.
 #[derive(Deserialize, Debug)]
 struct ImdbEntry {
+    /// Title of the movie / series
     l: String,
+    /// Release year of the movie
     y: Option<u32>,
+    /// Entity type (e.g. "feature", "tvSeries")
     q: Option<String>,
 }
 
+/// Represents the top-level structure of the IMDb Suggest API JSON response.
 #[derive(Deserialize, Debug)]
 struct ImdbSuggestResponse {
+    /// List of suggestion search results
     d: Vec<ImdbEntry>,
 }
 
+/**
+ * Retrieves the local volume label of a DVD drive using the Windows API.
+ *
+ * @param root_path The drive letter or path (e.g., "D:\\").
+ * @return An Option containing the volume label if successfully retrieved, or None.
+ */
 fn get_volume_label(root_path: &str) -> Option<String> {
     let mut path_wide: Vec<u16> = root_path.encode_utf16().collect();
     if !path_wide.ends_with(&[b'\\' as u16]) {
@@ -79,6 +101,12 @@ fn get_volume_label(root_path: &str) -> Option<String> {
     None
 }
 
+/**
+ * Queries the IMDb Suggest API to resolve a raw DVD volume label to a movie name and year.
+ *
+ * @param query The raw volume label query string (e.g. "THOR_RAGNAROK").
+ * @return A Result containing a tuple of (Cleaned Title, Option<Release Year>).
+ */
 fn lookup_film_details(query: &str) -> Result<(String, Option<u32>)> {
     let cleaned: String = query
         .replace('_', " ")
@@ -121,6 +149,12 @@ fn lookup_film_details(query: &str) -> Result<(String, Option<u32>)> {
     Ok((best_match.l.clone(), best_match.y))
 }
 
+/**
+ * Sanitizes a movie title to make it safe for filesystem folders and file names.
+ *
+ * @param name The original movie name.
+ * @return A sanitized copy of the movie name with illegal characters replaced.
+ */
 fn sanitize_filename(name: &str) -> String {
     name.chars()
         .map(|c| match c {
@@ -134,6 +168,12 @@ fn sanitize_filename(name: &str) -> String {
         .join(" ")
 }
 
+/**
+ * Parses an FFmpeg timestamp string (HH:MM:SS.xx) into total seconds.
+ *
+ * @param s The timestamp string.
+ * @return An Option containing the parsed time in seconds as a float, or None on failure.
+ */
 fn parse_duration(s: &str) -> Option<f64> {
     let parts: Vec<&str> = s.split(':').collect();
     if parts.len() == 3 {
@@ -146,10 +186,14 @@ fn parse_duration(s: &str) -> Option<f64> {
     }
 }
 
+/**
+ * The main entry point of the application. It parses arguments, detects film metadata,
+ * builds the FFmpeg invocation command, executes the process, and renders the progress bar.
+ */
 fn main() -> Result<()> {
     let args = Args::parse();
 
-    // 1. Resolve DVD path
+    // 1. Resolve DVD path. If a drive letter is provided without a trailing backslash (e.g. D:), append it.
     let mut dvd_path = PathBuf::from(&args.input);
     if dvd_path.to_string_lossy().ends_with(':') {
         dvd_path = PathBuf::from(format!("{}\\", args.input));
@@ -182,7 +226,8 @@ fn main() -> Result<()> {
         println!("Warning: Could not detect DVD volume label.");
     }
 
-    // 2. Resolve output path to absolute path
+    // 2. Resolve output path to absolute path.
+    // Use the auto-detected film details if available, otherwise fallback to custom CLI output or defaults.
     let extension = if args.transcode { "mp4" } else { "mpg" };
     let output_path = if let Some(ref name) = film_name {
         let segment = if let Some(year) = film_year {
@@ -203,13 +248,13 @@ fn main() -> Result<()> {
         std::env::current_dir()?.join(&output_path)
     };
     
-    // Ensure parent directory of output exists
+    // Ensure parent directory of output folder exists
     if let Some(parent) = absolute_output.parent() {
         std::fs::create_dir_all(parent).context("Failed to create output parent directory")?;
     }
     println!("Output file will be saved to: {}", absolute_output.display());
 
-    // 3. Build FFmpeg command
+    // 3. Build FFmpeg command.
     let mut cmd = Command::new(&args.ffmpeg);
     
     // Use FFmpeg's native DVD-Video demuxer
@@ -227,6 +272,7 @@ fn main() -> Result<()> {
     cmd.arg("-map").arg("0:v");
     cmd.arg("-map").arg("0:a?");
 
+    // Choose transcoding settings or fast lossless copy remuxing
     if args.transcode {
         println!("\nTranscoding to high-quality H.264 video & AAC audio...");
         cmd.arg("-c:v").arg("libx264");
@@ -247,19 +293,21 @@ fn main() -> Result<()> {
 
     println!("\nRunning command: {} {:?}", args.ffmpeg, cmd.get_args().collect::<Vec<_>>());
 
+    // 4. Spawn the FFmpeg command and pipe stderr to parse logs and display progress
     cmd.stdout(std::process::Stdio::null());
     cmd.stderr(std::process::Stdio::piped());
 
     let mut child = cmd.spawn().context("Failed to spawn FFmpeg process. Is it installed and in your PATH?")?;
     let stderr = child.stderr.take().ok_or_else(|| anyhow!("Failed to capture FFmpeg stderr"))?;
 
-    use std::io::{BufRead, BufReader, Read};
+    use std::io::{BufReader, Read};
     let mut reader = BufReader::new(stderr);
     let mut total_seconds: Option<f64> = None;
 
     let target_film_info = film_name.as_deref().unwrap_or("Unknown DVD Title");
     println!("\nRipping Film: {}", target_film_info);
 
+    // Custom reader loop to split logs by either '\r' or '\n' to catch live FFmpeg progress reports
     let mut line_bytes = Vec::new();
     loop {
         line_bytes.clear();
@@ -279,6 +327,7 @@ fn main() -> Result<()> {
             }
         }
 
+        // If no bytes were read, check if the process has finished
         if read_bytes == 0 {
             if let Ok(Some(_)) = child.try_wait() {
                 break;
@@ -289,6 +338,7 @@ fn main() -> Result<()> {
 
         let line = String::from_utf8_lossy(&line_bytes);
 
+        // Detect overall duration from the initialization log
         if total_seconds.is_none() {
             if let Some(idx) = line.find("Duration: ") {
                 let sub = &line[idx + 10..];
@@ -301,6 +351,7 @@ fn main() -> Result<()> {
             }
         }
 
+        // Detect and parse the dynamic time, speed, and FPS reports to update the console progress bar
         if let Some(idx) = line.find("time=") {
             let sub = &line[idx + 5..];
             let time_str = sub.split_whitespace().next().unwrap_or("").trim();
@@ -337,6 +388,7 @@ fn main() -> Result<()> {
         }
     }
 
+    // Wait for the final process exit status
     let status = child.wait().context("Failed to wait on FFmpeg process")?;
     println!();
 
