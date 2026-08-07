@@ -170,7 +170,7 @@ fn main() -> Result<()> {
     let extension = if args.transcode { "mp4" } else { "mpg" };
     let output_path = if let Some(ref name) = film_name {
         let segment = if let Some(year) = film_year {
-            format!("{} ( {} )", name, year)
+            format!("{} ({})", name, year)
         } else {
             name.clone()
         };
