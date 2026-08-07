@@ -29,6 +29,10 @@ struct Args {
     #[arg(long)]
     transcode: bool,
 
+    /// FFmpeg preset for H.264 encoding (e.g. veryfast, superfast, ultrafast, fast, medium)
+    #[arg(long, default_value = "veryfast")]
+    preset: String,
+
     /// Custom path to FFmpeg executable
     #[arg(long, default_value = "ffmpeg")]
     ffmpeg: String,
@@ -214,6 +218,7 @@ fn main() -> Result<()> {
     if args.transcode {
         println!("\nTranscoding to high-quality H.264 video & AAC audio...");
         cmd.arg("-c:v").arg("libx264");
+        cmd.arg("-preset").arg(&args.preset);
         cmd.arg("-crf").arg("22");
         cmd.arg("-c:a").arg("aac");
         cmd.arg("-b:a").arg("128k");
