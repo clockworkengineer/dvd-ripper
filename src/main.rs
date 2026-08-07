@@ -134,6 +134,18 @@ fn sanitize_filename(name: &str) -> String {
         .join(" ")
 }
 
+fn parse_duration(s: &str) -> Option<f64> {
+    let parts: Vec<&str> = s.split(':').collect();
+    if parts.len() == 3 {
+        let hours: f64 = parts[0].trim().parse().ok()?;
+        let minutes: f64 = parts[1].trim().parse().ok()?;
+        let seconds: f64 = parts[2].trim().parse().ok()?;
+        Some(hours * 3600.0 + minutes * 60.0 + seconds)
+    } else {
+        None
+    }
+}
+
 fn main() -> Result<()> {
     let args = Args::parse();
 
@@ -235,7 +247,75 @@ fn main() -> Result<()> {
 
     println!("\nRunning command: {} {:?}", args.ffmpeg, cmd.get_args().collect::<Vec<_>>());
 
-    let status = cmd.status().context("Failed to execute FFmpeg. Is it installed and in your PATH?")?;
+    cmd.stdout(std::process::Stdio::null());
+    cmd.stderr(std::process::Stdio::piped());
+
+    let mut child = cmd.spawn().context("Failed to spawn FFmpeg process. Is it installed and in your PATH?")?;
+    let stderr = child.stderr.take().ok_or_else(|| anyhow!("Failed to capture FFmpeg stderr"))?;
+
+    use std::io::{BufRead, BufReader};
+    let reader = BufReader::new(stderr);
+    let mut total_seconds: Option<f64> = None;
+
+    let target_film_info = film_name.as_deref().unwrap_or("Unknown DVD Title");
+    println!("\nRipping Film: {}", target_film_info);
+
+    for line_result in reader.lines() {
+        let line = match line_result {
+            Ok(l) => l,
+            Err(_) => break,
+        };
+
+        if total_seconds.is_none() {
+            if let Some(idx) = line.find("Duration: ") {
+                let sub = &line[idx + 10..];
+                if let Some(comma_idx) = sub.find(',') {
+                    let duration_str = sub[..comma_idx].trim();
+                    if let Some(secs) = parse_duration(duration_str) {
+                        total_seconds = Some(secs);
+                    }
+                }
+            }
+        }
+
+        if let Some(idx) = line.find("time=") {
+            let sub = &line[idx + 5..];
+            let time_str = sub.split_whitespace().next().unwrap_or("").trim();
+            if let Some(secs) = parse_duration(time_str) {
+                let mut speed = "N/A".to_string();
+                if let Some(s_idx) = line.find("speed=") {
+                    let s_sub = &line[s_idx + 6..];
+                    speed = s_sub.split_whitespace().next().unwrap_or("N/A").trim().to_string();
+                }
+
+                let mut fps = "N/A".to_string();
+                if let Some(f_idx) = line.find("fps=") {
+                    let f_sub = &line[f_idx + 4..];
+                    fps = f_sub.split_whitespace().next().unwrap_or("N/A").trim().to_string();
+                }
+
+                if let Some(total) = total_seconds {
+                    let percent = (secs / total * 100.0).min(100.0).max(0.0);
+                    let width = 30;
+                    let filled = ((percent / 100.0) * width as f64).round() as usize;
+                    let empty = width - filled;
+                    print!(
+                        "\rProgress: [{}{}] {:.1}% | FPS: {} | Speed: {}",
+                        "█".repeat(filled),
+                        "░".repeat(empty),
+                        percent,
+                        fps,
+                        speed
+                    );
+                    use std::io::Write;
+                    std::io::stdout().flush().ok();
+                }
+            }
+        }
+    }
+
+    let status = child.wait().context("Failed to wait on FFmpeg process")?;
+    println!();
 
     if status.success() {
         println!("\nSuccess! DVD ripped successfully to: {}", absolute_output.display());
