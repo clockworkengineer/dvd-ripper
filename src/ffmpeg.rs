@@ -64,14 +64,12 @@ pub fn build_ffmpeg_command(args: &Args, dvd_path: &Path, absolute_output: &Path
     cmd.arg("-map").arg("0:a?");
 
     if args.transcode {
-        println!("\nTranscoding to high-quality H.264 video & AAC audio...");
         cmd.arg("-c:v").arg("libx264");
         cmd.arg("-preset").arg(&args.preset);
         cmd.arg("-crf").arg("22");
         cmd.arg("-c:a").arg("aac");
         cmd.arg("-b:a").arg("128k");
     } else {
-        println!("\nPerforming fast, lossless stream copy (remuxing)...");
         cmd.arg("-c").arg("copy");
         cmd.arg("-f").arg("dvd");
     }
@@ -116,10 +114,23 @@ pub fn run_ffmpeg_with_channel(
 ) -> Result<()> {
     let mut cmd = build_ffmpeg_command(args, dvd_path, absolute_output);
 
+    let mode_desc = if args.transcode {
+        "Transcoding to high-quality H.264 video & AAC audio...".to_string()
+    } else {
+        "Performing fast, lossless stream copy (remuxing)...".to_string()
+    };
+
     let cmd_line = format!("Running command: {} {:?}", args.ffmpeg, cmd.get_args().collect::<Vec<_>>());
-    println!("\n{}", cmd_line);
-    if let Some(ref sender) = tx {
+    let rip_line = format!("Ripping Film: {}", display_title);
+
+    if tx.is_none() {
+        println!("\n{}", mode_desc);
+        println!("\n{}", cmd_line);
+        println!("\n{}", rip_line);
+    } else if let Some(ref sender) = tx {
+        let _ = sender.send(ProgressEvent::Log(mode_desc));
         let _ = sender.send(ProgressEvent::Log(cmd_line));
+        let _ = sender.send(ProgressEvent::Log(rip_line));
     }
 
     cmd.stdout(std::process::Stdio::null());
@@ -136,12 +147,6 @@ pub fn run_ffmpeg_with_channel(
 
     let mut reader = BufReader::new(stderr);
     let mut total_seconds: Option<f64> = None;
-
-    let rip_line = format!("Ripping Film: {}", display_title);
-    println!("\n{}", rip_line);
-    if let Some(ref sender) = tx {
-        let _ = sender.send(ProgressEvent::Log(rip_line));
-    }
 
     let mut line_bytes = Vec::new();
     loop {
@@ -205,20 +210,21 @@ pub fn run_ffmpeg_with_channel(
 
                 if let Some(total) = total_seconds {
                     let percent = (secs / total * 100.0).min(100.0).max(0.0);
-                    let width = 30;
-                    let filled = ((percent / 100.0) * width as f64).round() as usize;
-                    let empty = width - filled;
-                    print!(
-                        "\rProgress: [{}{}] {:.1}% | FPS: {} | Speed: {}",
-                        "█".repeat(filled),
-                        "░".repeat(empty),
-                        percent,
-                        fps,
-                        speed
-                    );
-                    std::io::stdout().flush().ok();
 
-                    if let Some(ref sender) = tx {
+                    if tx.is_none() {
+                        let width = 30;
+                        let filled = ((percent / 100.0) * width as f64).round() as usize;
+                        let empty = width - filled;
+                        print!(
+                            "\rProgress: [{}{}] {:.1}% | FPS: {} | Speed: {}",
+                            "█".repeat(filled),
+                            "░".repeat(empty),
+                            percent,
+                            fps,
+                            speed
+                        );
+                        std::io::stdout().flush().ok();
+                    } else if let Some(ref sender) = tx {
                         let _ = sender.send(ProgressEvent::Progress {
                             percent,
                             fps: fps.clone(),
@@ -231,18 +237,20 @@ pub fn run_ffmpeg_with_channel(
     }
 
     let status = child.wait().context("Failed to wait on FFmpeg process")?;
-    println!();
 
     if status.success() {
         let succ_msg = format!("Success! DVD ripped successfully to: {}", absolute_output.display());
-        println!("\n{}", succ_msg);
-        if let Some(ref sender) = tx {
+        if tx.is_none() {
+            println!("\n\n{}", succ_msg);
+        } else if let Some(ref sender) = tx {
             let _ = sender.send(ProgressEvent::Success(absolute_output.to_path_buf()));
         }
         Ok(())
     } else {
         let err_msg = format!("FFmpeg exited with non-zero status code: {:?}", status.code());
-        if let Some(ref sender) = tx {
+        if tx.is_none() {
+            eprintln!("\n{}", err_msg);
+        } else if let Some(ref sender) = tx {
             let _ = sender.send(ProgressEvent::Error(err_msg.clone()));
         }
         Err(anyhow!(err_msg))
