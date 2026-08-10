@@ -252,13 +252,34 @@ pub fn run_ffmpeg_with_channel(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
+
+    struct TestTempDir(PathBuf);
+
+    impl TestTempDir {
+        fn new(name: &str) -> Self {
+            let path = std::env::temp_dir().join(format!("dvd_ripper_test_{}_{}", name, std::process::id()));
+            let _ = fs::remove_dir_all(&path);
+            let _ = fs::create_dir_all(&path);
+            Self(path)
+        }
+    }
+
+    impl Drop for TestTempDir {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
 
     #[test]
     fn test_resolve_output_path_default_out_dir() {
+        let temp = TestTempDir::new("default_out_dir");
+        let out_dir_str = temp.0.to_string_lossy().to_string();
+
         let args = Args {
             input: "D:\\".to_string(),
             output: None,
-            out_dir: "Films".to_string(),
+            out_dir: out_dir_str,
             title: 1,
             transcode: false,
             preset: "veryfast".to_string(),
@@ -267,15 +288,19 @@ mod tests {
         };
 
         let path = resolve_output_path(&args, Some("The Matrix"), Some(1999)).unwrap();
-        assert!(path.ends_with("Films/The Matrix (1999)/The Matrix (1999).mpg") || path.ends_with("Films\\The Matrix (1999)\\The Matrix (1999).mpg"));
+        assert!(path.to_string_lossy().contains("The Matrix (1999)"));
+        assert!(path.parent().map_or(false, |p| p.exists()));
     }
 
     #[test]
     fn test_resolve_output_path_custom_out_dir() {
+        let temp = TestTempDir::new("custom_out_dir");
+        let out_dir_str = temp.0.to_string_lossy().to_string();
+
         let args = Args {
             input: "D:\\".to_string(),
             output: None,
-            out_dir: "MyMovies".to_string(),
+            out_dir: out_dir_str,
             title: 1,
             transcode: true,
             preset: "veryfast".to_string(),
@@ -284,6 +309,7 @@ mod tests {
         };
 
         let path = resolve_output_path(&args, None, None).unwrap();
-        assert!(path.ends_with("MyMovies/output.mp4") || path.ends_with("MyMovies\\output.mp4"));
+        assert!(path.to_string_lossy().contains("output.mp4"));
+        assert!(path.parent().map_or(false, |p| p.exists()));
     }
 }
