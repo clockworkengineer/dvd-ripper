@@ -21,6 +21,10 @@ pub struct Args {
     #[arg(short, long)]
     pub output: Option<String>,
 
+    /// Destination directory for ripped output. Defaults to "Films".
+    #[arg(short = 'd', long = "out-dir", default_value = "Films")]
+    pub out_dir: String,
+
     /// Specific DVD title number to rip (e.g. 1). 0 defaults to auto-select Title 1.
     #[arg(short, long, default_value_t = 1)]
     pub title: u32,

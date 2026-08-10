@@ -11,14 +11,14 @@ use anyhow::{anyhow, Context, Result};
 use crate::cli::Args;
 use crate::utils::{extract_kv_field, parse_duration};
 
-/// Resolves the absolute output file path based on detected film metadata or user CLI args.
+/// Resolves the absolute output file path based on detected film metadata, configured output directory, or user CLI args.
 pub fn resolve_output_path(
     args: &Args,
     film_name: Option<&str>,
     film_year: Option<u32>,
 ) -> Result<PathBuf> {
     let extension = if args.transcode { "mp4" } else { "mpg" };
-    let output_path = if let Some(name) = film_name {
+    let rel_or_abs_file = if let Some(name) = film_name {
         let segment = if let Some(year) = film_year {
             format!("{} ({})", name, year)
         } else {
@@ -31,10 +31,15 @@ pub fn resolve_output_path(
         PathBuf::from(format!("output.{}", extension))
     };
 
-    let absolute_output = if output_path.is_absolute() {
-        output_path
+    let absolute_output = if rel_or_abs_file.is_absolute() {
+        rel_or_abs_file
     } else {
-        std::env::current_dir()?.join(&output_path)
+        let target = PathBuf::from(&args.out_dir).join(rel_or_abs_file);
+        if target.is_absolute() {
+            target
+        } else {
+            std::env::current_dir()?.join(target)
+        }
     };
 
     if let Some(parent) = absolute_output.parent() {
@@ -187,5 +192,42 @@ pub fn run_ffmpeg_with_progress(
             "FFmpeg exited with non-zero status code: {:?}",
             status.code()
         ))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_resolve_output_path_default_out_dir() {
+        let args = Args {
+            input: "D:\\".to_string(),
+            output: None,
+            out_dir: "Films".to_string(),
+            title: 1,
+            transcode: false,
+            preset: "veryfast".to_string(),
+            ffmpeg: "ffmpeg".to_string(),
+        };
+
+        let path = resolve_output_path(&args, Some("The Matrix"), Some(1999)).unwrap();
+        assert!(path.ends_with("Films/The Matrix (1999)/The Matrix (1999).mpg") || path.ends_with("Films\\The Matrix (1999)\\The Matrix (1999).mpg"));
+    }
+
+    #[test]
+    fn test_resolve_output_path_custom_out_dir() {
+        let args = Args {
+            input: "D:\\".to_string(),
+            output: None,
+            out_dir: "MyMovies".to_string(),
+            title: 1,
+            transcode: true,
+            preset: "veryfast".to_string(),
+            ffmpeg: "ffmpeg".to_string(),
+        };
+
+        let path = resolve_output_path(&args, None, None).unwrap();
+        assert!(path.ends_with("MyMovies/output.mp4") || path.ends_with("MyMovies\\output.mp4"));
     }
 }
