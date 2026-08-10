@@ -25,8 +25,8 @@ pub struct Args {
     #[arg(short = 'd', long = "out-dir", default_value = "Films")]
     pub out_dir: String,
 
-    /// Specific DVD title number to rip (e.g. 1). 0 defaults to auto-select Title 1.
-    #[arg(short, long, default_value_t = 1)]
+    /// Specific DVD title number to rip (e.g. 1, 2). 0 auto-detects the title with the longest duration.
+    #[arg(short, long, default_value_t = 0)]
     pub title: u32,
 
     /// Re-encode the video/audio instead of doing a fast lossless stream copy

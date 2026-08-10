@@ -22,6 +22,7 @@ pub struct DvdRipperApp {
     transcode: bool,
     preset: String,
     ffmpeg_path: String,
+    expected_runtime_secs: Option<f64>,
 
     detecting: bool,
     detect_status: String,
@@ -46,10 +47,11 @@ impl Default for DvdRipperApp {
             film_name: String::new(),
             film_year: String::new(),
             out_dir: "Films".to_string(),
-            title_number: 1,
+            title_number: 0,
             transcode: false,
             preset: "veryfast".to_string(),
             ffmpeg_path: "ffmpeg".to_string(),
+            expected_runtime_secs: None,
 
             detecting: false,
             detect_status: String::new(),
@@ -92,14 +94,21 @@ impl DvdRipperApp {
             if let Some(label) = get_volume_label(&dvd_path.to_string_lossy()) {
                 let _ = tx.send(ProgressEvent::Log(format!("Detected Volume Label: {}", label)));
                 match lookup_film_details(&label) {
-                    Ok((name, year)) => {
+                    Ok((name, year, runtime)) => {
                         let clean = sanitize_filename(&name);
                         let year_str = year.map(|y| y.to_string()).unwrap_or_default();
+                        let runtime_str = runtime.map(|r| r.to_string()).unwrap_or_default();
+                        let runtime_desc = runtime
+                            .map(|r| format!(" [Runtime: {:.0}m]", r / 60.0))
+                            .unwrap_or_default();
                         let _ = tx.send(ProgressEvent::Log(format!(
-                            "Auto-detected Film: {} ({})",
-                            clean, year_str
+                            "Auto-detected Film: {} ({}){}",
+                            clean, year_str, runtime_desc
                         )));
-                        let _ = tx.send(ProgressEvent::Log(format!("META:{}:{}", clean, year_str)));
+                        let _ = tx.send(ProgressEvent::Log(format!(
+                            "META:{}:{}:{}",
+                            clean, year_str, runtime_str
+                        )));
                     }
                     Err(e) => {
                         let _ = tx.send(ProgressEvent::Log(format!("Lookup warning: {}", e)));
@@ -155,6 +164,8 @@ impl DvdRipperApp {
 
         let tx = self.event_tx.clone();
 
+        let expected_runtime = self.expected_runtime_secs;
+
         std::thread::spawn(move || {
             let res = resolve_output_path(&args, film_name_opt.as_deref(), film_year_opt);
             match res {
@@ -165,6 +176,7 @@ impl DvdRipperApp {
                         &dvd_path,
                         &abs_out,
                         &display_title,
+                        expected_runtime,
                         Some(tx.clone()),
                         Some(cancel_rx),
                     ) {
@@ -190,10 +202,13 @@ impl DvdRipperApp {
             match event {
                 ProgressEvent::Log(line) => {
                     if line.starts_with("META:") {
-                        let parts: Vec<&str> = line[5..].splitn(2, ':').collect();
-                        if parts.len() == 2 {
+                        let parts: Vec<&str> = line[5..].splitn(3, ':').collect();
+                        if parts.len() >= 2 {
                             self.film_name = parts[0].to_string();
                             self.film_year = parts[1].to_string();
+                            if parts.len() == 3 {
+                                self.expected_runtime_secs = parts[2].parse::<f64>().ok();
+                            }
                         }
                         self.detecting = false;
                         self.detect_status = "Detection complete.".to_string();
@@ -276,7 +291,10 @@ impl eframe::App for DvdRipperApp {
                     ui.label("Output Directory:");
                     ui.text_edit_singleline(&mut self.out_dir);
                     ui.label("Title #:");
-                    ui.add(egui::DragValue::new(&mut self.title_number).range(1..=99));
+                    ui.add(egui::DragValue::new(&mut self.title_number).range(0..=99));
+                    if self.title_number == 0 {
+                        ui.label(egui::RichText::new("(0 = Auto Main)").weak());
+                    }
                 });
 
                 ui.horizontal(|ui| {

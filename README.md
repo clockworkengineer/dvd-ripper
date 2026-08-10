@@ -80,7 +80,7 @@ Arguments:
 Options:
   -o, --output <OUTPUT>    Custom output file path (overridden if IMDb details are auto-detected)
   -d, --out-dir <OUT_DIR>  Destination directory for ripped output [default: Films]
-  -t, --title <TITLE>      Specific DVD title number to rip (e.g. 1) [default: 1]
+  -t, --title <TITLE>      Specific DVD title number to rip (e.g. 1, 2). Set to 0 (default) to auto-detect and select the title with the longest duration. [default: 0]
       --transcode          Re-encode video (H.264) and audio (AAC) instead of lossless copy
       --preset <PRESET>    FFmpeg preset for H.264 encoding (e.g. ultrafast, superfast, veryfast, fast, medium) [default: veryfast]
       --ffmpeg <FFMPEG>    Custom path to FFmpeg executable [default: ffmpeg]

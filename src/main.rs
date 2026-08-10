@@ -49,15 +49,18 @@ fn main() -> Result<()> {
     // 2. Try to auto-detect film metadata from volume label
     let mut film_name = None;
     let mut film_year = None;
+    let mut film_runtime = None;
 
     if let Some(label) = get_volume_label(&dvd_path.to_string_lossy()) {
         println!("Detected DVD Volume Label: {}", label);
         match lookup_film_details(&label) {
-            Ok((name, year)) => {
+            Ok((name, year, runtime)) => {
                 let clean_name = sanitize_filename(&name);
-                println!("Auto-detected Film Details: {} ({:?})", clean_name, year);
+                let runtime_desc = runtime.map(|r| format!(", {:.0} mins", r / 60.0)).unwrap_or_default();
+                println!("Auto-detected Film Details: {} ({:?}{})", clean_name, year, runtime_desc);
                 film_name = Some(clean_name);
                 film_year = year;
+                film_runtime = runtime;
             }
             Err(e) => {
                 println!(
@@ -77,7 +80,7 @@ fn main() -> Result<()> {
 
     // 4. Run FFmpeg process with live progress tracking
     let display_title = film_name.as_deref().unwrap_or("Unknown DVD Title");
-    run_ffmpeg_with_progress(&args, &dvd_path, &absolute_output, display_title)?;
+    run_ffmpeg_with_progress(&args, &dvd_path, &absolute_output, display_title, film_runtime)?;
 
     Ok(())
 }

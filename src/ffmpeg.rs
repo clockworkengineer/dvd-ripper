@@ -49,14 +49,92 @@ pub fn resolve_output_path(
     Ok(absolute_output)
 }
 
+/// Probes the DVD drive to find the title number best matching expected_runtime_secs, or with the longest duration.
+pub fn detect_best_title(
+    ffmpeg_path: &str,
+    dvd_path: &Path,
+    expected_runtime_secs: Option<f64>,
+) -> u32 {
+    let mut best_title = 1u32;
+    let mut best_diff = f64::MAX;
+    let mut max_duration = 0.0f64;
+    let mut consecutive_failures = 0;
+
+    for t in 1..=99 {
+        let output = Command::new(ffmpeg_path)
+            .stdin(std::process::Stdio::null())
+            .arg("-analyzeduration")
+            .arg("500000")
+            .arg("-probesize")
+            .arg("500000")
+            .arg("-f")
+            .arg("dvdvideo")
+            .arg("-title")
+            .arg(t.to_string())
+            .arg("-i")
+            .arg(dvd_path)
+            .output();
+
+        match output {
+            Ok(out) => {
+                let stderr = String::from_utf8_lossy(&out.stderr);
+                let mut found_duration = false;
+                for line in stderr.lines() {
+                    if let Some(duration_str) = extract_kv_field(line, "Duration: ") {
+                        let clean_duration = duration_str.trim_end_matches(',');
+                        if let Some(secs) = parse_duration(clean_duration) {
+                            found_duration = true;
+                            if let Some(target) = expected_runtime_secs {
+                                let diff = (secs - target).abs();
+                                if diff < best_diff {
+                                    best_diff = diff;
+                                    best_title = t;
+                                }
+                            } else if secs > max_duration {
+                                max_duration = secs;
+                                best_title = t;
+                            }
+                        }
+                    }
+                }
+                if !found_duration {
+                    consecutive_failures += 1;
+                } else {
+                    consecutive_failures = 0;
+                }
+            }
+            Err(_) => {
+                consecutive_failures += 1;
+            }
+        }
+
+        if consecutive_failures >= 3 {
+            break;
+        }
+    }
+
+    best_title
+}
+
+/// Helper for longest duration title detection.
+#[allow(dead_code)]
+pub fn detect_longest_title(ffmpeg_path: &str, dvd_path: &Path) -> u32 {
+    detect_best_title(ffmpeg_path, dvd_path, None)
+}
+
 /// Builds the FFmpeg Command configured with arguments according to CLI options.
-pub fn build_ffmpeg_command(args: &Args, dvd_path: &Path, absolute_output: &Path) -> Command {
+pub fn build_ffmpeg_command(
+    args: &Args,
+    dvd_path: &Path,
+    absolute_output: &Path,
+    resolved_title: u32,
+) -> Command {
     let mut cmd = Command::new(&args.ffmpeg);
 
     cmd.arg("-f").arg("dvdvideo");
 
-    if args.title > 0 {
-        cmd.arg("-title").arg(args.title.to_string());
+    if resolved_title > 0 {
+        cmd.arg("-title").arg(resolved_title.to_string());
     }
 
     cmd.arg("-i").arg(dvd_path);
@@ -99,8 +177,17 @@ pub fn run_ffmpeg_with_progress(
     dvd_path: &Path,
     absolute_output: &Path,
     display_title: &str,
+    expected_runtime_secs: Option<f64>,
 ) -> Result<()> {
-    run_ffmpeg_with_channel(args, dvd_path, absolute_output, display_title, None, None)
+    run_ffmpeg_with_channel(
+        args,
+        dvd_path,
+        absolute_output,
+        display_title,
+        expected_runtime_secs,
+        None,
+        None,
+    )
 }
 
 /// Executes FFmpeg child process, sending events over a channel and allowing cancellation.
@@ -109,10 +196,46 @@ pub fn run_ffmpeg_with_channel(
     dvd_path: &Path,
     absolute_output: &Path,
     display_title: &str,
+    expected_runtime_secs: Option<f64>,
     tx: Option<std::sync::mpsc::Sender<ProgressEvent>>,
     cancel_rx: Option<std::sync::mpsc::Receiver<()>>,
 ) -> Result<()> {
-    let mut cmd = build_ffmpeg_command(args, dvd_path, absolute_output);
+    let resolved_title = if args.title == 0 {
+        let msg = if let Some(target) = expected_runtime_secs {
+            format!(
+                "Auto-detecting DVD title matching movie running time ({:.0} mins)...",
+                target / 60.0
+            )
+        } else {
+            "Auto-detecting title with longest duration on DVD...".to_string()
+        };
+
+        if let Some(ref sender) = tx {
+            let _ = sender.send(ProgressEvent::Log(msg));
+        } else {
+            println!("\n{}", msg);
+            std::io::stdout().flush().ok();
+        }
+
+        let detected = detect_best_title(&args.ffmpeg, dvd_path, expected_runtime_secs);
+        let msg2 = if expected_runtime_secs.is_some() {
+            format!("Auto-selected Title #{} (matched running time)", detected)
+        } else {
+            format!("Auto-selected Title #{} (longest duration)", detected)
+        };
+
+        if let Some(ref sender) = tx {
+            let _ = sender.send(ProgressEvent::Log(msg2));
+        } else {
+            println!("{}", msg2);
+            std::io::stdout().flush().ok();
+        }
+        detected
+    } else {
+        args.title
+    };
+
+    let mut cmd = build_ffmpeg_command(args, dvd_path, absolute_output, resolved_title);
 
     let mode_desc = if args.transcode {
         "Transcoding to high-quality H.264 video & AAC audio...".to_string()
@@ -319,5 +442,27 @@ mod tests {
         let path = resolve_output_path(&args, None, None).unwrap();
         assert!(path.to_string_lossy().contains("output.mp4"));
         assert!(path.parent().map_or(false, |p| p.exists()));
+    }
+
+    #[test]
+    fn test_build_ffmpeg_command_title_argument() {
+        let args = Args {
+            input: "D:\\".to_string(),
+            output: None,
+            out_dir: "Films".to_string(),
+            title: 0,
+            transcode: false,
+            preset: "veryfast".to_string(),
+            ffmpeg: "ffmpeg".to_string(),
+            cli: false,
+        };
+
+        let output_path = PathBuf::from("Films/Test/Test.mpg");
+        let cmd = build_ffmpeg_command(&args, Path::new("D:\\"), &output_path, 3);
+        let cmd_args: Vec<String> = cmd.get_args().map(|s| s.to_string_lossy().to_string()).collect();
+
+        assert!(cmd_args.contains(&"-title".to_string()));
+        let title_idx = cmd_args.iter().position(|r| r == "-title").unwrap();
+        assert_eq!(cmd_args[title_idx + 1], "3");
     }
 }
