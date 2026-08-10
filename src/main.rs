@@ -1,11 +1,12 @@
 /**
  * @file main.rs
- * @brief DVD Ripper CLI Utility entry point.
+ * @brief DVD Ripper entry point supporting both GUI and CLI modes.
  */
 
 mod cli;
 mod dvd;
 mod ffmpeg;
+mod gui;
 mod imdb;
 mod utils;
 
@@ -15,10 +16,24 @@ use clap::Parser;
 use cli::Args;
 use dvd::{get_volume_label, normalize_dvd_path};
 use ffmpeg::{resolve_output_path, run_ffmpeg_with_progress};
+use gui::run_gui;
 use imdb::lookup_film_details;
 use utils::sanitize_filename;
 
 fn main() -> Result<()> {
+    // Check raw args to see if user requested CLI mode or passed specific CLI parameters
+    let raw_args: Vec<String> = std::env::args().collect();
+    let is_cli = raw_args.iter().any(|arg| arg == "--cli" || arg == "-h" || arg == "--help" || arg == "-V" || arg == "--version");
+
+    if !is_cli {
+        // Run native desktop GUI by default
+        if let Err(e) = run_gui() {
+            eprintln!("GUI Error: {}", e);
+        }
+        return Ok(());
+    }
+
+    // CLI mode execution path
     let args = Args::parse();
 
     // 1. Resolve & validate DVD path

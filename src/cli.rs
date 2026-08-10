@@ -40,4 +40,8 @@ pub struct Args {
     /// Custom path to FFmpeg executable
     #[arg(long, default_value = "ffmpeg")]
     pub ffmpeg: String,
+
+    /// Force command-line interface mode instead of GUI
+    #[arg(long)]
+    pub cli: bool,
 }

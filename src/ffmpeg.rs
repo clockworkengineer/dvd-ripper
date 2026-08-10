@@ -82,6 +82,19 @@ pub fn build_ffmpeg_command(args: &Args, dvd_path: &Path, absolute_output: &Path
     cmd
 }
 
+/// Event emitted during FFmpeg ripping process.
+#[derive(Debug, Clone)]
+pub enum ProgressEvent {
+    Log(String),
+    Progress {
+        percent: f64,
+        fps: String,
+        speed: String,
+    },
+    Success(PathBuf),
+    Error(String),
+}
+
 /// Executes FFmpeg child process and parses output line-by-line to render dynamic progress bar.
 pub fn run_ffmpeg_with_progress(
     args: &Args,
@@ -89,13 +102,25 @@ pub fn run_ffmpeg_with_progress(
     absolute_output: &Path,
     display_title: &str,
 ) -> Result<()> {
+    run_ffmpeg_with_channel(args, dvd_path, absolute_output, display_title, None, None)
+}
+
+/// Executes FFmpeg child process, sending events over a channel and allowing cancellation.
+pub fn run_ffmpeg_with_channel(
+    args: &Args,
+    dvd_path: &Path,
+    absolute_output: &Path,
+    display_title: &str,
+    tx: Option<std::sync::mpsc::Sender<ProgressEvent>>,
+    cancel_rx: Option<std::sync::mpsc::Receiver<()>>,
+) -> Result<()> {
     let mut cmd = build_ffmpeg_command(args, dvd_path, absolute_output);
 
-    println!(
-        "\nRunning command: {} {:?}",
-        args.ffmpeg,
-        cmd.get_args().collect::<Vec<_>>()
-    );
+    let cmd_line = format!("Running command: {} {:?}", args.ffmpeg, cmd.get_args().collect::<Vec<_>>());
+    println!("\n{}", cmd_line);
+    if let Some(ref sender) = tx {
+        let _ = sender.send(ProgressEvent::Log(cmd_line));
+    }
 
     cmd.stdout(std::process::Stdio::null());
     cmd.stderr(std::process::Stdio::piped());
@@ -112,10 +137,25 @@ pub fn run_ffmpeg_with_progress(
     let mut reader = BufReader::new(stderr);
     let mut total_seconds: Option<f64> = None;
 
-    println!("\nRipping Film: {}", display_title);
+    let rip_line = format!("Ripping Film: {}", display_title);
+    println!("\n{}", rip_line);
+    if let Some(ref sender) = tx {
+        let _ = sender.send(ProgressEvent::Log(rip_line));
+    }
 
     let mut line_bytes = Vec::new();
     loop {
+        if let Some(ref rx) = cancel_rx {
+            if rx.try_recv().is_ok() {
+                let _ = child.kill();
+                let msg = "Ripping process cancelled by user.".to_string();
+                if let Some(ref sender) = tx {
+                    let _ = sender.send(ProgressEvent::Error(msg.clone()));
+                }
+                return Err(anyhow!(msg));
+            }
+        }
+
         line_bytes.clear();
         let mut byte = [0u8; 1];
         let mut read_bytes = 0;
@@ -141,7 +181,11 @@ pub fn run_ffmpeg_with_progress(
             continue;
         }
 
-        let line = String::from_utf8_lossy(&line_bytes);
+        let line = String::from_utf8_lossy(&line_bytes).to_string();
+
+        if let Some(ref sender) = tx {
+            let _ = sender.send(ProgressEvent::Log(line.clone()));
+        }
 
         // Detect overall duration from initialization log
         if total_seconds.is_none() {
@@ -156,8 +200,8 @@ pub fn run_ffmpeg_with_progress(
         // Parse time=, speed=, and fps= using DRY helper
         if let Some(time_str) = extract_kv_field(&line, "time=") {
             if let Some(secs) = parse_duration(time_str) {
-                let speed = extract_kv_field(&line, "speed=").unwrap_or("N/A");
-                let fps = extract_kv_field(&line, "fps=").unwrap_or("N/A");
+                let speed = extract_kv_field(&line, "speed=").unwrap_or("N/A").to_string();
+                let fps = extract_kv_field(&line, "fps=").unwrap_or("N/A").to_string();
 
                 if let Some(total) = total_seconds {
                     let percent = (secs / total * 100.0).min(100.0).max(0.0);
@@ -173,6 +217,14 @@ pub fn run_ffmpeg_with_progress(
                         speed
                     );
                     std::io::stdout().flush().ok();
+
+                    if let Some(ref sender) = tx {
+                        let _ = sender.send(ProgressEvent::Progress {
+                            percent,
+                            fps: fps.clone(),
+                            speed: speed.clone(),
+                        });
+                    }
                 }
             }
         }
@@ -182,16 +234,18 @@ pub fn run_ffmpeg_with_progress(
     println!();
 
     if status.success() {
-        println!(
-            "\nSuccess! DVD ripped successfully to: {}",
-            absolute_output.display()
-        );
+        let succ_msg = format!("Success! DVD ripped successfully to: {}", absolute_output.display());
+        println!("\n{}", succ_msg);
+        if let Some(ref sender) = tx {
+            let _ = sender.send(ProgressEvent::Success(absolute_output.to_path_buf()));
+        }
         Ok(())
     } else {
-        Err(anyhow!(
-            "FFmpeg exited with non-zero status code: {:?}",
-            status.code()
-        ))
+        let err_msg = format!("FFmpeg exited with non-zero status code: {:?}", status.code());
+        if let Some(ref sender) = tx {
+            let _ = sender.send(ProgressEvent::Error(err_msg.clone()));
+        }
+        Err(anyhow!(err_msg))
     }
 }
 
