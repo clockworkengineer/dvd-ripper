@@ -1,10 +1,26 @@
 /**
  * @file imdb.rs
- * @brief IMDb / OMDb suggestion API client and runtime retrieval models.
+ * @brief IMDb / OMDb suggestion API client and rich movie metadata models.
  */
 
 use anyhow::{anyhow, Context, Result};
 use serde::Deserialize;
+
+/// Represents full metadata details for a movie (including poster image and plot summary).
+#[derive(Debug, Clone, Default)]
+pub struct FilmMetadata {
+    pub title: String,
+    pub year: Option<u32>,
+    pub runtime_secs: Option<f64>,
+    #[allow(dead_code)]
+    pub poster_url: Option<String>,
+    pub plot: Option<String>,
+    pub genre: Option<String>,
+    pub director: Option<String>,
+    pub actors: Option<String>,
+    pub rating: Option<String>,
+    pub poster_bytes: Option<Vec<u8>>,
+}
 
 /// Represents a single movie search result from the OMDb database.
 #[derive(Deserialize, Debug)]
@@ -15,6 +31,18 @@ pub struct OmdbResponse {
     pub year: Option<String>,
     #[serde(rename = "Runtime")]
     pub runtime: Option<String>,
+    #[serde(rename = "Plot")]
+    pub plot: Option<String>,
+    #[serde(rename = "Poster")]
+    pub poster: Option<String>,
+    #[serde(rename = "Genre")]
+    pub genre: Option<String>,
+    #[serde(rename = "Director")]
+    pub director: Option<String>,
+    #[serde(rename = "Actors")]
+    pub actors: Option<String>,
+    #[serde(rename = "imdbRating")]
+    pub imdb_rating: Option<String>,
     #[serde(rename = "Response")]
     pub response: Option<String>,
 }
@@ -88,8 +116,8 @@ pub fn fetch_imdb_runtime(_imdb_id: &str) -> Option<f64> {
     None
 }
 
-/// Queries OMDb API for movie title, release year, and running time.
-pub fn lookup_omdb_details(query: &str) -> Option<(String, Option<u32>, Option<f64>)> {
+/// Queries OMDb API for movie title, release year, running time, plot summary, and poster image.
+pub fn lookup_omdb_details(query: &str) -> Option<FilmMetadata> {
     let encoded_query = query.replace(' ', "+");
     let url = format!("https://www.omdbapi.com/?t={}&apikey=trilogy", encoded_query);
     let resp = reqwest::blocking::get(&url).ok()?;
@@ -104,14 +132,41 @@ pub fn lookup_omdb_details(query: &str) -> Option<(String, Option<u32>, Option<f
                 .and_then(|y| y.get(..4))
                 .and_then(|y| y.parse::<u32>().ok());
             let runtime_secs = omdb.runtime.as_deref().and_then(parse_runtime_minutes);
-            return Some((title, year, runtime_secs));
+            let poster_url = omdb.poster.filter(|p| p != "N/A");
+            let plot = omdb.plot.filter(|p| p != "N/A");
+            let genre = omdb.genre.filter(|g| g != "N/A");
+            let director = omdb.director.filter(|d| d != "N/A");
+            let actors = omdb.actors.filter(|a| a != "N/A");
+            let rating = omdb.imdb_rating.filter(|r| r != "N/A");
+
+            let mut poster_bytes = None;
+            if let Some(ref p_url) = poster_url {
+                if let Ok(p_resp) = reqwest::blocking::get(p_url) {
+                    if let Ok(bytes) = p_resp.bytes() {
+                        poster_bytes = Some(bytes.to_vec());
+                    }
+                }
+            }
+
+            return Some(FilmMetadata {
+                title,
+                year,
+                runtime_secs,
+                poster_url,
+                plot,
+                genre,
+                director,
+                actors,
+                rating,
+                poster_bytes,
+            });
         }
     }
     None
 }
 
-/// Queries OMDb or IMDb APIs to resolve a raw DVD volume label to movie name, year, and running time.
-pub fn lookup_film_details(query: &str) -> Result<(String, Option<u32>, Option<f64>)> {
+/// Queries OMDb or IMDb APIs to resolve a raw DVD volume label to full movie metadata.
+pub fn lookup_film_details(query: &str) -> Result<FilmMetadata> {
     let cleaned: String = query
         .replace('_', " ")
         .replace('-', " ")
@@ -159,7 +214,11 @@ pub fn lookup_film_details(query: &str) -> Result<(String, Option<u32>, Option<f
         .or_else(|| parsed.d.first())
         .ok_or_else(|| anyhow!("No match found on IMDb for query: {}", query))?;
 
-    Ok((best_match.l.clone(), best_match.y, None))
+    Ok(FilmMetadata {
+        title: best_match.l.clone(),
+        year: best_match.y,
+        ..Default::default()
+    })
 }
 
 #[cfg(test)]
@@ -183,9 +242,11 @@ mod tests {
 
     #[test]
     fn test_lookup_omdb_details_aliens() {
-        let (title, year, runtime) = lookup_omdb_details("aliens").unwrap();
-        assert_eq!(title, "Aliens");
-        assert_eq!(year, Some(1986));
-        assert_eq!(runtime, Some(8220.0));
+        let meta = lookup_omdb_details("aliens").unwrap();
+        assert_eq!(meta.title, "Aliens");
+        assert_eq!(meta.year, Some(1986));
+        assert_eq!(meta.runtime_secs, Some(8220.0));
+        assert!(meta.plot.is_some());
+        assert!(meta.poster_bytes.is_some());
     }
 }

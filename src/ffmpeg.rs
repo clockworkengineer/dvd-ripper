@@ -162,6 +162,7 @@ pub fn build_ffmpeg_command(
 #[derive(Debug, Clone)]
 pub enum ProgressEvent {
     Log(String),
+    Metadata(crate::imdb::FilmMetadata),
     Progress {
         percent: f64,
         fps: String,

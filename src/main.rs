@@ -54,13 +54,19 @@ fn main() -> Result<()> {
     if let Some(label) = get_volume_label(&dvd_path.to_string_lossy()) {
         println!("Detected DVD Volume Label: {}", label);
         match lookup_film_details(&label) {
-            Ok((name, year, runtime)) => {
-                let clean_name = sanitize_filename(&name);
-                let runtime_desc = runtime.map(|r| format!(", {:.0} mins", r / 60.0)).unwrap_or_default();
-                println!("Auto-detected Film Details: {} ({:?}{})", clean_name, year, runtime_desc);
+            Ok(meta) => {
+                let clean_name = sanitize_filename(&meta.title);
+                let runtime_desc = meta
+                    .runtime_secs
+                    .map(|r| format!(", {:.0} mins", r / 60.0))
+                    .unwrap_or_default();
+                println!(
+                    "Auto-detected Film Details: {} ({:?}{})",
+                    clean_name, meta.year, runtime_desc
+                );
                 film_name = Some(clean_name);
-                film_year = year;
-                film_runtime = runtime;
+                film_year = meta.year;
+                film_runtime = meta.runtime_secs;
             }
             Err(e) => {
                 println!(
