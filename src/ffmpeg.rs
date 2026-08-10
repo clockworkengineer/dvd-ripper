@@ -263,6 +263,7 @@ mod tests {
             transcode: false,
             preset: "veryfast".to_string(),
             ffmpeg: "ffmpeg".to_string(),
+            cli: false,
         };
 
         let path = resolve_output_path(&args, Some("The Matrix"), Some(1999)).unwrap();
@@ -279,6 +280,7 @@ mod tests {
             transcode: true,
             preset: "veryfast".to_string(),
             ffmpeg: "ffmpeg".to_string(),
+            cli: false,
         };
 
         let path = resolve_output_path(&args, None, None).unwrap();

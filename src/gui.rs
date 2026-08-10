@@ -246,7 +246,7 @@ impl eframe::App for DvdRipperApp {
 
             // Drive Selection Section
             ui.group(|ui| {
-                ui.label(egui::RichText::new("1. DVD Drive & Detection").bold());
+                ui.label(egui::RichText::new("1. DVD Drive & Detection").strong());
                 ui.horizontal(|ui| {
                     ui.label("Drive Path:");
                     ui.text_edit_singleline(&mut self.input_drive);
@@ -255,7 +255,7 @@ impl eframe::App for DvdRipperApp {
                     }
                 });
                 if !self.detect_status.is_empty() {
-                    ui.label(egui::RichText::new(&self.detect_status).italic().small());
+                    ui.label(egui::RichText::new(&self.detect_status).italics().small());
                 }
             });
 
@@ -263,7 +263,7 @@ impl eframe::App for DvdRipperApp {
 
             // Metadata & Config Section
             ui.group(|ui| {
-                ui.label(egui::RichText::new("2. Film Metadata & Output Settings").bold());
+                ui.label(egui::RichText::new("2. Film Metadata & Output Settings").strong());
 
                 ui.horizontal(|ui| {
                     ui.label("Film Title:");
@@ -276,14 +276,14 @@ impl eframe::App for DvdRipperApp {
                     ui.label("Output Directory:");
                     ui.text_edit_singleline(&mut self.out_dir);
                     ui.label("Title #:");
-                    ui.add(egui::DragValue::new(&mut self.title_number).clamp_range(1..=99));
+                    ui.add(egui::DragValue::new(&mut self.title_number).range(1..=99));
                 });
 
                 ui.horizontal(|ui| {
                     ui.checkbox(&mut self.transcode, "Re-encode (H.264 / AAC)");
                     if self.transcode {
                         ui.label("Preset:");
-                        egui::ComboBox::from_id_source("preset_combo")
+                        egui::ComboBox::from_id_salt("preset_combo")
                             .selected_text(&self.preset)
                             .show_ui(ui, |ui| {
                                 ui.selectable_value(&mut self.preset, "ultrafast".to_string(), "ultrafast");
@@ -302,7 +302,7 @@ impl eframe::App for DvdRipperApp {
 
             // Action & Progress Section
             ui.group(|ui| {
-                ui.label(egui::RichText::new("3. Ripping Process").bold());
+                ui.label(egui::RichText::new("3. Ripping Process").strong());
 
                 ui.horizontal(|ui| {
                     if !self.is_ripping {
@@ -336,7 +336,7 @@ impl eframe::App for DvdRipperApp {
 
             // Log Console Section
             ui.group(|ui| {
-                ui.label(egui::RichText::new("Log Console").bold());
+                ui.label(egui::RichText::new("Log Console").strong());
                 egui::ScrollArea::vertical()
                     .max_height(140.0)
                     .stick_to_bottom(true)
