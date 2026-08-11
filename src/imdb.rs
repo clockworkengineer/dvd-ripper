@@ -180,9 +180,9 @@ pub fn lookup_omdb_details(query: &str) -> Option<FilmMetadata> {
     None
 }
 
-/// Queries OMDb or IMDb APIs to resolve a raw DVD volume label to full movie metadata.
+/// Queries OMDb or IMDb APIs to resolve a raw DVD volume label or show title to full metadata.
 pub fn lookup_film_details(query: &str) -> Result<FilmMetadata> {
-    let cleaned: String = query
+    let mut cleaned: String = query
         .replace('_', " ")
         .replace('-', " ")
         .trim()
@@ -192,7 +192,18 @@ pub fn lookup_film_details(query: &str) -> Result<FilmMetadata> {
         return Err(anyhow!("Cleaned query is empty"));
     }
 
+    // Normalize common title abbreviations like "dr " / "dr. " -> "doctor "
+    if cleaned.starts_with("dr ") {
+        cleaned = cleaned.replacen("dr ", "doctor ", 1);
+    } else if cleaned.starts_with("dr. ") {
+        cleaned = cleaned.replacen("dr. ", "doctor ", 1);
+    }
+
     if let Some(omdb_res) = lookup_omdb_details(&cleaned) {
+        return Ok(omdb_res);
+    }
+
+    if let Some(omdb_res) = lookup_omdb_details(query) {
         return Ok(omdb_res);
     }
 
@@ -263,5 +274,13 @@ mod tests {
         assert_eq!(meta.runtime_secs, Some(8220.0));
         assert!(meta.plot.is_some());
         assert!(meta.poster_bytes.is_some());
+    }
+
+    #[test]
+    fn test_lookup_dr_who_normalization() {
+        let meta = lookup_film_details("dr who").unwrap();
+        assert_eq!(meta.title, "Doctor Who");
+        assert_eq!(meta.year, Some(2005));
+        assert!(meta.is_series);
     }
 }
