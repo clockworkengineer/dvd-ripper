@@ -351,6 +351,7 @@ impl DvdRipperApp {
                                 Some(tx.clone()),
                                 None,
                                 Some(cancel_flag.clone()),
+                                true,
                             ) {
                                 if cancel_flag.load(Ordering::SeqCst) {
                                     let _ = tx.send(ProgressEvent::Error("TV batch ripping cancelled by user.".to_string()));
@@ -401,6 +402,7 @@ impl DvdRipperApp {
                             Some(tx.clone()),
                             Some(cancel_rx),
                             Some(cancel_flag.clone()),
+                            false,
                         ) {
                             let _ = tx.send(ProgressEvent::Error(format!("Ripping error: {}", e)));
                         }
@@ -437,6 +439,7 @@ impl DvdRipperApp {
                             Some(tx.clone()),
                             Some(cancel_rx),
                             Some(cancel_flag.clone()),
+                            false,
                         ) {
                             let _ = tx.send(ProgressEvent::Error(format!("Ripping error: {}", e)));
                         }

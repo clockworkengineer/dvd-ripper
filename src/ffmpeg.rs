@@ -336,6 +336,7 @@ pub fn run_ffmpeg_with_progress(
         None,
         None,
         None,
+        false,
     )
 }
 
@@ -349,6 +350,7 @@ pub fn run_ffmpeg_with_channel(
     tx: Option<std::sync::mpsc::Sender<ProgressEvent>>,
     cancel_rx: Option<std::sync::mpsc::Receiver<()>>,
     cancel_flag: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
+    is_batch: bool,
 ) -> Result<()> {
     let resolved_title = if args.title == 0 {
         let msg = if let Some(target) = expected_runtime_secs {
@@ -527,7 +529,11 @@ pub fn run_ffmpeg_with_channel(
         if tx.is_none() {
             println!("\n\n{}", succ_msg);
         } else if let Some(ref sender) = tx {
-            let _ = sender.send(ProgressEvent::Success(absolute_output.to_path_buf()));
+            if is_batch {
+                let _ = sender.send(ProgressEvent::Log(format!("Successfully finished episode: {}", absolute_output.display())));
+            } else {
+                let _ = sender.send(ProgressEvent::Success(absolute_output.to_path_buf()));
+            }
         }
         Ok(())
     } else {
