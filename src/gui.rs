@@ -16,7 +16,10 @@ use crate::ffmpeg::{
     ProgressEvent, TvEpisodeInfo,
 };
 use crate::imdb::lookup_film_details;
-use crate::utils::{find_next_start_episode, infer_start_episode_from_label, sanitize_filename};
+use crate::utils::{
+    find_next_start_episode, infer_start_episode_from_label, parse_season_disc_from_label,
+    sanitize_filename,
+};
 
 /// Main application state for the eframe GUI.
 pub struct DvdRipperApp {
@@ -123,11 +126,16 @@ impl DvdRipperApp {
         if self.is_tv_mode {
             let dvd_path = normalize_dvd_path(&self.input_drive);
             if let Some(lbl) = get_volume_label(&dvd_path.to_string_lossy()) {
+                let parsed = parse_season_disc_from_label(&lbl);
+                if let Some(s) = parsed.season {
+                    self.season_number = s;
+                }
+
                 if let Some(ep) = infer_start_episode_from_label(&lbl, 3) {
                     self.start_episode = ep;
                     self.detect_status = format!(
-                        "Inferred Start Episode #{} directly from DVD label ({})",
-                        self.start_episode, lbl
+                        "Inferred Season {:02}, Start Episode #{} directly from DVD label ({})",
+                        self.season_number, self.start_episode, lbl
                     );
                     return;
                 }

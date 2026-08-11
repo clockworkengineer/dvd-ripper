@@ -139,6 +139,67 @@ pub fn infer_start_episode_from_label(volume_label: &str, eps_per_disc: u32) -> 
     None
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct ParsedLabelInfo {
+    pub clean_title: String,
+    pub season: Option<u32>,
+    pub disc: Option<u32>,
+}
+
+/// Parses volume labels (e.g. FAMILY_GUY_S9_D1 or DOCTOR_WHO_S1_D3) to extract clean show title, season #, and disc #.
+pub fn parse_season_disc_from_label(label: &str) -> ParsedLabelInfo {
+    let lower = label.to_lowercase().replace('_', " ").replace('-', " ");
+    let words: Vec<&str> = lower.split_whitespace().collect();
+    let mut season = None;
+    let mut disc = None;
+    let mut title_words = Vec::new();
+
+    for word in words {
+        if season.is_none() {
+            if word.starts_with('s') && word.len() >= 2 && word[1..].chars().all(|c| c.is_ascii_digit()) {
+                if let Ok(s) = word[1..].parse::<u32>() {
+                    season = Some(s);
+                    continue;
+                }
+            } else if word.starts_with("season") && word.len() > 6 && word[6..].chars().all(|c| c.is_ascii_digit()) {
+                if let Ok(s) = word[6..].parse::<u32>() {
+                    season = Some(s);
+                    continue;
+                }
+            }
+        }
+
+        if disc.is_none() {
+            if word.starts_with('d') && word.len() >= 2 && word[1..].chars().all(|c| c.is_ascii_digit()) {
+                if let Ok(d) = word[1..].parse::<u32>() {
+                    disc = Some(d);
+                    continue;
+                }
+            } else if word.starts_with("disc") && word.len() > 4 && word[4..].chars().all(|c| c.is_ascii_digit()) {
+                if let Ok(d) = word[4..].parse::<u32>() {
+                    disc = Some(d);
+                    continue;
+                }
+            } else if word.starts_with("vol") && word.len() > 3 && word[3..].chars().all(|c| c.is_ascii_digit()) {
+                if let Ok(d) = word[3..].parse::<u32>() {
+                    disc = Some(d);
+                    continue;
+                }
+            }
+        }
+
+        title_words.push(word);
+    }
+
+    let clean_title = title_words.join(" ");
+
+    ParsedLabelInfo {
+        clean_title,
+        season,
+        disc,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -206,5 +267,18 @@ mod tests {
         assert_eq!(infer_start_episode_from_label("BBCDVD1757", 3), Some(7));
         assert_eq!(infer_start_episode_from_label("DRWHO_DISC3", 3), Some(7));
         assert_eq!(infer_start_episode_from_label("SHOW_S01_VOL2", 3), Some(4));
+    }
+
+    #[test]
+    fn test_parse_season_disc_from_label() {
+        let res = parse_season_disc_from_label("FAMILY_GUY_S9_D1");
+        assert_eq!(res.clean_title, "family guy");
+        assert_eq!(res.season, Some(9));
+        assert_eq!(res.disc, Some(1));
+
+        let res2 = parse_season_disc_from_label("DOCTOR_WHO_S1_D3");
+        assert_eq!(res2.clean_title, "doctor who");
+        assert_eq!(res2.season, Some(1));
+        assert_eq!(res2.disc, Some(3));
     }
 }

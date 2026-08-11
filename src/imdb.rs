@@ -182,6 +182,19 @@ pub fn lookup_omdb_details(query: &str) -> Option<FilmMetadata> {
 
 /// Queries OMDb or IMDb APIs to resolve a raw DVD volume label or show title to full metadata.
 pub fn lookup_film_details(query: &str) -> Result<FilmMetadata> {
+    let parsed_info = crate::utils::parse_season_disc_from_label(query);
+    let mut candidates = Vec::new();
+
+    if !parsed_info.clean_title.is_empty() {
+        let mut clean = parsed_info.clean_title.clone();
+        if clean.starts_with("dr ") {
+            clean = clean.replacen("dr ", "doctor ", 1);
+        } else if clean.starts_with("dr. ") {
+            clean = clean.replacen("dr. ", "doctor ", 1);
+        }
+        candidates.push(clean);
+    }
+
     let mut cleaned: String = query
         .replace('_', " ")
         .replace('-', " ")
@@ -192,15 +205,20 @@ pub fn lookup_film_details(query: &str) -> Result<FilmMetadata> {
         return Err(anyhow!("Cleaned query is empty"));
     }
 
-    // Normalize common title abbreviations like "dr " / "dr. " -> "doctor "
     if cleaned.starts_with("dr ") {
         cleaned = cleaned.replacen("dr ", "doctor ", 1);
     } else if cleaned.starts_with("dr. ") {
         cleaned = cleaned.replacen("dr. ", "doctor ", 1);
     }
 
-    if let Some(omdb_res) = lookup_omdb_details(&cleaned) {
-        return Ok(omdb_res);
+    if !candidates.contains(&cleaned) {
+        candidates.push(cleaned.clone());
+    }
+
+    for cand in &candidates {
+        if let Some(omdb_res) = lookup_omdb_details(cand) {
+            return Ok(omdb_res);
+        }
     }
 
     if let Some(omdb_res) = lookup_omdb_details(query) {

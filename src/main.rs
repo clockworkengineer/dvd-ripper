@@ -20,7 +20,10 @@ use ffmpeg::{
 };
 use gui::run_gui;
 use imdb::lookup_film_details;
-use utils::{find_next_start_episode, infer_start_episode_from_label, sanitize_filename};
+use utils::{
+    find_next_start_episode, infer_start_episode_from_label, parse_season_disc_from_label,
+    sanitize_filename,
+};
 
 fn main() -> Result<()> {
     // Check raw args to see if user requested CLI mode or passed specific CLI parameters
@@ -97,6 +100,13 @@ fn main() -> Result<()> {
     // 3. Execution path for TV series vs Movie
     if args.tv {
         let show_name = title_name.as_deref().unwrap_or("TV Show");
+
+        if let Some(ref lbl) = volume_label {
+            let parsed = parse_season_disc_from_label(lbl);
+            if let Some(s) = parsed.season {
+                args.season = s;
+            }
+        }
 
         if args.start_episode == 1 {
             let label_inferred = volume_label
