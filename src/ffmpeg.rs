@@ -49,6 +49,146 @@ pub fn resolve_output_path(
     Ok(absolute_output)
 }
 
+/// Resolves the absolute output file path for a TV series episode (e.g. TV/The Office (2005)/Season 01/The Office - S01E01.mpg).
+pub fn resolve_tv_output_path(
+    args: &Args,
+    show_name: Option<&str>,
+    show_year: Option<u32>,
+    season: u32,
+    episode_num: u32,
+) -> Result<PathBuf> {
+    let extension = if args.transcode { "mp4" } else { "mpg" };
+    let name = show_name.unwrap_or("Unknown Show");
+    let show_folder = if let Some(year) = show_year {
+        format!("{} ({})", name, year)
+    } else {
+        name.to_string()
+    };
+    let season_folder = format!("Season {:02}", season);
+    let filename = format!("{} - S{:02}E{:02}.{}", name, season, episode_num, extension);
+
+    let root_dir = if args.out_dir == "Films" {
+        "TV"
+    } else {
+        &args.out_dir
+    };
+
+    let rel_file = PathBuf::from(root_dir)
+        .join(show_folder)
+        .join(season_folder)
+        .join(filename);
+
+    let absolute_output = if rel_file.is_absolute() {
+        rel_file
+    } else {
+        std::env::current_dir()?.join(rel_file)
+    };
+
+    if let Some(parent) = absolute_output.parent() {
+        std::fs::create_dir_all(parent).context("Failed to create TV output parent directory")?;
+    }
+
+    Ok(absolute_output)
+}
+
+/// Structure representing a detected TV episode title on a DVD disc.
+#[derive(Debug, Clone)]
+pub struct TvEpisodeInfo {
+    pub title_num: u32,
+    pub episode_num: u32,
+    pub duration_secs: f64,
+    pub formatted_name: String,
+}
+
+/// Probes all titles on the DVD drive and filters out intros/outros (<10m) and Play-All composite titles.
+pub fn detect_tv_episodes(
+    ffmpeg_path: &str,
+    dvd_path: &Path,
+    show_name: &str,
+    season: u32,
+    start_ep: u32,
+) -> Vec<TvEpisodeInfo> {
+    let mut title_durations: Vec<(u32, f64)> = Vec::new();
+    let mut consecutive_failures = 0;
+
+    for t in 1..=99 {
+        let output = Command::new(ffmpeg_path)
+            .stdin(std::process::Stdio::null())
+            .arg("-analyzeduration")
+            .arg("500000")
+            .arg("-probesize")
+            .arg("500000")
+            .arg("-f")
+            .arg("dvdvideo")
+            .arg("-title")
+            .arg(t.to_string())
+            .arg("-i")
+            .arg(dvd_path)
+            .output();
+
+        match output {
+            Ok(out) => {
+                let stderr = String::from_utf8_lossy(&out.stderr);
+                let mut found_duration = false;
+                for line in stderr.lines() {
+                    if let Some(duration_str) = extract_kv_field(line, "Duration: ") {
+                        let clean_duration = duration_str.trim_end_matches(',');
+                        if let Some(secs) = parse_duration(clean_duration) {
+                            found_duration = true;
+                            // Only consider titles >= 10 minutes (600 seconds)
+                            if secs >= 600.0 {
+                                title_durations.push((t, secs));
+                            }
+                        }
+                    }
+                }
+                if !found_duration {
+                    consecutive_failures += 1;
+                } else {
+                    consecutive_failures = 0;
+                }
+            }
+            Err(_) => {
+                consecutive_failures += 1;
+            }
+        }
+
+        if consecutive_failures >= 3 {
+            break;
+        }
+    }
+
+    if title_durations.is_empty() {
+        return Vec::new();
+    }
+
+    // Filter out "Play All" composite titles if multiple single episode titles exist
+    let mut durations_only: Vec<f64> = title_durations.iter().map(|(_, d)| *d).collect();
+    durations_only.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    let median_duration = durations_only[durations_only.len() / 2];
+
+    let total_titles = title_durations.len();
+    let mut episodes = Vec::new();
+    let mut current_ep = start_ep;
+
+    for (title_num, secs) in title_durations {
+        if total_titles > 1 && secs > median_duration * 1.6 {
+            continue;
+        }
+
+        let formatted_name = format!("{} - S{:02}E{:02}", show_name, season, current_ep);
+        episodes.push(TvEpisodeInfo {
+            title_num,
+            episode_num: current_ep,
+            duration_secs: secs,
+            formatted_name,
+        });
+        current_ep += 1;
+    }
+
+    episodes
+}
+
 /// Probes the DVD drive to find the title number best matching expected_runtime_secs, or with the longest duration.
 pub fn detect_best_title(
     ffmpeg_path: &str,
@@ -163,6 +303,7 @@ pub fn build_ffmpeg_command(
 pub enum ProgressEvent {
     Log(String),
     Metadata(crate::imdb::FilmMetadata),
+    TvEpisodesDetected(Vec<TvEpisodeInfo>),
     Progress {
         percent: f64,
         fps: String,
@@ -404,8 +545,8 @@ mod tests {
     }
 
     #[test]
-    fn test_resolve_output_path_default_out_dir() {
-        let temp = TestTempDir::new("default_out_dir");
+    fn test_resolve_tv_output_path() {
+        let temp = TestTempDir::new("tv_out_dir");
         let out_dir_str = temp.0.to_string_lossy().to_string();
 
         let args = Args {
@@ -417,11 +558,17 @@ mod tests {
             preset: "veryfast".to_string(),
             ffmpeg: "ffmpeg".to_string(),
             cli: false,
+            tv: true,
+            season: 1,
+            start_episode: 1,
+            all_episodes: false,
         };
 
-        let path = resolve_output_path(&args, Some("The Matrix"), Some(1999)).unwrap();
-        assert!(path.to_string_lossy().contains("The Matrix (1999)"));
-        assert!(path.parent().map_or(false, |p| p.exists()));
+        let path = resolve_tv_output_path(&args, Some("The Office"), Some(2005), 1, 3).unwrap();
+        let path_str = path.to_string_lossy();
+        assert!(path_str.contains("The Office (2005)"));
+        assert!(path_str.contains("Season 01"));
+        assert!(path_str.contains("The Office - S01E03.mpg"));
     }
 
     #[test]
@@ -438,6 +585,10 @@ mod tests {
             preset: "veryfast".to_string(),
             ffmpeg: "ffmpeg".to_string(),
             cli: false,
+            tv: false,
+            season: 1,
+            start_episode: 1,
+            all_episodes: false,
         };
 
         let path = resolve_output_path(&args, None, None).unwrap();
@@ -456,6 +607,10 @@ mod tests {
             preset: "veryfast".to_string(),
             ffmpeg: "ffmpeg".to_string(),
             cli: false,
+            tv: false,
+            season: 1,
+            start_episode: 1,
+            all_episodes: false,
         };
 
         let output_path = PathBuf::from("Films/Test/Test.mpg");

@@ -1,6 +1,6 @@
 /**
  * @file main.rs
- * @brief DVD Ripper entry point supporting both GUI and CLI modes.
+ * @brief DVD Ripper entry point supporting both GUI and CLI modes for Movies & TV Series.
  */
 
 mod cli;
@@ -15,7 +15,9 @@ use clap::Parser;
 
 use cli::Args;
 use dvd::{get_volume_label, normalize_dvd_path};
-use ffmpeg::{resolve_output_path, run_ffmpeg_with_progress};
+use ffmpeg::{
+    detect_tv_episodes, resolve_output_path, resolve_tv_output_path, run_ffmpeg_with_progress,
+};
 use gui::run_gui;
 use imdb::lookup_film_details;
 use utils::sanitize_filename;
@@ -23,7 +25,14 @@ use utils::sanitize_filename;
 fn main() -> Result<()> {
     // Check raw args to see if user requested CLI mode or passed specific CLI parameters
     let raw_args: Vec<String> = std::env::args().collect();
-    let is_cli = raw_args.iter().any(|arg| arg == "--cli" || arg == "-h" || arg == "--help" || arg == "-V" || arg == "--version");
+    let is_cli = raw_args.iter().any(|arg| {
+        arg == "--cli"
+            || arg == "-h"
+            || arg == "--help"
+            || arg == "-V"
+            || arg == "--version"
+            || arg == "--tv"
+    });
 
     if !is_cli {
         // Run native desktop GUI by default
@@ -34,7 +43,7 @@ fn main() -> Result<()> {
     }
 
     // CLI mode execution path
-    let args = Args::parse();
+    let mut args = Args::parse();
 
     // 1. Resolve & validate DVD path
     let dvd_path = normalize_dvd_path(&args.input);
@@ -46,9 +55,9 @@ fn main() -> Result<()> {
     }
     println!("Target DVD path: {}", dvd_path.display());
 
-    // 2. Try to auto-detect film metadata from volume label
-    let mut film_name = None;
-    let mut film_year = None;
+    // 2. Try to auto-detect media metadata from volume label
+    let mut title_name = None;
+    let mut title_year = None;
     let mut film_runtime = None;
 
     if let Some(label) = get_volume_label(&dvd_path.to_string_lossy()) {
@@ -61,16 +70,21 @@ fn main() -> Result<()> {
                     .map(|r| format!(", {:.0} mins", r / 60.0))
                     .unwrap_or_default();
                 println!(
-                    "Auto-detected Film Details: {} ({:?}{})",
+                    "Auto-detected Metadata: {} ({:?}{})",
                     clean_name, meta.year, runtime_desc
                 );
-                film_name = Some(clean_name);
-                film_year = meta.year;
+                title_name = Some(clean_name);
+                title_year = meta.year;
                 film_runtime = meta.runtime_secs;
+
+                if meta.is_series {
+                    println!("Media identified as TV Series.");
+                    args.tv = true;
+                }
             }
             Err(e) => {
                 println!(
-                    "Warning: Failed to look up film details for label '{}': {}",
+                    "Warning: Failed to look up metadata details for label '{}': {}",
                     label, e
                 );
             }
@@ -79,14 +93,99 @@ fn main() -> Result<()> {
         println!("Warning: Could not detect DVD volume label.");
     }
 
-    // 3. Resolve destination output path
-    let absolute_output =
-        resolve_output_path(&args, film_name.as_deref(), film_year)?;
-    println!("Output file will be saved to: {}", absolute_output.display());
+    // 3. Execution path for TV series vs Movie
+    if args.tv {
+        let show_name = title_name.as_deref().unwrap_or("TV Show");
+        if args.all_episodes {
+            println!(
+                "\n--- TV Series Mode: Batch Ripping Season {} (Starting Episode S{:02}E{:02}) ---",
+                args.season, args.season, args.start_episode
+            );
 
-    // 4. Run FFmpeg process with live progress tracking
-    let display_title = film_name.as_deref().unwrap_or("Unknown DVD Title");
-    run_ffmpeg_with_progress(&args, &dvd_path, &absolute_output, display_title, film_runtime)?;
+            let episodes = detect_tv_episodes(
+                &args.ffmpeg,
+                &dvd_path,
+                show_name,
+                args.season,
+                args.start_episode,
+            );
+
+            if episodes.is_empty() {
+                return Err(anyhow!("No valid TV episode titles found on DVD disc."));
+            }
+
+            println!("Found {} episode titles on disc.", episodes.len());
+
+            for (idx, ep) in episodes.iter().enumerate() {
+                println!(
+                    "\n=== Ripping Episode {}/{}: {} (Title #{}, {:.0} mins) ===",
+                    idx + 1,
+                    episodes.len(),
+                    ep.formatted_name,
+                    ep.title_num,
+                    ep.duration_secs / 60.0
+                );
+
+                let ep_output = resolve_tv_output_path(
+                    &args,
+                    Some(show_name),
+                    title_year,
+                    args.season,
+                    ep.episode_num,
+                )?;
+
+                let mut ep_args = args.clone();
+                ep_args.title = ep.title_num;
+
+                run_ffmpeg_with_progress(
+                    &ep_args,
+                    &dvd_path,
+                    &ep_output,
+                    &ep.formatted_name,
+                    Some(ep.duration_secs),
+                )?;
+            }
+
+            println!("\nSuccessfully completed batch rip of all episodes!");
+        } else {
+            let ep_num = if args.start_episode > 0 {
+                args.start_episode
+            } else {
+                1
+            };
+            let ep_output = resolve_tv_output_path(
+                &args,
+                Some(show_name),
+                title_year,
+                args.season,
+                ep_num,
+            )?;
+            println!("Output file will be saved to: {}", ep_output.display());
+
+            let ep_name = format!("{} - S{:02}E{:02}", show_name, args.season, ep_num);
+            run_ffmpeg_with_progress(
+                &args,
+                &dvd_path,
+                &ep_output,
+                &ep_name,
+                film_runtime,
+            )?;
+        }
+    } else {
+        // Standard Movie execution path
+        let absolute_output =
+            resolve_output_path(&args, title_name.as_deref(), title_year)?;
+        println!("Output file will be saved to: {}", absolute_output.display());
+
+        let display_title = title_name.as_deref().unwrap_or("Unknown DVD Title");
+        run_ffmpeg_with_progress(
+            &args,
+            &dvd_path,
+            &absolute_output,
+            display_title,
+            film_runtime,
+        )?;
+    }
 
     Ok(())
 }

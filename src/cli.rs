@@ -6,7 +6,7 @@
 use clap::Parser;
 
 /// Command line arguments parsed by clap.
-#[derive(Parser, Debug)]
+#[derive(Parser, Debug, Clone)]
 #[command(
     name = "dvd-ripper",
     version,
@@ -44,4 +44,20 @@ pub struct Args {
     /// Force command-line interface mode instead of GUI
     #[arg(long)]
     pub cli: bool,
+
+    /// Enable TV series disc ripping mode
+    #[arg(long)]
+    pub tv: bool,
+
+    /// Season number for TV series mode (e.g. 1 for Season 01)
+    #[arg(long, default_value_t = 1)]
+    pub season: u32,
+
+    /// Starting episode number for the first detected episode title on disc (default: 1)
+    #[arg(long = "start-episode", default_value_t = 1)]
+    pub start_episode: u32,
+
+    /// Automatically rip all detected TV episode titles on the disc sequentially
+    #[arg(long = "all-episodes")]
+    pub all_episodes: bool,
 }

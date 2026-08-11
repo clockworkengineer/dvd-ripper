@@ -6,7 +6,7 @@
 use anyhow::{anyhow, Context, Result};
 use serde::Deserialize;
 
-/// Represents full metadata details for a movie (including poster image and plot summary).
+/// Represents full metadata details for a movie or TV show.
 #[derive(Debug, Clone, Default)]
 pub struct FilmMetadata {
     pub title: String,
@@ -19,10 +19,13 @@ pub struct FilmMetadata {
     pub director: Option<String>,
     pub actors: Option<String>,
     pub rating: Option<String>,
+    pub is_series: bool,
+    #[allow(dead_code)]
+    pub total_seasons: Option<u32>,
     pub poster_bytes: Option<Vec<u8>>,
 }
 
-/// Represents a single movie search result from the OMDb database.
+/// Represents a single movie/series search result from the OMDb database.
 #[derive(Deserialize, Debug)]
 pub struct OmdbResponse {
     #[serde(rename = "Title")]
@@ -43,6 +46,10 @@ pub struct OmdbResponse {
     pub actors: Option<String>,
     #[serde(rename = "imdbRating")]
     pub imdb_rating: Option<String>,
+    #[serde(rename = "Type")]
+    pub type_field: Option<String>,
+    #[serde(rename = "totalSeasons")]
+    pub total_seasons: Option<String>,
     #[serde(rename = "Response")]
     pub response: Option<String>,
 }
@@ -139,6 +146,12 @@ pub fn lookup_omdb_details(query: &str) -> Option<FilmMetadata> {
             let actors = omdb.actors.filter(|a| a != "N/A");
             let rating = omdb.imdb_rating.filter(|r| r != "N/A");
 
+            let is_series = omdb.type_field.as_deref() == Some("series");
+            let total_seasons = omdb
+                .total_seasons
+                .as_deref()
+                .and_then(|s| s.parse::<u32>().ok());
+
             let mut poster_bytes = None;
             if let Some(ref p_url) = poster_url {
                 if let Ok(p_resp) = reqwest::blocking::get(p_url) {
@@ -158,6 +171,8 @@ pub fn lookup_omdb_details(query: &str) -> Option<FilmMetadata> {
                 director,
                 actors,
                 rating,
+                is_series,
+                total_seasons,
                 poster_bytes,
             });
         }
