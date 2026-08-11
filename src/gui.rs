@@ -112,42 +112,64 @@ impl DvdRipperApp {
     }
 
     fn trigger_detection(&mut self) {
+        self.trigger_detection_with_query(None);
+    }
+
+    fn trigger_custom_search(&mut self) {
+        let query = self.film_name.trim().to_string();
+        if query.is_empty() {
+            self.detect_status = "Please enter a title/show name first (e.g. Doctor Who).".to_string();
+            return;
+        }
+        self.trigger_detection_with_query(Some(query));
+    }
+
+    fn trigger_detection_with_query(&mut self, query_override: Option<String>) {
         if self.detecting || self.is_ripping {
             return;
         }
 
         self.detecting = true;
-        self.detect_status = "Detecting DVD volume label & metadata...".to_string();
+        self.detect_status = "Searching metadata...".to_string();
 
         let drive = self.input_drive.clone();
         let tx = self.event_tx.clone();
 
         std::thread::spawn(move || {
             let dvd_path = normalize_dvd_path(&drive);
-            if let Some(label) = get_volume_label(&dvd_path.to_string_lossy()) {
+            let search_term = if let Some(q) = query_override {
+                q
+            } else if let Some(label) = get_volume_label(&dvd_path.to_string_lossy()) {
                 let _ = tx.send(ProgressEvent::Log(format!("Detected Volume Label: {}", label)));
-                match lookup_film_details(&label) {
-                    Ok(meta) => {
-                        let clean = sanitize_filename(&meta.title);
-                        let year_str = meta.year.map(|y| y.to_string()).unwrap_or_default();
-                        let runtime_desc = meta
-                            .runtime_secs
-                            .map(|r| format!(" [Runtime: {:.0}m]", r / 60.0))
-                            .unwrap_or_default();
-                        let _ = tx.send(ProgressEvent::Log(format!(
-                            "Auto-detected Title: {} ({}){}",
-                            clean, year_str, runtime_desc
-                        )));
-                        let _ = tx.send(ProgressEvent::Metadata(meta));
-                    }
-                    Err(e) => {
-                        let _ = tx.send(ProgressEvent::Log(format!("Lookup warning: {}", e)));
-                        let _ = tx.send(ProgressEvent::Log("META_FAIL".to_string()));
-                    }
-                }
+                label
             } else {
                 let _ = tx.send(ProgressEvent::Log("Could not read volume label.".to_string()));
                 let _ = tx.send(ProgressEvent::Log("META_FAIL".to_string()));
+                return;
+            };
+
+            let _ = tx.send(ProgressEvent::Log(format!("Searching metadata for query: '{}'", search_term)));
+            match lookup_film_details(&search_term) {
+                Ok(meta) => {
+                    let clean = sanitize_filename(&meta.title);
+                    let year_str = meta.year.map(|y| y.to_string()).unwrap_or_default();
+                    let runtime_desc = meta
+                        .runtime_secs
+                        .map(|r| format!(" [Runtime: {:.0}m]", r / 60.0))
+                        .unwrap_or_default();
+                    let _ = tx.send(ProgressEvent::Log(format!(
+                        "Metadata Found: {} ({}){}",
+                        clean, year_str, runtime_desc
+                    )));
+                    let _ = tx.send(ProgressEvent::Metadata(meta));
+                }
+                Err(e) => {
+                    let _ = tx.send(ProgressEvent::Log(format!(
+                        "Lookup notice: {}. If '{}' is a disc catalog code, enter the show name (e.g. 'Doctor Who') and click '🔍 Search Metadata'.",
+                        e, search_term
+                    )));
+                    let _ = tx.send(ProgressEvent::Log("META_FAIL".to_string()));
+                }
             }
         });
     }
@@ -377,7 +399,7 @@ impl DvdRipperApp {
                 ProgressEvent::Log(line) => {
                     if line == "META_FAIL" {
                         self.detecting = false;
-                        self.detect_status = "Detection finished (no metadata matched).".to_string();
+                        self.detect_status = "Detection finished.".to_string();
                     } else {
                         self.logs.push(line);
                         if self.logs.len() > 500 {
@@ -497,7 +519,10 @@ impl eframe::App for DvdRipperApp {
                             ui.label(if self.is_tv_mode { "Show Name:" } else { "Film Title:" });
                             ui.text_edit_singleline(&mut self.film_name);
                             ui.label("Year:");
-                            ui.add(egui::TextEdit::singleline(&mut self.film_year).desired_width(60.0));
+                            ui.add(egui::TextEdit::singleline(&mut self.film_year).desired_width(50.0));
+                            if ui.button("🔍 Search").clicked() && !self.detecting && !self.is_ripping {
+                                self.trigger_custom_search();
+                            }
                         });
 
                         if !self.rating.is_empty() || !self.genre.is_empty() {
@@ -537,10 +562,10 @@ impl eframe::App for DvdRipperApp {
                             ui.horizontal(|ui| {
                                 ui.label("Season #:");
                                 ui.add(egui::DragValue::new(&mut self.season_number).range(1..=99));
-                                ui.label("Start Episode #:");
+                                ui.label("Start Ep #:");
                                 ui.add(egui::DragValue::new(&mut self.start_episode).range(1..=99));
                                 ui.checkbox(&mut self.all_episodes, "Rip All Episodes");
-                                if ui.button("🔍 Scan Episodes").clicked() && !self.detecting && !self.is_ripping {
+                                if ui.button("🔍 Scan Disc").clicked() && !self.detecting && !self.is_ripping {
                                     self.trigger_tv_scan();
                                 }
                             });
@@ -570,7 +595,7 @@ impl eframe::App for DvdRipperApp {
                                 ui.label("Title #:");
                                 ui.add(egui::DragValue::new(&mut self.title_number).range(0..=99));
                                 if self.title_number == 0 {
-                                    ui.label(egui::RichText::new("(0 = Auto Main)").weak());
+                                    ui.label(egui::RichText::new("(0 = Auto)").weak());
                                 }
                             }
                         });
@@ -657,7 +682,7 @@ impl eframe::App for DvdRipperApp {
 pub fn run_gui() -> eframe::Result<()> {
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
-            .with_inner_size([660.0, 720.0])
+            .with_inner_size([680.0, 740.0])
             .with_title("DVD Ripper (Movies & TV Series)"),
         ..Default::default()
     };
