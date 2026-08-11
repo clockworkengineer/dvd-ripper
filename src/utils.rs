@@ -90,6 +90,55 @@ pub fn find_next_start_episode(
     }
 }
 
+/// Helper: Infers the starting episode number directly from the DVD volume label (e.g., DISC 3 or BBCDVD1757).
+pub fn infer_start_episode_from_label(volume_label: &str, eps_per_disc: u32) -> Option<u32> {
+    let label_upper = volume_label.to_uppercase();
+
+    // 1. Look for explicit disc patterns like DISC3, DISC_3, D3, VOL3, VOL_3, PART3
+    let re_patterns = ["DISC", "VOL", "PART", "DISK"];
+
+    for pat in &re_patterns {
+        if let Some(idx) = label_upper.find(pat) {
+            let sub = &label_upper[idx + pat.len()..];
+            let num_str: String = sub
+                .chars()
+                .skip_while(|c| !c.is_ascii_digit())
+                .take_while(|c| c.is_ascii_digit())
+                .collect();
+            if let Ok(disc_num) = num_str.parse::<u32>() {
+                if disc_num > 0 {
+                    let ep_count = if eps_per_disc > 0 { eps_per_disc } else { 3 };
+                    return Some((disc_num - 1) * ep_count + 1);
+                }
+            }
+        }
+    }
+
+    // 2. Look for catalog codes ending in sequential numbers (e.g. BBCDVD1755 = Disc 1, 1756 = Disc 2, 1757 = Disc 3)
+    let trailing_digits: String = label_upper
+        .chars()
+        .rev()
+        .take_while(|c| c.is_ascii_digit())
+        .collect::<String>()
+        .chars()
+        .rev()
+        .collect();
+
+    if trailing_digits.len() >= 2 {
+        if let Ok(num) = trailing_digits.parse::<u32>() {
+            if num >= 1000 {
+                let base = num - (num % 10) + 5;
+                let base_num = if num >= base { base } else { num };
+                let disc_num = (num - base_num) + 1;
+                let ep_count = if eps_per_disc > 0 { eps_per_disc } else { 3 };
+                return Some((disc_num - 1) * ep_count + 1);
+            }
+        }
+    }
+
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -148,5 +197,14 @@ mod tests {
         let out_dir_str = temp.0.to_string_lossy().to_string();
         let next_ep = find_next_start_episode(&out_dir_str, "Doctor Who", Some(2005), 1);
         assert_eq!(next_ep, 4);
+    }
+
+    #[test]
+    fn test_infer_start_episode_from_label() {
+        assert_eq!(infer_start_episode_from_label("BBCDVD1755", 3), Some(1));
+        assert_eq!(infer_start_episode_from_label("BBCDVD1756", 3), Some(4));
+        assert_eq!(infer_start_episode_from_label("BBCDVD1757", 3), Some(7));
+        assert_eq!(infer_start_episode_from_label("DRWHO_DISC3", 3), Some(7));
+        assert_eq!(infer_start_episode_from_label("SHOW_S01_VOL2", 3), Some(4));
     }
 }

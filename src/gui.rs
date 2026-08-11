@@ -16,7 +16,7 @@ use crate::ffmpeg::{
     ProgressEvent, TvEpisodeInfo,
 };
 use crate::imdb::lookup_film_details;
-use crate::utils::{find_next_start_episode, sanitize_filename};
+use crate::utils::{find_next_start_episode, infer_start_episode_from_label, sanitize_filename};
 
 /// Main application state for the eframe GUI.
 pub struct DvdRipperApp {
@@ -120,19 +120,33 @@ impl DvdRipperApp {
     }
 
     fn check_and_auto_set_start_episode(&mut self) {
-        if self.is_tv_mode && !self.film_name.trim().is_empty() {
-            let next_ep = find_next_start_episode(
-                &self.out_dir,
-                self.film_name.trim(),
-                self.film_year.trim().parse::<u32>().ok(),
-                self.season_number,
-            );
-            if next_ep > 1 {
-                self.start_episode = next_ep;
-                self.detect_status = format!(
-                    "Found existing episodes in Season {:02}. Auto-starting next episode at #{}.",
-                    self.season_number, self.start_episode
+        if self.is_tv_mode {
+            let dvd_path = normalize_dvd_path(&self.input_drive);
+            if let Some(lbl) = get_volume_label(&dvd_path.to_string_lossy()) {
+                if let Some(ep) = infer_start_episode_from_label(&lbl, 3) {
+                    self.start_episode = ep;
+                    self.detect_status = format!(
+                        "Inferred Start Episode #{} directly from DVD label ({})",
+                        self.start_episode, lbl
+                    );
+                    return;
+                }
+            }
+
+            if !self.film_name.trim().is_empty() {
+                let next_ep = find_next_start_episode(
+                    &self.out_dir,
+                    self.film_name.trim(),
+                    self.film_year.trim().parse::<u32>().ok(),
+                    self.season_number,
                 );
+                if next_ep > 1 {
+                    self.start_episode = next_ep;
+                    self.detect_status = format!(
+                        "Found existing episodes in Season {:02}. Auto-starting next episode at #{}.",
+                        self.season_number, self.start_episode
+                    );
+                }
             }
         }
     }

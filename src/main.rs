@@ -20,7 +20,7 @@ use ffmpeg::{
 };
 use gui::run_gui;
 use imdb::lookup_film_details;
-use utils::{find_next_start_episode, sanitize_filename};
+use utils::{find_next_start_episode, infer_start_episode_from_label, sanitize_filename};
 
 fn main() -> Result<()> {
     // Check raw args to see if user requested CLI mode or passed specific CLI parameters
@@ -59,10 +59,11 @@ fn main() -> Result<()> {
     let mut title_name = None;
     let mut title_year = None;
     let mut film_runtime = None;
+    let volume_label = get_volume_label(&dvd_path.to_string_lossy());
 
-    if let Some(label) = get_volume_label(&dvd_path.to_string_lossy()) {
+    if let Some(ref label) = volume_label {
         println!("Detected DVD Volume Label: {}", label);
-        match lookup_film_details(&label) {
+        match lookup_film_details(label) {
             Ok(meta) => {
                 let clean_name = sanitize_filename(&meta.title);
                 let runtime_desc = meta
@@ -98,13 +99,26 @@ fn main() -> Result<()> {
         let show_name = title_name.as_deref().unwrap_or("TV Show");
 
         if args.start_episode == 1 {
-            let auto_ep = find_next_start_episode(&args.out_dir, show_name, title_year, args.season);
-            if auto_ep > 1 {
+            let label_inferred = volume_label
+                .as_deref()
+                .and_then(|lbl| infer_start_episode_from_label(lbl, 3));
+
+            if let Some(ep) = label_inferred {
                 println!(
-                    "Detected existing episodes in Season {:02} folder. Auto-setting Start Episode to #{}.",
-                    args.season, auto_ep
+                    "Inferred Start Episode #{} directly from DVD Volume Label ({}).",
+                    ep,
+                    volume_label.as_deref().unwrap_or("")
                 );
-                args.start_episode = auto_ep;
+                args.start_episode = ep;
+            } else {
+                let auto_ep = find_next_start_episode(&args.out_dir, show_name, title_year, args.season);
+                if auto_ep > 1 {
+                    println!(
+                        "Detected existing episodes in Season {:02} folder. Auto-setting Start Episode to #{}.",
+                        args.season, auto_ep
+                    );
+                    args.start_episode = auto_ep;
+                }
             }
         }
         if args.all_episodes {
