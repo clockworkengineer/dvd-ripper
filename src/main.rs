@@ -20,7 +20,7 @@ use ffmpeg::{
 };
 use gui::run_gui;
 use imdb::lookup_film_details;
-use utils::sanitize_filename;
+use utils::{find_next_start_episode, sanitize_filename};
 
 fn main() -> Result<()> {
     // Check raw args to see if user requested CLI mode or passed specific CLI parameters
@@ -96,6 +96,17 @@ fn main() -> Result<()> {
     // 3. Execution path for TV series vs Movie
     if args.tv {
         let show_name = title_name.as_deref().unwrap_or("TV Show");
+
+        if args.start_episode == 1 {
+            let auto_ep = find_next_start_episode(&args.out_dir, show_name, title_year, args.season);
+            if auto_ep > 1 {
+                println!(
+                    "Detected existing episodes in Season {:02} folder. Auto-setting Start Episode to #{}.",
+                    args.season, auto_ep
+                );
+                args.start_episode = auto_ep;
+            }
+        }
         if args.all_episodes {
             println!(
                 "\n--- TV Series Mode: Batch Ripping Season {} (Starting Episode S{:02}E{:02}) ---",

@@ -16,7 +16,7 @@ use crate::ffmpeg::{
     ProgressEvent, TvEpisodeInfo,
 };
 use crate::imdb::lookup_film_details;
-use crate::utils::sanitize_filename;
+use crate::utils::{find_next_start_episode, sanitize_filename};
 
 /// Main application state for the eframe GUI.
 pub struct DvdRipperApp {
@@ -117,6 +117,24 @@ impl DvdRipperApp {
 
     fn trigger_detection(&mut self) {
         self.trigger_detection_with_query(None);
+    }
+
+    fn check_and_auto_set_start_episode(&mut self) {
+        if self.is_tv_mode && !self.film_name.trim().is_empty() {
+            let next_ep = find_next_start_episode(
+                &self.out_dir,
+                self.film_name.trim(),
+                self.film_year.trim().parse::<u32>().ok(),
+                self.season_number,
+            );
+            if next_ep > 1 {
+                self.start_episode = next_ep;
+                self.detect_status = format!(
+                    "Found existing episodes in Season {:02}. Auto-starting next episode at #{}.",
+                    self.season_number, self.start_episode
+                );
+            }
+        }
     }
 
     fn trigger_custom_search(&mut self) {
@@ -457,6 +475,7 @@ impl DvdRipperApp {
                     if meta.is_series {
                         self.is_tv_mode = true;
                         self.out_dir = "TV".to_string();
+                        self.check_and_auto_set_start_episode();
                     }
                     self.detecting = false;
                     self.detect_status = "Detection complete.".to_string();
@@ -599,9 +618,14 @@ impl eframe::App for DvdRipperApp {
                         if self.is_tv_mode {
                             ui.horizontal(|ui| {
                                 ui.label("Season #:");
-                                ui.add(egui::DragValue::new(&mut self.season_number).range(1..=99));
+                                if ui.add(egui::DragValue::new(&mut self.season_number).range(1..=99)).changed() {
+                                    self.check_and_auto_set_start_episode();
+                                }
                                 ui.label("Start Ep #:");
                                 ui.add(egui::DragValue::new(&mut self.start_episode).range(1..=99));
+                                if ui.button("🔄 Auto Ep").clicked() {
+                                    self.check_and_auto_set_start_episode();
+                                }
                                 ui.checkbox(&mut self.all_episodes, "Rip All Episodes");
                                 if ui.button("🔍 Scan Disc").clicked() && !self.detecting && !self.is_ripping {
                                     self.trigger_tv_scan();
