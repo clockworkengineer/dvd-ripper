@@ -4,7 +4,9 @@
  */
 
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{channel, Receiver, Sender};
+use std::sync::Arc;
 use eframe::egui;
 
 use crate::cli::Args;
@@ -57,6 +59,7 @@ pub struct DvdRipperApp {
     event_tx: Sender<ProgressEvent>,
     event_rx: Receiver<ProgressEvent>,
     cancel_tx: Option<Sender<()>>,
+    cancel_flag: Option<Arc<AtomicBool>>,
 }
 
 impl Default for DvdRipperApp {
@@ -100,6 +103,7 @@ impl Default for DvdRipperApp {
             event_tx,
             event_rx,
             cancel_tx: None,
+            cancel_flag: None,
         }
     }
 }
@@ -165,7 +169,7 @@ impl DvdRipperApp {
                 }
                 Err(e) => {
                     let _ = tx.send(ProgressEvent::Log(format!(
-                        "Lookup notice: {}. If '{}' is a disc catalog code, enter the show name (e.g. 'Doctor Who') and click '🔍 Search Metadata'.",
+                        "Lookup notice: {}. If '{}' is a disc catalog code, enter the show name (e.g. 'Doctor Who') and click '🔍 Search'.",
                         e, search_term
                     )));
                     let _ = tx.send(ProgressEvent::Log("META_FAIL".to_string()));
@@ -182,6 +186,9 @@ impl DvdRipperApp {
         self.detecting = true;
         self.detect_status = "Scanning disc for TV episode titles...".to_string();
 
+        let cancel_flag = Arc::new(AtomicBool::new(false));
+        self.cancel_flag = Some(cancel_flag.clone());
+
         let ffmpeg_path = self.ffmpeg_path.clone();
         let dvd_path = normalize_dvd_path(&self.input_drive);
         let show_name = if self.film_name.trim().is_empty() {
@@ -194,7 +201,11 @@ impl DvdRipperApp {
         let tx = self.event_tx.clone();
 
         std::thread::spawn(move || {
-            let episodes = detect_tv_episodes(&ffmpeg_path, &dvd_path, &show_name, season, start_ep);
+            let episodes = detect_tv_episodes(&ffmpeg_path, &dvd_path, &show_name, season, start_ep, Some(&cancel_flag));
+            if cancel_flag.load(Ordering::SeqCst) {
+                let _ = tx.send(ProgressEvent::Log("Disc episode scanning cancelled by user.".to_string()));
+                return;
+            }
             let _ = tx.send(ProgressEvent::Log(format!(
                 "Scanned disc: found {} episode titles",
                 episodes.len()
@@ -224,6 +235,9 @@ impl DvdRipperApp {
         let (cancel_tx, cancel_rx) = channel();
         self.cancel_tx = Some(cancel_tx);
 
+        let cancel_flag = Arc::new(AtomicBool::new(false));
+        self.cancel_flag = Some(cancel_flag.clone());
+
         let is_tv = self.is_tv_mode;
         let all_eps = self.all_episodes;
         let show_name_opt = if self.film_name.trim().is_empty() {
@@ -245,7 +259,12 @@ impl DvdRipperApp {
         std::thread::spawn(move || {
             if is_tv && all_eps {
                 let show_name = show_name_opt.as_deref().unwrap_or("TV Show");
-                let eps = detect_tv_episodes(&ffmpeg_path, &dvd_path, show_name, season, start_ep);
+                let eps = detect_tv_episodes(&ffmpeg_path, &dvd_path, show_name, season, start_ep, Some(&cancel_flag));
+
+                if cancel_flag.load(Ordering::SeqCst) {
+                    let _ = tx.send(ProgressEvent::Error("TV batch ripping cancelled by user.".to_string()));
+                    return;
+                }
 
                 if eps.is_empty() {
                     let _ = tx.send(ProgressEvent::Error(
@@ -261,6 +280,11 @@ impl DvdRipperApp {
                 )));
 
                 for (idx, ep) in eps.iter().enumerate() {
+                    if cancel_flag.load(Ordering::SeqCst) {
+                        let _ = tx.send(ProgressEvent::Error("TV batch ripping cancelled by user.".to_string()));
+                        return;
+                    }
+
                     let args = Args {
                         input: drive.clone(),
                         output: None,
@@ -294,8 +318,13 @@ impl DvdRipperApp {
                                 Some(ep.duration_secs),
                                 Some(tx.clone()),
                                 None,
+                                Some(cancel_flag.clone()),
                             ) {
-                                let _ = tx.send(ProgressEvent::Error(format!("Error ripping episode {}: {}", ep.episode_num, e)));
+                                if cancel_flag.load(Ordering::SeqCst) {
+                                    let _ = tx.send(ProgressEvent::Error("TV batch ripping cancelled by user.".to_string()));
+                                } else {
+                                    let _ = tx.send(ProgressEvent::Error(format!("Error ripping episode {}: {}", ep.episode_num, e)));
+                                }
                                 return;
                             }
                         }
@@ -339,6 +368,7 @@ impl DvdRipperApp {
                             expected_runtime,
                             Some(tx.clone()),
                             Some(cancel_rx),
+                            Some(cancel_flag.clone()),
                         ) {
                             let _ = tx.send(ProgressEvent::Error(format!("Ripping error: {}", e)));
                         }
@@ -374,6 +404,7 @@ impl DvdRipperApp {
                             expected_runtime,
                             Some(tx.clone()),
                             Some(cancel_rx),
+                            Some(cancel_flag.clone()),
                         ) {
                             let _ = tx.send(ProgressEvent::Error(format!("Ripping error: {}", e)));
                         }
@@ -387,10 +418,15 @@ impl DvdRipperApp {
     }
 
     fn cancel_ripping(&mut self) {
+        if let Some(flag) = self.cancel_flag.take() {
+            flag.store(true, Ordering::SeqCst);
+        }
         if let Some(tx) = self.cancel_tx.take() {
             let _ = tx.send(());
-            self.status_message = "Cancelling ripping process...".to_string();
         }
+        self.is_ripping = false;
+        self.detecting = false;
+        self.status_message = "Ripping process cancelled by user.".to_string();
     }
 
     fn poll_events(&mut self, ctx: &egui::Context) {
@@ -441,11 +477,13 @@ impl DvdRipperApp {
                     self.progress_percent = 1.0;
                     self.status_message = format!("Success! Saved to {}", path.display());
                     self.cancel_tx = None;
+                    self.cancel_flag = None;
                 }
                 ProgressEvent::Error(msg) => {
                     self.is_ripping = false;
-                    self.status_message = format!("Failed: {}", msg);
+                    self.status_message = format!("Stopped: {}", msg);
                     self.cancel_tx = None;
+                    self.cancel_flag = None;
                 }
             }
         }
@@ -628,7 +666,7 @@ impl eframe::App for DvdRipperApp {
                 ui.label(egui::RichText::new("3. Ripping Process").strong());
 
                 ui.horizontal(|ui| {
-                    if !self.is_ripping {
+                    if !self.is_ripping && !self.detecting {
                         let btn_label = if self.is_tv_mode && self.all_episodes {
                             "▶ Batch Rip All Episodes"
                         } else {

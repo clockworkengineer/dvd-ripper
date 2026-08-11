@@ -107,11 +107,17 @@ pub fn detect_tv_episodes(
     show_name: &str,
     season: u32,
     start_ep: u32,
+    cancel_flag: Option<&std::sync::atomic::AtomicBool>,
 ) -> Vec<TvEpisodeInfo> {
     let mut title_durations: Vec<(u32, f64)> = Vec::new();
     let mut consecutive_failures = 0;
 
     for t in 1..=99 {
+        if let Some(flag) = cancel_flag {
+            if flag.load(std::sync::atomic::Ordering::SeqCst) {
+                break;
+            }
+        }
         let output = Command::new(ffmpeg_path)
             .stdin(std::process::Stdio::null())
             .arg("-analyzeduration")
@@ -329,6 +335,7 @@ pub fn run_ffmpeg_with_progress(
         expected_runtime_secs,
         None,
         None,
+        None,
     )
 }
 
@@ -341,6 +348,7 @@ pub fn run_ffmpeg_with_channel(
     expected_runtime_secs: Option<f64>,
     tx: Option<std::sync::mpsc::Sender<ProgressEvent>>,
     cancel_rx: Option<std::sync::mpsc::Receiver<()>>,
+    cancel_flag: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
 ) -> Result<()> {
     let resolved_title = if args.title == 0 {
         let msg = if let Some(target) = expected_runtime_secs {
@@ -415,6 +423,17 @@ pub fn run_ffmpeg_with_channel(
 
     let mut line_bytes = Vec::new();
     loop {
+        if let Some(ref flag) = cancel_flag {
+            if flag.load(std::sync::atomic::Ordering::SeqCst) {
+                let _ = child.kill();
+                let msg = "Ripping process cancelled by user.".to_string();
+                if let Some(ref sender) = tx {
+                    let _ = sender.send(ProgressEvent::Error(msg.clone()));
+                }
+                return Err(anyhow!(msg));
+            }
+        }
+
         if let Some(ref rx) = cancel_rx {
             if rx.try_recv().is_ok() {
                 let _ = child.kill();

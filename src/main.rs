@@ -108,6 +108,7 @@ fn main() -> Result<()> {
                 show_name,
                 args.season,
                 args.start_episode,
+                None,
             );
 
             if episodes.is_empty() {
