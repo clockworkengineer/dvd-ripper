@@ -9,7 +9,7 @@ use std::process::Command;
 use anyhow::{anyhow, Context, Result};
 
 use crate::cli::Args;
-use crate::utils::{extract_kv_field, parse_duration};
+use crate::utils::{extract_kv_field, format_episode_name, format_title_folder_name, parse_duration};
 
 /// Resolves the absolute output file path based on detected film metadata, configured output directory, or user CLI args.
 pub fn resolve_output_path(
@@ -19,11 +19,7 @@ pub fn resolve_output_path(
 ) -> Result<PathBuf> {
     let extension = if args.transcode { "mp4" } else { "mpg" };
     let rel_or_abs_file = if let Some(name) = film_name {
-        let segment = if let Some(year) = film_year {
-            format!("{} ({})", name, year)
-        } else {
-            name.to_string()
-        };
+        let segment = format_title_folder_name(name, film_year);
         PathBuf::from(format!("{}/{}.{}", segment, segment, extension))
     } else if let Some(ref out) = args.output {
         PathBuf::from(out)
@@ -44,13 +40,9 @@ pub fn resolve_tv_output_path(
 ) -> Result<PathBuf> {
     let extension = if args.transcode { "mp4" } else { "mpg" };
     let name = show_name.unwrap_or("Unknown Show");
-    let show_folder = if let Some(year) = show_year {
-        format!("{} ({})", name, year)
-    } else {
-        name.to_string()
-    };
+    let show_folder = format_title_folder_name(name, show_year);
     let season_folder = format!("Season {:02}", season);
-    let filename = format!("{} - S{:02}E{:02}.{}", name, season, episode_num, extension);
+    let filename = format!("{}.{}", format_episode_name(name, season, episode_num), extension);
 
     let root_dir = if args.out_dir == "Films" {
         "TV"

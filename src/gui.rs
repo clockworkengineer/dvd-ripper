@@ -14,7 +14,7 @@ use crate::ffmpeg::{
 };
 use crate::history::{clear_history, load_history, record_rip_event, save_history, RipRecord};
 use crate::imdb::lookup_film_details;
-use crate::utils::sanitize_filename;
+use crate::utils::{format_episode_name, sanitize_filename};
 
 /// Main application state for the eframe GUI.
 pub struct DvdRipperApp {
@@ -131,7 +131,7 @@ impl DvdRipperApp {
         let mut ep_num = self.start_episode;
         for ep in &mut self.detected_episodes {
             ep.episode_num = ep_num;
-            ep.formatted_name = format!("{} - S{:02}E{:02}", show_name, season, ep_num);
+            ep.formatted_name = format_episode_name(&show_name, season, ep_num);
             ep_num += 1;
         }
     }
@@ -369,7 +369,7 @@ impl DvdRipperApp {
 
                 match resolve_tv_output_path(&args, show_name_opt.as_deref(), year_opt, season, ep_num) {
                     Ok(abs_out) => {
-                        let ep_name = format!("{} - S{:02}E{:02}", show_name, season, ep_num);
+                        let ep_name = format_episode_name(show_name, season, ep_num);
                         if let Err(e) = run_ffmpeg_with_channel(
                             &args,
                             &dvd_path,

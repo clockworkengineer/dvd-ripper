@@ -43,6 +43,20 @@ pub fn extract_kv_field<'a>(line: &'a str, key: &str) -> Option<&'a str> {
     }
 }
 
+/// DRY helper: Formats a film/show folder name, appending `(Year)` if provided.
+pub fn format_title_folder_name(name: &str, year: Option<u32>) -> String {
+    if let Some(y) = year {
+        format!("{} ({})", name, y)
+    } else {
+        name.to_string()
+    }
+}
+
+/// DRY helper: Formats a standard TV episode name (e.g. `Show Name - S01E02`).
+pub fn format_episode_name(show_name: &str, season: u32, ep_num: u32) -> String {
+    format!("{} - S{:02}E{:02}", show_name, season, ep_num)
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct ParsedLabelInfo {
     pub clean_title: String,
@@ -171,6 +185,13 @@ mod tests {
         assert_eq!(extract_kv_field(line, "speed="), Some("2.5x"));
         assert_eq!(extract_kv_field(line, "time="), Some("00:01:30.00"));
         assert_eq!(extract_kv_field(line, "missing="), None);
+    }
+
+    #[test]
+    fn test_formatting_helpers() {
+        assert_eq!(format_title_folder_name("Aliens", Some(1986)), "Aliens (1986)");
+        assert_eq!(format_title_folder_name("The Office", None), "The Office");
+        assert_eq!(format_episode_name("Doctor Who", 1, 3), "Doctor Who - S01E03");
     }
 
     #[test]
