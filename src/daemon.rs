@@ -30,6 +30,10 @@ pub fn run_daemon(args: Args, poll_interval_secs: u64) -> Result<()> {
                     println!("[Daemon Event] New Disc Detected: {}", label);
                     last_processed_label = label.clone();
 
+                    if let Some(ref broker) = args.mqtt_broker {
+                        let _ = crate::mqtt::publish_mqtt_status(broker, &label, "Detected", 0.0);
+                    }
+
                     let mut job_args = args.clone();
                     let meta_res = lookup_film_details(&label);
 
@@ -63,6 +67,9 @@ pub fn run_daemon(args: Args, poll_interval_secs: u64) -> Result<()> {
                                 ep.episode_num,
                             ) {
                                 println!("[Daemon Ripping] Episode -> {}", out_path.display());
+                                if let Some(ref broker) = args.mqtt_broker {
+                                    let _ = crate::mqtt::publish_mqtt_status(broker, &ep.formatted_name, "Ripping", 50.0);
+                                }
                                 if run_ffmpeg_with_progress(
                                     &job_args,
                                     &dvd_path,
@@ -77,6 +84,9 @@ pub fn run_daemon(args: Args, poll_interval_secs: u64) -> Result<()> {
                     } else {
                         if let Ok(out_path) = resolve_output_path(&job_args, Some(&title_name), None) {
                             println!("[Daemon Ripping] Movie -> {}", out_path.display());
+                            if let Some(ref broker) = args.mqtt_broker {
+                                let _ = crate::mqtt::publish_mqtt_status(broker, &title_name, "Ripping", 50.0);
+                            }
                             if run_ffmpeg_with_progress(
                                 &job_args,
                                 &dvd_path,
@@ -90,6 +100,9 @@ pub fn run_daemon(args: Args, poll_interval_secs: u64) -> Result<()> {
                     }
 
                     println!("[Daemon Event] Ripping completed for disc: {}", label);
+                    if let Some(ref broker) = args.mqtt_broker {
+                        let _ = crate::mqtt::publish_mqtt_status(broker, &label, "Completed", 100.0);
+                    }
                     println!("[Daemon Event] Ejecting optical disc tray...");
                     let _ = crate::dvd::eject_disc(&args.input);
                     println!();

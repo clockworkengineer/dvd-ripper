@@ -53,6 +53,10 @@ pub struct Args {
     #[arg(long)]
     pub daemon: bool,
 
+    /// Optional MQTT broker address (e.g. 192.168.1.50:1883) for Home Assistant smart home telemetry
+    #[arg(long = "mqtt-broker")]
+    pub mqtt_broker: Option<String>,
+
     /// Enable TV series disc ripping mode
     #[arg(long)]
     pub tv: bool,
@@ -83,6 +87,7 @@ impl Default for Args {
             hwaccel: "copy".to_string(),
             cli: false,
             daemon: false,
+            mqtt_broker: None,
             tv: false,
             season: 1,
             start_episode: 1,

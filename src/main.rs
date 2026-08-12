@@ -12,6 +12,7 @@ mod ffmpeg;
 mod gui;
 mod history;
 mod imdb;
+mod mqtt;
 mod utils;
 
 use anyhow::{anyhow, Result};

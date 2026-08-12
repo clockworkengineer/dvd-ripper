@@ -3,7 +3,7 @@
  * @brief FFmpeg process invocation and real-time progress parsing.
  */
 
-use std::io::{BufReader, Read, Write};
+use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use anyhow::{anyhow, Context, Result};
@@ -472,21 +472,10 @@ pub fn run_ffmpeg_with_channel(
         }
 
         line_bytes.clear();
-        let mut byte = [0u8; 1];
-        let mut read_bytes = 0;
-
-        loop {
-            match reader.read_exact(&mut byte) {
-                Ok(_) => {
-                    read_bytes += 1;
-                    if byte[0] == b'\r' || byte[0] == b'\n' {
-                        break;
-                    }
-                    line_bytes.push(byte[0]);
-                }
-                Err(_) => break,
-            }
-        }
+        let read_bytes = match reader.read_until(b'\r', &mut line_bytes) {
+            Ok(n) => n,
+            Err(_) => 0,
+        };
 
         if read_bytes == 0 {
             if let Ok(Some(_)) = child.try_wait() {
