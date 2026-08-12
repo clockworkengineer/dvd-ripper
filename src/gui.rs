@@ -554,157 +554,161 @@ impl eframe::App for DvdRipperApp {
             ctx.request_repaint();
         }
 
+        let is_busy = self.is_ripping || self.detecting;
+
         egui::CentralPanel::default().show(ctx, |ui| {
             ui.heading("📀 DVD Ripper Desktop Utility");
             ui.add_space(8.0);
 
-            // Drive Selection Section
-            ui.group(|ui| {
-                ui.label(egui::RichText::new("1. DVD Drive & Detection").strong());
-                ui.horizontal(|ui| {
-                    ui.label("Drive Path:");
-                    ui.text_edit_singleline(&mut self.input_drive);
-                    if ui.button("🔍 Detect DVD").clicked() && !self.detecting && !self.is_ripping {
-                        self.trigger_detection();
-                    }
-                });
-                if !self.detect_status.is_empty() {
-                    ui.label(egui::RichText::new(&self.detect_status).italics().small());
-                }
-            });
-
-            ui.add_space(8.0);
-
-            // Metadata & Mode Section
-            ui.group(|ui| {
-                ui.label(egui::RichText::new("2. Media Metadata & Mode Settings").strong());
-
-                ui.horizontal(|ui| {
-                    ui.label("Ripping Mode:");
-                    if ui.radio_value(&mut self.is_tv_mode, false, "🎬 Movie").changed() {
-                        self.out_dir = "Films".to_string();
-                    }
-                    if ui.radio_value(&mut self.is_tv_mode, true, "📺 TV Series").changed() {
-                        self.out_dir = "TV".to_string();
+            ui.add_enabled_ui(!is_busy, |ui| {
+                // Drive Selection Section
+                ui.group(|ui| {
+                    ui.label(egui::RichText::new("1. DVD Drive & Detection").strong());
+                    ui.horizontal(|ui| {
+                        ui.label("Drive Path:");
+                        ui.text_edit_singleline(&mut self.input_drive);
+                        if ui.button("🔍 Detect DVD").clicked() {
+                            self.trigger_detection();
+                        }
+                    });
+                    if !self.detect_status.is_empty() {
+                        ui.label(egui::RichText::new(&self.detect_status).italics().small());
                     }
                 });
 
-                ui.add_space(4.0);
+                ui.add_space(8.0);
 
-                ui.horizontal(|ui| {
-                    if let Some(ref texture) = self.poster_texture {
-                        ui.add(egui::Image::new(texture).max_height(140.0).rounding(6.0));
-                    }
+                // Metadata & Mode Section
+                ui.group(|ui| {
+                    ui.label(egui::RichText::new("2. Media Metadata & Mode Settings").strong());
 
-                    ui.vertical(|ui| {
-                        ui.horizontal(|ui| {
-                            ui.label(if self.is_tv_mode { "Show Name:" } else { "Film Title:" });
-                            ui.text_edit_singleline(&mut self.film_name);
-                            ui.label("Year:");
-                            ui.add(egui::TextEdit::singleline(&mut self.film_year).desired_width(50.0));
-                            if ui.button("🔍 Search").clicked() && !self.detecting && !self.is_ripping {
-                                self.trigger_custom_search();
-                            }
-                        });
+                    ui.horizontal(|ui| {
+                        ui.label("Ripping Mode:");
+                        if ui.radio_value(&mut self.is_tv_mode, false, "🎬 Movie").changed() {
+                            self.out_dir = "Films".to_string();
+                        }
+                        if ui.radio_value(&mut self.is_tv_mode, true, "📺 TV Series").changed() {
+                            self.out_dir = "TV".to_string();
+                        }
+                    });
 
-                        if !self.rating.is_empty() || !self.genre.is_empty() {
+                    ui.add_space(4.0);
+
+                    ui.horizontal(|ui| {
+                        if let Some(ref texture) = self.poster_texture {
+                            ui.add(egui::Image::new(texture).max_height(140.0).rounding(6.0));
+                        }
+
+                        ui.vertical(|ui| {
                             ui.horizontal(|ui| {
-                                if !self.rating.is_empty() {
-                                    ui.label(
-                                        egui::RichText::new(format!("⭐ {}/10", self.rating))
-                                            .strong()
-                                            .color(egui::Color32::from_rgb(245, 175, 25)),
-                                    );
-                                }
-                                if !self.genre.is_empty() {
-                                    ui.label(egui::RichText::new(&self.genre).weak().small());
-                                }
-                            });
-                        }
-
-                        if !self.plot.is_empty() {
-                            ui.add_space(2.0);
-                            ui.label(egui::RichText::new(&self.plot).italics().small());
-                        }
-
-                        if !self.director.is_empty() || !self.actors.is_empty() {
-                            let mut info = Vec::new();
-                            if !self.director.is_empty() {
-                                info.push(format!("Director: {}", self.director));
-                            }
-                            if !self.actors.is_empty() {
-                                info.push(format!("Cast: {}", self.actors));
-                            }
-                            ui.label(egui::RichText::new(info.join(" | ")).weak().small());
-                        }
-
-                        ui.add_space(4.0);
-
-                        if self.is_tv_mode {
-                            ui.horizontal(|ui| {
-                                ui.label("Season #:");
-                                if ui.add(egui::DragValue::new(&mut self.season_number).range(1..=99)).changed() {
-                                    self.check_and_auto_set_start_episode();
-                                }
-                                ui.label("Start Ep #:");
-                                ui.add(egui::DragValue::new(&mut self.start_episode).range(1..=99));
-                                if ui.button("🔄 Auto Ep").clicked() {
-                                    self.check_and_auto_set_start_episode();
-                                }
-                                ui.checkbox(&mut self.all_episodes, "Rip All Episodes");
-                                if ui.button("🔍 Scan Disc").clicked() && !self.detecting && !self.is_ripping {
-                                    self.trigger_tv_scan();
+                                ui.label(if self.is_tv_mode { "Show Name:" } else { "Film Title:" });
+                                ui.text_edit_singleline(&mut self.film_name);
+                                ui.label("Year:");
+                                ui.add(egui::TextEdit::singleline(&mut self.film_year).desired_width(50.0));
+                                if ui.button("🔍 Search").clicked() {
+                                    self.trigger_custom_search();
                                 }
                             });
 
-                            if !self.detected_episodes.is_empty() {
-                                ui.label(egui::RichText::new(format!("Detected Episodes ({}):", self.detected_episodes.len())).strong().small());
-                                egui::ScrollArea::vertical().max_height(60.0).show(ui, |ui| {
-                                    for ep in &self.detected_episodes {
+                            if !self.rating.is_empty() || !self.genre.is_empty() {
+                                ui.horizontal(|ui| {
+                                    if !self.rating.is_empty() {
                                         ui.label(
-                                            egui::RichText::new(format!(
-                                                "• {} (Title #{}, {:.0} mins)",
-                                                ep.formatted_name,
-                                                ep.title_num,
-                                                ep.duration_secs / 60.0
-                                            ))
-                                            .small(),
+                                            egui::RichText::new(format!("⭐ {}/10", self.rating))
+                                                .strong()
+                                                .color(egui::Color32::from_rgb(245, 175, 25)),
                                         );
+                                    }
+                                    if !self.genre.is_empty() {
+                                        ui.label(egui::RichText::new(&self.genre).weak().small());
                                     }
                                 });
                             }
-                        }
 
-                        ui.horizontal(|ui| {
-                            ui.label("Output Root Directory:");
-                            ui.text_edit_singleline(&mut self.out_dir);
-                            if !self.is_tv_mode || !self.all_episodes {
-                                ui.label("Title #:");
-                                ui.add(egui::DragValue::new(&mut self.title_number).range(0..=99));
-                                if self.title_number == 0 {
-                                    ui.label(egui::RichText::new("(0 = Auto)").weak());
+                            if !self.plot.is_empty() {
+                                ui.add_space(2.0);
+                                ui.label(egui::RichText::new(&self.plot).italics().small());
+                            }
+
+                            if !self.director.is_empty() || !self.actors.is_empty() {
+                                let mut info = Vec::new();
+                                if !self.director.is_empty() {
+                                    info.push(format!("Director: {}", self.director));
+                                }
+                                if !self.actors.is_empty() {
+                                    info.push(format!("Cast: {}", self.actors));
+                                }
+                                ui.label(egui::RichText::new(info.join(" | ")).weak().small());
+                            }
+
+                            ui.add_space(4.0);
+
+                            if self.is_tv_mode {
+                                ui.horizontal(|ui| {
+                                    ui.label("Season #:");
+                                    if ui.add(egui::DragValue::new(&mut self.season_number).range(1..=99)).changed() {
+                                        self.check_and_auto_set_start_episode();
+                                    }
+                                    ui.label("Start Ep #:");
+                                    ui.add(egui::DragValue::new(&mut self.start_episode).range(1..=99));
+                                    if ui.button("🔄 Auto Ep").clicked() {
+                                        self.check_and_auto_set_start_episode();
+                                    }
+                                    ui.checkbox(&mut self.all_episodes, "Rip All Episodes");
+                                    if ui.button("🔍 Scan Disc").clicked() {
+                                        self.trigger_tv_scan();
+                                    }
+                                });
+
+                                if !self.detected_episodes.is_empty() {
+                                    ui.label(egui::RichText::new(format!("Detected Episodes ({}):", self.detected_episodes.len())).strong().small());
+                                    egui::ScrollArea::vertical().max_height(60.0).show(ui, |ui| {
+                                        for ep in &self.detected_episodes {
+                                            ui.label(
+                                                egui::RichText::new(format!(
+                                                    "• {} (Title #{}, {:.0} mins)",
+                                                    ep.formatted_name,
+                                                    ep.title_num,
+                                                    ep.duration_secs / 60.0
+                                                ))
+                                                .small(),
+                                            );
+                                        }
+                                    });
                                 }
                             }
+
+                            ui.horizontal(|ui| {
+                                ui.label("Output Root Directory:");
+                                ui.text_edit_singleline(&mut self.out_dir);
+                                if !self.is_tv_mode || !self.all_episodes {
+                                    ui.label("Title #:");
+                                    ui.add(egui::DragValue::new(&mut self.title_number).range(0..=99));
+                                    if self.title_number == 0 {
+                                        ui.label(egui::RichText::new("(0 = Auto)").weak());
+                                    }
+                                }
+                            });
                         });
                     });
-                });
 
-                ui.horizontal(|ui| {
-                    ui.checkbox(&mut self.transcode, "Re-encode (H.264 / AAC)");
-                    if self.transcode {
-                        ui.label("Preset:");
-                        egui::ComboBox::from_id_salt("preset_combo")
-                            .selected_text(&self.preset)
-                            .show_ui(ui, |ui| {
-                                ui.selectable_value(&mut self.preset, "ultrafast".to_string(), "ultrafast");
-                                ui.selectable_value(&mut self.preset, "superfast".to_string(), "superfast");
-                                ui.selectable_value(&mut self.preset, "veryfast".to_string(), "veryfast");
-                                ui.selectable_value(&mut self.preset, "fast".to_string(), "fast");
-                                ui.selectable_value(&mut self.preset, "medium".to_string(), "medium");
-                            });
-                    } else {
-                        ui.label(egui::RichText::new("(Fast Lossless Stream Copy)").weak());
-                    }
+                    ui.horizontal(|ui| {
+                        ui.checkbox(&mut self.transcode, "Re-encode (H.264 / AAC)");
+                        if self.transcode {
+                            ui.label("Preset:");
+                            egui::ComboBox::from_id_salt("preset_combo")
+                                .selected_text(&self.preset)
+                                .show_ui(ui, |ui| {
+                                    ui.selectable_value(&mut self.preset, "ultrafast".to_string(), "ultrafast");
+                                    ui.selectable_value(&mut self.preset, "superfast".to_string(), "superfast");
+                                    ui.selectable_value(&mut self.preset, "veryfast".to_string(), "veryfast");
+                                    ui.selectable_value(&mut self.preset, "fast".to_string(), "fast");
+                                    ui.selectable_value(&mut self.preset, "medium".to_string(), "medium");
+                                });
+                        } else {
+                            ui.label(egui::RichText::new("(Fast Lossless Stream Copy)").weak());
+                        }
+                    });
                 });
             });
 
