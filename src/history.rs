@@ -64,6 +64,13 @@ pub fn clear_history(path: Option<&Path>) -> Result<()> {
     Ok(())
 }
 
+/// Convenience facade to insert a new rip record at the top of history and persist to disk.
+pub fn record_rip_event(title: &str, media_type: &str, output_path: &str, status: &str) -> Result<()> {
+    let mut history = load_history(None);
+    history.insert(0, RipRecord::new(title, media_type, output_path, status));
+    save_history(&history, None)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

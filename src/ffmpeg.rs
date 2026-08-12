@@ -31,22 +31,7 @@ pub fn resolve_output_path(
         PathBuf::from(format!("output.{}", extension))
     };
 
-    let absolute_output = if rel_or_abs_file.is_absolute() {
-        rel_or_abs_file
-    } else {
-        let target = PathBuf::from(&args.out_dir).join(rel_or_abs_file);
-        if target.is_absolute() {
-            target
-        } else {
-            std::env::current_dir()?.join(target)
-        }
-    };
-
-    if let Some(parent) = absolute_output.parent() {
-        std::fs::create_dir_all(parent).context("Failed to create output parent directory")?;
-    }
-
-    Ok(absolute_output)
+    ensure_absolute_parent_dir(&args.out_dir, rel_or_abs_file)
 }
 
 /// Resolves the absolute output file path for a TV series episode (e.g. TV/The Office (2005)/Season 01/The Office - S01E01.mpg).
@@ -78,14 +63,24 @@ pub fn resolve_tv_output_path(
         .join(season_folder)
         .join(filename);
 
-    let absolute_output = if rel_file.is_absolute() {
-        rel_file
+    ensure_absolute_parent_dir(root_dir, rel_file)
+}
+
+/// Helper: Ensures parent directories exist and returns absolute path.
+fn ensure_absolute_parent_dir(base_dir: &str, path: PathBuf) -> Result<PathBuf> {
+    let absolute_output = if path.is_absolute() {
+        path
     } else {
-        std::env::current_dir()?.join(rel_file)
+        let target = PathBuf::from(base_dir).join(path);
+        if target.is_absolute() {
+            target
+        } else {
+            std::env::current_dir()?.join(target)
+        }
     };
 
     if let Some(parent) = absolute_output.parent() {
-        std::fs::create_dir_all(parent).context("Failed to create TV output parent directory")?;
+        std::fs::create_dir_all(parent).context("Failed to create output parent directory")?;
     }
 
     Ok(absolute_output)
@@ -604,20 +599,9 @@ mod tests {
         let out_dir_str = temp.0.to_string_lossy().to_string();
 
         let args = Args {
-            input: "D:\\".to_string(),
-            output: None,
             out_dir: out_dir_str,
-            title: 1,
-            transcode: false,
-            preset: "veryfast".to_string(),
-            ffmpeg: "ffmpeg".to_string(),
-            hwaccel: "copy".to_string(),
-            cli: false,
-            daemon: false,
             tv: true,
-            season: 1,
-            start_episode: 1,
-            all_episodes: false,
+            ..Default::default()
         };
 
         let path = resolve_tv_output_path(&args, Some("The Office"), Some(2005), 1, 3).unwrap();
@@ -633,20 +617,9 @@ mod tests {
         let out_dir_str = temp.0.to_string_lossy().to_string();
 
         let args = Args {
-            input: "D:\\".to_string(),
-            output: None,
             out_dir: out_dir_str,
-            title: 1,
             transcode: true,
-            preset: "veryfast".to_string(),
-            ffmpeg: "ffmpeg".to_string(),
-            hwaccel: "copy".to_string(),
-            cli: false,
-            daemon: false,
-            tv: false,
-            season: 1,
-            start_episode: 1,
-            all_episodes: false,
+            ..Default::default()
         };
 
         let path = resolve_output_path(&args, None, None).unwrap();
@@ -656,22 +629,7 @@ mod tests {
 
     #[test]
     fn test_build_ffmpeg_command_title_argument() {
-        let args = Args {
-            input: "D:\\".to_string(),
-            output: None,
-            out_dir: "Films".to_string(),
-            title: 0,
-            transcode: false,
-            preset: "veryfast".to_string(),
-            ffmpeg: "ffmpeg".to_string(),
-            hwaccel: "copy".to_string(),
-            cli: false,
-            daemon: false,
-            tv: false,
-            season: 1,
-            start_episode: 1,
-            all_episodes: false,
-        };
+        let args = Args::default();
 
         let output_path = PathBuf::from("Films/Test/Test.mpg");
         let cmd = build_ffmpeg_command(&args, Path::new("D:\\"), &output_path, 3);

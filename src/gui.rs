@@ -12,7 +12,7 @@ use crate::ffmpeg::{
     detect_tv_episodes, resolve_output_path, resolve_tv_output_path, run_ffmpeg_with_channel,
     ProgressEvent, TvEpisodeInfo,
 };
-use crate::history::{clear_history, load_history, save_history, RipRecord};
+use crate::history::{clear_history, load_history, record_rip_event, save_history, RipRecord};
 use crate::imdb::lookup_film_details;
 use crate::utils::sanitize_filename;
 
@@ -302,22 +302,16 @@ impl DvdRipperApp {
                         return;
                     }
 
-                    let args = Args {
-                        input: drive.clone(),
-                        output: None,
-                        out_dir: out_dir.clone(),
-                        title: ep.title_num,
-                        transcode,
-                        preset: preset.clone(),
-                        ffmpeg: ffmpeg_path.clone(),
-                        hwaccel: "copy".to_string(),
-                        cli: false,
-                        daemon: false,
-                        tv: true,
+                    let args = Args::new_tv(
+                        drive.clone(),
+                        out_dir.clone(),
+                        ep.title_num,
                         season,
-                        start_episode: ep.episode_num,
-                        all_episodes: false,
-                    };
+                        ep.episode_num,
+                        transcode,
+                        preset.clone(),
+                        ffmpeg_path.clone(),
+                    );
 
                     match resolve_tv_output_path(&args, show_name_opt.as_deref(), year_opt, season, ep.episode_num) {
                         Ok(abs_out) => {
@@ -362,22 +356,16 @@ impl DvdRipperApp {
             } else if is_tv {
                 let show_name = show_name_opt.as_deref().unwrap_or("TV Show");
                 let ep_num = if start_ep > 0 { start_ep } else { 1 };
-                let args = Args {
-                    input: drive.clone(),
-                    output: None,
-                    out_dir: out_dir.clone(),
-                    title: title_num,
-                    transcode,
-                    preset: preset.clone(),
-                    ffmpeg: ffmpeg_path.clone(),
-                    hwaccel: "copy".to_string(),
-                    cli: false,
-                    daemon: false,
-                    tv: true,
+                let args = Args::new_tv(
+                    drive.clone(),
+                    out_dir.clone(),
+                    title_num,
                     season,
-                    start_episode: ep_num,
-                    all_episodes: false,
-                };
+                    ep_num,
+                    transcode,
+                    preset.clone(),
+                    ffmpeg_path.clone(),
+                );
 
                 match resolve_tv_output_path(&args, show_name_opt.as_deref(), year_opt, season, ep_num) {
                     Ok(abs_out) => {
@@ -401,22 +389,14 @@ impl DvdRipperApp {
                     }
                 }
             } else {
-                let args = Args {
-                    input: drive.clone(),
-                    output: None,
-                    out_dir: out_dir.clone(),
-                    title: title_num,
+                let args = Args::new_movie(
+                    drive.clone(),
+                    out_dir.clone(),
+                    title_num,
                     transcode,
-                    preset: preset.clone(),
-                    ffmpeg: ffmpeg_path.clone(),
-                    hwaccel: "copy".to_string(),
-                    cli: false,
-                    daemon: false,
-                    tv: false,
-                    season: 1,
-                    start_episode: 1,
-                    all_episodes: false,
-                };
+                    preset.clone(),
+                    ffmpeg_path.clone(),
+                );
 
                 match resolve_output_path(&args, show_name_opt.as_deref(), year_opt) {
                     Ok(abs_out) => {
@@ -522,9 +502,8 @@ impl DvdRipperApp {
                         self.film_name.trim().to_string()
                     };
                     let media_type = if self.is_tv_mode { "TV Series" } else { "Movie" };
-                    let record = RipRecord::new(&title, media_type, &path.to_string_lossy(), "Success");
-                    self.history.insert(0, record);
-                    let _ = save_history(&self.history, None);
+                    let _ = record_rip_event(&title, media_type, &path.to_string_lossy(), "Success");
+                    self.history = load_history(None);
                 }
                 ProgressEvent::Error(msg) => {
                     self.is_ripping = false;

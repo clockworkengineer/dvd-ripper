@@ -10,7 +10,7 @@ use anyhow::Result;
 use crate::cli::Args;
 use crate::dvd::{get_volume_label, normalize_dvd_path};
 use crate::ffmpeg::{detect_tv_episodes, resolve_output_path, resolve_tv_output_path, run_ffmpeg_with_progress};
-use crate::history::{load_history, save_history, RipRecord};
+use crate::history::record_rip_event;
 use crate::imdb::lookup_film_details;
 
 /// Launches the headless appliance daemon loop polling optical drives for inserted DVDs.
@@ -70,9 +70,7 @@ pub fn run_daemon(args: Args, poll_interval_secs: u64) -> Result<()> {
                                     &ep.formatted_name,
                                     Some(ep.duration_secs),
                                 ).is_ok() {
-                                    let mut history = load_history(None);
-                                    history.insert(0, RipRecord::new(&ep.formatted_name, "TV Series", &out_path.to_string_lossy(), "Success"));
-                                    let _ = save_history(&history, None);
+                                    let _ = record_rip_event(&ep.formatted_name, "TV Series", &out_path.to_string_lossy(), "Success");
                                 }
                             }
                         }
@@ -86,9 +84,7 @@ pub fn run_daemon(args: Args, poll_interval_secs: u64) -> Result<()> {
                                 &title_name,
                                 None,
                             ).is_ok() {
-                                let mut history = load_history(None);
-                                history.insert(0, RipRecord::new(&title_name, "Movie", &out_path.to_string_lossy(), "Success"));
-                                let _ = save_history(&history, None);
+                                let _ = record_rip_event(&title_name, "Movie", &out_path.to_string_lossy(), "Success");
                             }
                         }
                     }

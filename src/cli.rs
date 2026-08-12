@@ -69,3 +69,69 @@ pub struct Args {
     #[arg(long = "all-episodes")]
     pub all_episodes: bool,
 }
+
+impl Default for Args {
+    fn default() -> Self {
+        Self {
+            input: "D:\\".to_string(),
+            output: None,
+            out_dir: "Films".to_string(),
+            title: 0,
+            transcode: false,
+            preset: "veryfast".to_string(),
+            ffmpeg: "ffmpeg".to_string(),
+            hwaccel: "copy".to_string(),
+            cli: false,
+            daemon: false,
+            tv: false,
+            season: 1,
+            start_episode: 1,
+            all_episodes: false,
+        }
+    }
+}
+
+impl Args {
+    pub fn new_movie(
+        input: String,
+        out_dir: String,
+        title: u32,
+        transcode: bool,
+        preset: String,
+        ffmpeg: String,
+    ) -> Self {
+        Self {
+            input,
+            out_dir,
+            title,
+            transcode,
+            preset,
+            ffmpeg,
+            ..Default::default()
+        }
+    }
+
+    pub fn new_tv(
+        input: String,
+        out_dir: String,
+        title: u32,
+        season: u32,
+        start_ep: u32,
+        transcode: bool,
+        preset: String,
+        ffmpeg: String,
+    ) -> Self {
+        Self {
+            input,
+            out_dir,
+            title,
+            tv: true,
+            season,
+            start_episode: start_ep,
+            transcode,
+            preset,
+            ffmpeg,
+            ..Default::default()
+        }
+    }
+}
