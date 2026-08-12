@@ -134,43 +134,31 @@ fn handle_client(mut stream: TcpStream, drive_path: &str) -> Result<()> {
 
     match (method, path) {
         ("GET", "/") | ("GET", "/index.html") => {
-            let response = format!(
-                "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
-                EMBEDDED_DASHBOARD_HTML.len(),
-                EMBEDDED_DASHBOARD_HTML
-            );
-            stream.write_all(response.as_bytes())?;
+            send_http_response(&mut stream, "200 OK", "text/html; charset=utf-8", EMBEDDED_DASHBOARD_HTML)?;
         }
         ("GET", "/api/history") => {
             let history = load_history(None);
             let json_body = serde_json::to_string(&history).unwrap_or_else(|_| "[]".to_string());
-            let response = format!(
-                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
-                json_body.len(),
-                json_body
-            );
-            stream.write_all(response.as_bytes())?;
+            send_http_response(&mut stream, "200 OK", "application/json", &json_body)?;
         }
         ("POST", "/api/eject") => {
             let ok = eject_disc(drive_path);
             let json_body = format!("{{\"success\": {}}}", ok);
-            let response = format!(
-                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
-                json_body.len(),
-                json_body
-            );
-            stream.write_all(response.as_bytes())?;
+            send_http_response(&mut stream, "200 OK", "application/json", &json_body)?;
         }
         _ => {
-            let body = "404 Not Found";
-            let response = format!(
-                "HTTP/1.1 404 Not Found\r\nContent-Type: text/plain\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
-                body.len(),
-                body
-            );
-            stream.write_all(response.as_bytes())?;
+            send_http_response(&mut stream, "404 Not Found", "text/plain", "404 Not Found")?;
         }
     }
 
+    Ok(())
+}
+
+fn send_http_response(stream: &mut TcpStream, status: &str, content_type: &str, body: &str) -> Result<()> {
+    let response = format!(
+        "HTTP/1.1 {}\r\nContent-Type: {}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+        status, content_type, body.len(), body
+    );
+    stream.write_all(response.as_bytes())?;
     Ok(())
 }
