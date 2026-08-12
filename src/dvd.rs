@@ -87,3 +87,27 @@ pub fn get_volume_label(root_path: &str) -> Option<String> {
 
     None
 }
+
+/// Ejects the optical drive tray using platform-native calls or system utilities.
+pub fn eject_disc(root_path: &str) -> bool {
+    #[cfg(target_os = "windows")]
+    {
+        use std::process::Command;
+        let drive_letter = root_path.chars().next().unwrap_or('D');
+        let ps_cmd = format!(
+            "(New-Object -ComObject Shell.Application).NameSpace(17).ParseName('{}:').InvokeVerb('Eject')",
+            drive_letter
+        );
+        Command::new("powershell").args(["-Command", &ps_cmd]).output().is_ok()
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        use std::process::Command;
+        let dev_path = if root_path.is_empty() || root_path == "D:\\" || root_path == "D:" {
+            "/dev/sr0"
+        } else {
+            root_path
+        };
+        Command::new("eject").arg(dev_path).status().map_or(false, |s| s.success())
+    }
+}

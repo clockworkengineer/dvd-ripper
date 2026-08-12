@@ -1,0 +1,2 @@
+# Automatically trigger DVD Ripper daemon on optical disc insertion (/dev/sr0)
+SUBSYSTEM=="block", KERNEL=="sr[0-9]*", ACTION=="change", ENV{DISK_MEDIA_CHANGE}=="1", RUN+="/bin/systemctl restart dvd-ripper.service"

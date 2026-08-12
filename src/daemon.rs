@@ -17,6 +17,7 @@ use crate::imdb::lookup_film_details;
 pub fn run_daemon(args: Args, poll_interval_secs: u64) -> Result<()> {
     println!("=== DVD Ripper Embedded Appliance Daemon Mode ===");
     println!("Monitoring drive '{}' every {} seconds...", args.input, poll_interval_secs);
+    let _ = crate::api::start_embedded_api_server(8080, args.input.clone());
     println!("Press Ctrl+C to stop.\n");
 
     let mut last_processed_label = String::new();
@@ -92,7 +93,10 @@ pub fn run_daemon(args: Args, poll_interval_secs: u64) -> Result<()> {
                         }
                     }
 
-                    println!("[Daemon Event] Ripping completed for disc: {}\n", label);
+                    println!("[Daemon Event] Ripping completed for disc: {}", label);
+                    println!("[Daemon Event] Ejecting optical disc tray...");
+                    let _ = crate::dvd::eject_disc(&args.input);
+                    println!();
                 }
             } else {
                 last_processed_label.clear();

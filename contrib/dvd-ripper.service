@@ -1,0 +1,15 @@
+[Unit]
+Description=DVD Ripper Embedded Appliance Daemon
+After=network.target local-fs.target
+
+[Service]
+Type=simple
+User=root
+ExecStart=/usr/local/bin/dvd-ripper --daemon --input /dev/sr0 --out-dir /media/storage
+Restart=always
+RestartSec=5
+ProtectSystem=full
+ProtectHome=no
+
+[Install]
+WantedBy=multi-user.target

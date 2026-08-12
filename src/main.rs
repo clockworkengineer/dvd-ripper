@@ -3,6 +3,7 @@
  * @brief DVD Ripper entry point supporting both GUI and CLI modes for Movies & TV Series.
  */
 
+mod api;
 mod cli;
 mod daemon;
 mod dvd;
