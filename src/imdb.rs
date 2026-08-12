@@ -123,11 +123,24 @@ pub fn fetch_imdb_runtime(_imdb_id: &str) -> Option<f64> {
     None
 }
 
+use std::sync::OnceLock;
+
+fn get_http_client() -> &'static reqwest::blocking::Client {
+    static CLIENT: OnceLock<reqwest::blocking::Client> = OnceLock::new();
+    CLIENT.get_or_init(|| {
+        reqwest::blocking::Client::builder()
+            .timeout(std::time::Duration::from_secs(10))
+            .build()
+            .unwrap_or_default()
+    })
+}
+
 /// Queries OMDb API for movie title, release year, running time, plot summary, and poster image.
 pub fn lookup_omdb_details(query: &str) -> Option<FilmMetadata> {
+    let client = get_http_client();
     let encoded_query = query.replace(' ', "+");
     let url = format!("https://www.omdbapi.com/?t={}&apikey=trilogy", encoded_query);
-    let resp = reqwest::blocking::get(&url).ok()?;
+    let resp = client.get(&url).send().ok()?;
     let text = resp.text().ok()?;
     let omdb: OmdbResponse = serde_json::from_str(&text).ok()?;
 
@@ -154,7 +167,7 @@ pub fn lookup_omdb_details(query: &str) -> Option<FilmMetadata> {
 
             let mut poster_bytes = None;
             if let Some(ref p_url) = poster_url {
-                if let Ok(p_resp) = reqwest::blocking::get(p_url) {
+                if let Ok(p_resp) = client.get(p_url).send() {
                     if let Ok(bytes) = p_resp.bytes() {
                         poster_bytes = Some(bytes.to_vec());
                     }
@@ -233,7 +246,9 @@ pub fn lookup_film_details(query: &str) -> Result<FilmMetadata> {
     let mut url = reqwest::Url::parse("https://sg.media-imdb.com")?;
     url.set_path(&format!("suggests/{}/{}.json", first_char, cleaned));
 
-    let response_text = reqwest::blocking::get(url)
+    let response_text = get_http_client()
+        .get(url)
+        .send()
         .context("Failed to send request to IMDb Suggest API")?
         .text()
         .context("Failed to read response body from IMDb Suggest API")?;

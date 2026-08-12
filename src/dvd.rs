@@ -7,11 +7,11 @@ use std::path::PathBuf;
 
 /// Resolves and normalizes the DVD drive input path (e.g., adding trailing backslash if letter given).
 pub fn normalize_dvd_path(input: &str) -> PathBuf {
-    let mut dvd_path = PathBuf::from(input);
-    if dvd_path.to_string_lossy().ends_with(':') {
-        dvd_path = PathBuf::from(format!("{}\\", input));
+    if input.ends_with(':') {
+        PathBuf::from(format!("{}\\", input))
+    } else {
+        PathBuf::from(input)
     }
-    dvd_path
 }
 
 /// Retrieves the local volume label of a DVD drive using platform-native calls.
