@@ -5,25 +5,32 @@
 
 /// Sanitizes a movie title to make it safe for filesystem folders and file names.
 pub fn sanitize_filename(name: &str) -> String {
-    name.chars()
+    let sanitized: String = name
+        .chars()
         .map(|c| match c {
             ':' => ' ', // Replace colons with spaces
             '\\' | '/' | '*' | '?' | '"' | '<' | '>' | '|' => '_', // Replace other invalid characters
             _ => c,
         })
-        .collect::<String>()
-        .split_whitespace()
-        .collect::<Vec<_>>()
-        .join(" ")
+        .collect();
+
+    let mut result = String::with_capacity(sanitized.len());
+    for word in sanitized.split_whitespace() {
+        if !result.is_empty() {
+            result.push(' ');
+        }
+        result.push_str(word);
+    }
+    result
 }
 
 /// Parses an FFmpeg timestamp string (HH:MM:SS.xx) into total seconds.
 pub fn parse_duration(s: &str) -> Option<f64> {
-    let parts: Vec<&str> = s.split(':').collect();
-    if parts.len() == 3 {
-        let hours: f64 = parts[0].trim().parse().ok()?;
-        let minutes: f64 = parts[1].trim().parse().ok()?;
-        let seconds: f64 = parts[2].trim().parse().ok()?;
+    let mut parts = s.split(':');
+    let hours: f64 = parts.next()?.trim().parse().ok()?;
+    let minutes: f64 = parts.next()?.trim().parse().ok()?;
+    let seconds: f64 = parts.next()?.trim().parse().ok()?;
+    if parts.next().is_none() {
         Some(hours * 3600.0 + minutes * 60.0 + seconds)
     } else {
         None

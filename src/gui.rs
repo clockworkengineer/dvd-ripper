@@ -1,5 +1,6 @@
 #![cfg(feature = "gui")]
 
+use std::collections::VecDeque;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{channel, Receiver, Sender};
@@ -52,7 +53,7 @@ pub struct DvdRipperApp {
     fps: String,
     speed: String,
     status_message: String,
-    logs: Vec<String>,
+    logs: VecDeque<String>,
 
     event_tx: Sender<ProgressEvent>,
     event_rx: Receiver<ProgressEvent>,
@@ -98,7 +99,7 @@ impl Default for DvdRipperApp {
             fps: "N/A".to_string(),
             speed: "N/A".to_string(),
             status_message: "Ready to rip.".to_string(),
-            logs: Vec::new(),
+            logs: VecDeque::new(),
 
             event_tx,
             event_rx,
@@ -450,9 +451,9 @@ impl DvdRipperApp {
                         self.detecting = false;
                         self.detect_status = "Detection finished.".to_string();
                     } else {
-                        self.logs.push(line);
+                        self.logs.push_back(line);
                         if self.logs.len() > 500 {
-                            self.logs.remove(0);
+                            self.logs.pop_front();
                         }
                     }
                 }
