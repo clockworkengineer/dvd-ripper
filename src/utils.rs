@@ -43,102 +43,6 @@ pub fn extract_kv_field<'a>(line: &'a str, key: &str) -> Option<&'a str> {
     }
 }
 
-/// Scans the target TV season folder to find the highest existing episode number, returning next start episode (max_ep + 1).
-pub fn find_next_start_episode(
-    out_dir: &str,
-    show_name: &str,
-    show_year: Option<u32>,
-    season: u32,
-) -> u32 {
-    let root_dir = if out_dir == "Films" { "TV" } else { out_dir };
-    let show_folder = if let Some(year) = show_year {
-        format!("{} ({})", show_name, year)
-    } else {
-        show_name.to_string()
-    };
-    let season_folder = format!("Season {:02}", season);
-    let target_dir = std::path::PathBuf::from(root_dir)
-        .join(show_folder)
-        .join(season_folder);
-
-    if !target_dir.exists() {
-        return 1;
-    }
-
-    let mut max_ep = 0u32;
-    let season_pattern = format!("S{:02}E", season);
-
-    if let Ok(entries) = std::fs::read_dir(&target_dir) {
-        for entry in entries.flatten() {
-            let filename = entry.file_name().to_string_lossy().to_string();
-            if let Some(idx) = filename.find(&season_pattern) {
-                let sub = &filename[idx + season_pattern.len()..];
-                let ep_num_str: String = sub.chars().take_while(|c| c.is_ascii_digit()).collect();
-                if let Ok(ep_num) = ep_num_str.parse::<u32>() {
-                    if ep_num > max_ep {
-                        max_ep = ep_num;
-                    }
-                }
-            }
-        }
-    }
-
-    if max_ep > 0 {
-        max_ep + 1
-    } else {
-        1
-    }
-}
-
-/// Helper: Infers the starting episode number directly from the DVD volume label (e.g., DISC 3 or BBCDVD1757).
-pub fn infer_start_episode_from_label(volume_label: &str, eps_per_disc: u32) -> Option<u32> {
-    let label_upper = volume_label.to_uppercase();
-
-    let default_eps = if eps_per_disc > 0 { eps_per_disc } else { 6 };
-
-    // 1. Look for explicit disc patterns like DISC3, DISC_3, D3, VOL3, VOL_3, PART3
-    let re_patterns = ["DISC", "VOL", "PART", "DISK"];
-
-    for pat in &re_patterns {
-        if let Some(idx) = label_upper.find(pat) {
-            let sub = &label_upper[idx + pat.len()..];
-            let num_str: String = sub
-                .chars()
-                .skip_while(|c| !c.is_ascii_digit())
-                .take_while(|c| c.is_ascii_digit())
-                .collect();
-            if let Ok(disc_num) = num_str.parse::<u32>() {
-                if disc_num > 0 {
-                    return Some((disc_num - 1) * default_eps + 1);
-                }
-            }
-        }
-    }
-
-    // 2. Look for catalog codes ending in sequential numbers (e.g. BBCDVD1755 = Disc 1, 1756 = Disc 2, 1757 = Disc 3)
-    let trailing_digits: String = label_upper
-        .chars()
-        .rev()
-        .take_while(|c| c.is_ascii_digit())
-        .collect::<String>()
-        .chars()
-        .rev()
-        .collect();
-
-    if trailing_digits.len() >= 2 {
-        if let Ok(num) = trailing_digits.parse::<u32>() {
-            if num >= 1000 {
-                let base = num - (num % 10) + 5;
-                let base_num = if num >= base { base } else { num };
-                let disc_num = (num - base_num) + 1;
-                return Some((disc_num - 1) * default_eps + 1);
-            }
-        }
-    }
-
-    None
-}
-
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct ParsedLabelInfo {
     pub clean_title: String,
@@ -245,24 +149,6 @@ pub fn parse_season_disc_from_label(label: &str) -> ParsedLabelInfo {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::fs::{self, File};
-
-    struct TestTempDir(std::path::PathBuf);
-
-    impl TestTempDir {
-        fn new(name: &str) -> Self {
-            let path = std::env::temp_dir().join(format!("dvd_ripper_utils_test_{}_{}", name, std::process::id()));
-            let _ = fs::remove_dir_all(&path);
-            let _ = fs::create_dir_all(&path);
-            Self(path)
-        }
-    }
-
-    impl Drop for TestTempDir {
-        fn drop(&mut self) {
-            let _ = fs::remove_dir_all(&self.0);
-        }
-    }
 
     #[test]
     fn test_sanitize_filename() {
@@ -285,30 +171,6 @@ mod tests {
         assert_eq!(extract_kv_field(line, "speed="), Some("2.5x"));
         assert_eq!(extract_kv_field(line, "time="), Some("00:01:30.00"));
         assert_eq!(extract_kv_field(line, "missing="), None);
-    }
-
-    #[test]
-    fn test_find_next_start_episode() {
-        let temp = TestTempDir::new("next_start_ep");
-        let season_dir = temp.0.join("Doctor Who (2005)").join("Season 01");
-        fs::create_dir_all(&season_dir).unwrap();
-
-        File::create(season_dir.join("Doctor Who - S01E01.mpg")).unwrap();
-        File::create(season_dir.join("Doctor Who - S01E02.mpg")).unwrap();
-        File::create(season_dir.join("Doctor Who - S01E03.mpg")).unwrap();
-
-        let out_dir_str = temp.0.to_string_lossy().to_string();
-        let next_ep = find_next_start_episode(&out_dir_str, "Doctor Who", Some(2005), 1);
-        assert_eq!(next_ep, 4);
-    }
-
-    #[test]
-    fn test_infer_start_episode_from_label() {
-        assert_eq!(infer_start_episode_from_label("BBCDVD1755", 3), Some(1));
-        assert_eq!(infer_start_episode_from_label("BBCDVD1756", 3), Some(4));
-        assert_eq!(infer_start_episode_from_label("BBCDVD1757", 3), Some(7));
-        assert_eq!(infer_start_episode_from_label("DRWHO_DISC3", 3), Some(7));
-        assert_eq!(infer_start_episode_from_label("SHOW_S01_VOL2", 3), Some(4));
     }
 
     #[test]

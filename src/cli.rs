@@ -41,9 +41,17 @@ pub struct Args {
     #[arg(long, default_value = "ffmpeg")]
     pub ffmpeg: String,
 
+    /// Hardware acceleration mode for embedded transcoding (e.g. copy, v4l2m2m, vaapi, nvenc, qsv)
+    #[arg(long = "hwaccel", default_value = "copy")]
+    pub hwaccel: String,
+
     /// Force command-line interface mode instead of GUI
     #[arg(long)]
     pub cli: bool,
+
+    /// Run as a headless embedded appliance daemon watching for optical disc insertion
+    #[arg(long)]
+    pub daemon: bool,
 
     /// Enable TV series disc ripping mode
     #[arg(long)]

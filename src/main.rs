@@ -4,8 +4,10 @@
  */
 
 mod cli;
+mod daemon;
 mod dvd;
 mod ffmpeg;
+#[cfg(feature = "gui")]
 mod gui;
 mod history;
 mod imdb;
@@ -15,36 +17,44 @@ use anyhow::{anyhow, Result};
 use clap::Parser;
 
 use cli::Args;
+use daemon::run_daemon;
 use dvd::{get_volume_label, normalize_dvd_path};
 use ffmpeg::{
     detect_tv_episodes, resolve_output_path, resolve_tv_output_path, run_ffmpeg_with_progress,
 };
-use gui::run_gui;
 use imdb::lookup_film_details;
 use utils::sanitize_filename;
 
 fn main() -> Result<()> {
-    // Check raw args to see if user requested CLI mode or passed specific CLI parameters
-    let raw_args: Vec<String> = std::env::args().collect();
-    let is_cli = raw_args.iter().any(|arg| {
-        arg == "--cli"
-            || arg == "-h"
-            || arg == "--help"
-            || arg == "-V"
-            || arg == "--version"
-            || arg == "--tv"
-    });
+    #[cfg(feature = "gui")]
+    {
+        // Check raw args to see if user requested CLI mode or passed specific CLI parameters
+        let raw_args: Vec<String> = std::env::args().collect();
+        let is_cli = raw_args.iter().any(|arg| {
+            arg == "--cli"
+                || arg == "-h"
+                || arg == "--help"
+                || arg == "-V"
+                || arg == "--version"
+                || arg == "--tv"
+                || arg == "--daemon"
+        });
 
-    if !is_cli {
-        // Run native desktop GUI by default
-        if let Err(e) = run_gui() {
-            eprintln!("GUI Error: {}", e);
+        if !is_cli {
+            // Run native desktop GUI by default when feature is enabled
+            if let Err(e) = gui::run_gui() {
+                eprintln!("GUI Error: {}", e);
+            }
+            return Ok(());
         }
-        return Ok(());
     }
 
     // CLI mode execution path
     let mut args = Args::parse();
+
+    if args.daemon {
+        return run_daemon(args, 10);
+    }
 
     // 1. Resolve & validate DVD path
     let dvd_path = normalize_dvd_path(&args.input);

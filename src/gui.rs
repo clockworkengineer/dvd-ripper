@@ -1,7 +1,4 @@
-/**
- * @file gui.rs
- * @brief Portable graphical user interface built with eframe/egui supporting Movies & TV Series discs.
- */
+#![cfg(feature = "gui")]
 
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -313,7 +310,9 @@ impl DvdRipperApp {
                         transcode,
                         preset: preset.clone(),
                         ffmpeg: ffmpeg_path.clone(),
+                        hwaccel: "copy".to_string(),
                         cli: false,
+                        daemon: false,
                         tv: true,
                         season,
                         start_episode: ep.episode_num,
@@ -371,7 +370,9 @@ impl DvdRipperApp {
                     transcode,
                     preset: preset.clone(),
                     ffmpeg: ffmpeg_path.clone(),
+                    hwaccel: "copy".to_string(),
                     cli: false,
+                    daemon: false,
                     tv: true,
                     season,
                     start_episode: ep_num,
@@ -408,7 +409,9 @@ impl DvdRipperApp {
                     transcode,
                     preset: preset.clone(),
                     ffmpeg: ffmpeg_path.clone(),
+                    hwaccel: "copy".to_string(),
                     cli: false,
+                    daemon: false,
                     tv: false,
                     season: 1,
                     start_episode: 1,

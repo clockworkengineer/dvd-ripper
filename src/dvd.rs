@@ -4,8 +4,6 @@
  */
 
 use std::path::PathBuf;
-use windows::core::PCWSTR;
-use windows::Win32::Storage::FileSystem::GetVolumeInformationW;
 
 /// Resolves and normalizes the DVD drive input path (e.g., adding trailing backslash if letter given).
 pub fn normalize_dvd_path(input: &str) -> PathBuf {
@@ -16,8 +14,12 @@ pub fn normalize_dvd_path(input: &str) -> PathBuf {
     dvd_path
 }
 
-/// Retrieves the local volume label of a DVD drive using the Windows API.
+/// Retrieves the local volume label of a DVD drive using platform-native calls.
+#[cfg(target_os = "windows")]
 pub fn get_volume_label(root_path: &str) -> Option<String> {
+    use windows::core::PCWSTR;
+    use windows::Win32::Storage::FileSystem::GetVolumeInformationW;
+
     let mut path_wide: Vec<u16> = root_path.encode_utf16().collect();
     if !path_wide.ends_with(&[b'\\' as u16]) {
         path_wide.push(b'\\' as u16);
@@ -43,5 +45,45 @@ pub fn get_volume_label(root_path: &str) -> Option<String> {
             }
         }
     }
+    None
+}
+
+/// Linux POSIX block device ISO-9660 Primary Volume Descriptor reader.
+#[cfg(not(target_os = "windows"))]
+pub fn get_volume_label(root_path: &str) -> Option<String> {
+    use std::fs::File;
+    use std::io::{Read, Seek, SeekFrom};
+
+    let dev_path = if root_path.is_empty() || root_path == "D:\\" || root_path == "D:" {
+        "/dev/sr0"
+    } else {
+        root_path
+    };
+
+    if let Ok(mut file) = File::open(dev_path) {
+        // Sector 16 is at offset 32768 (16 * 2048) in ISO-9660 Primary Volume Descriptor
+        if file.seek(SeekFrom::Start(32768)).is_ok() {
+            let mut buf = [0u8; 2048];
+            if file.read_exact(&mut buf).is_ok() {
+                // Check ISO-9660 identifier "CD001" at offset 1..6
+                if &buf[1..6] == b"CD001" {
+                    // Volume Identifier is 32 bytes at offset 40..72
+                    let vol_id = String::from_utf8_lossy(&buf[40..72]);
+                    let trimmed = vol_id.trim().to_string();
+                    if !trimmed.is_empty() {
+                        return Some(trimmed);
+                    }
+                }
+            }
+        }
+    }
+
+    let path = std::path::Path::new(root_path);
+    if path.exists() {
+        if let Some(stem) = path.file_stem() {
+            return Some(stem.to_string_lossy().to_string());
+        }
+    }
+
     None
 }

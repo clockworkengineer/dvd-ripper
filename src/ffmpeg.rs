@@ -288,11 +288,40 @@ pub fn build_ffmpeg_command(
     cmd.arg("-map").arg("0:a?");
 
     if args.transcode {
-        cmd.arg("-c:v").arg("libx264");
-        cmd.arg("-preset").arg(&args.preset);
-        cmd.arg("-crf").arg("22");
-        cmd.arg("-c:a").arg("aac");
-        cmd.arg("-b:a").arg("128k");
+        match args.hwaccel.to_lowercase().as_str() {
+            "v4l2" | "v4l2m2m" => {
+                cmd.arg("-c:v").arg("h264_v4l2m2m");
+                cmd.arg("-b:v").arg("4M");
+                cmd.arg("-c:a").arg("aac");
+                cmd.arg("-b:a").arg("128k");
+            }
+            "vaapi" => {
+                cmd.arg("-vaapi_device").arg("/dev/dri/renderD128");
+                cmd.arg("-vf").arg("format=nv12,hwupload");
+                cmd.arg("-c:v").arg("h264_vaapi");
+                cmd.arg("-c:a").arg("aac");
+                cmd.arg("-b:a").arg("128k");
+            }
+            "nvenc" => {
+                cmd.arg("-c:v").arg("h264_nvenc");
+                cmd.arg("-preset").arg(&args.preset);
+                cmd.arg("-c:a").arg("aac");
+                cmd.arg("-b:a").arg("128k");
+            }
+            "qsv" => {
+                cmd.arg("-c:v").arg("h264_qsv");
+                cmd.arg("-preset").arg(&args.preset);
+                cmd.arg("-c:a").arg("aac");
+                cmd.arg("-b:a").arg("128k");
+            }
+            _ => {
+                cmd.arg("-c:v").arg("libx264");
+                cmd.arg("-preset").arg(&args.preset);
+                cmd.arg("-crf").arg("22");
+                cmd.arg("-c:a").arg("aac");
+                cmd.arg("-b:a").arg("128k");
+            }
+        }
     } else {
         cmd.arg("-c").arg("copy");
         cmd.arg("-f").arg("dvd");
@@ -582,7 +611,9 @@ mod tests {
             transcode: false,
             preset: "veryfast".to_string(),
             ffmpeg: "ffmpeg".to_string(),
+            hwaccel: "copy".to_string(),
             cli: false,
+            daemon: false,
             tv: true,
             season: 1,
             start_episode: 1,
@@ -609,7 +640,9 @@ mod tests {
             transcode: true,
             preset: "veryfast".to_string(),
             ffmpeg: "ffmpeg".to_string(),
+            hwaccel: "copy".to_string(),
             cli: false,
+            daemon: false,
             tv: false,
             season: 1,
             start_episode: 1,
@@ -631,7 +664,9 @@ mod tests {
             transcode: false,
             preset: "veryfast".to_string(),
             ffmpeg: "ffmpeg".to_string(),
+            hwaccel: "copy".to_string(),
             cli: false,
+            daemon: false,
             tv: false,
             season: 1,
             start_episode: 1,
