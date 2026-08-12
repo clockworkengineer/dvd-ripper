@@ -17,10 +17,7 @@ use crate::ffmpeg::{
 };
 use crate::history::{clear_history, load_history, save_history, RipRecord};
 use crate::imdb::lookup_film_details;
-use crate::utils::{
-    find_next_start_episode, infer_start_episode_from_label, parse_season_disc_from_label,
-    sanitize_filename,
-};
+use crate::utils::sanitize_filename;
 
 /// Main application state for the eframe GUI.
 pub struct DvdRipperApp {
@@ -139,53 +136,6 @@ impl DvdRipperApp {
             ep.episode_num = ep_num;
             ep.formatted_name = format!("{} - S{:02}E{:02}", show_name, season, ep_num);
             ep_num += 1;
-        }
-    }
-
-    fn check_and_auto_set_start_episode(&mut self) {
-        if self.is_tv_mode {
-            let dvd_path = normalize_dvd_path(&self.input_drive);
-            if let Some(lbl) = get_volume_label(&dvd_path.to_string_lossy()) {
-                let parsed = parse_season_disc_from_label(&lbl);
-                if let Some(s) = parsed.season {
-                    self.season_number = s;
-                }
-
-                let eps_per_disc = if !self.detected_episodes.is_empty() {
-                    self.detected_episodes.len() as u32
-                } else if self.expected_runtime_secs.map_or(false, |r| r < 2000.0) {
-                    6
-                } else {
-                    6
-                };
-
-                if let Some(ep) = infer_start_episode_from_label(&lbl, eps_per_disc) {
-                    self.start_episode = ep;
-                    self.detect_status = format!(
-                        "Inferred Season {:02}, Start Episode #{} directly from DVD label ({})",
-                        self.season_number, self.start_episode, lbl
-                    );
-                    self.update_detected_episode_names();
-                    return;
-                }
-            }
-
-            if !self.film_name.trim().is_empty() {
-                let next_ep = find_next_start_episode(
-                    &self.out_dir,
-                    self.film_name.trim(),
-                    self.film_year.trim().parse::<u32>().ok(),
-                    self.season_number,
-                );
-                if next_ep > 1 {
-                    self.start_episode = next_ep;
-                    self.detect_status = format!(
-                        "Found existing episodes in Season {:02}. Auto-starting next episode at #{}.",
-                        self.season_number, self.start_episode
-                    );
-                }
-            }
-            self.update_detected_episode_names();
         }
     }
 
@@ -540,8 +490,7 @@ impl DvdRipperApp {
                     if meta.is_series {
                         self.is_tv_mode = true;
                         self.out_dir = "TV".to_string();
-                        self.check_and_auto_set_start_episode();
-                        self.trigger_tv_scan();
+                        self.update_detected_episode_names();
                     }
                     self.detecting = false;
                     self.detect_status = "Detection complete.".to_string();
@@ -698,15 +647,11 @@ impl eframe::App for DvdRipperApp {
                                 ui.horizontal(|ui| {
                                     ui.label("Season #:");
                                     if ui.add(egui::DragValue::new(&mut self.season_number).range(1..=99)).changed() {
-                                        self.check_and_auto_set_start_episode();
                                         self.update_detected_episode_names();
                                     }
                                     ui.label("Start Ep #:");
                                     if ui.add(egui::DragValue::new(&mut self.start_episode).range(1..=99)).changed() {
                                         self.update_detected_episode_names();
-                                    }
-                                    if ui.button("🔄 Auto Ep").clicked() {
-                                        self.check_and_auto_set_start_episode();
                                     }
                                     ui.checkbox(&mut self.all_episodes, "Rip All Episodes");
                                     if ui.button("🔍 Scan Disc").clicked() {

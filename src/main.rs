@@ -21,10 +21,7 @@ use ffmpeg::{
 };
 use gui::run_gui;
 use imdb::lookup_film_details;
-use utils::{
-    find_next_start_episode, infer_start_episode_from_label, parse_season_disc_from_label,
-    sanitize_filename,
-};
+use utils::sanitize_filename;
 
 fn main() -> Result<()> {
     // Check raw args to see if user requested CLI mode or passed specific CLI parameters
@@ -102,36 +99,10 @@ fn main() -> Result<()> {
     if args.tv {
         let show_name = title_name.as_deref().unwrap_or("TV Show");
 
-        if let Some(ref lbl) = volume_label {
-            let parsed = parse_season_disc_from_label(lbl);
-            if let Some(s) = parsed.season {
-                args.season = s;
-            }
-        }
-
-        if args.start_episode == 1 {
-            let label_inferred = volume_label
-                .as_deref()
-                .and_then(|lbl| infer_start_episode_from_label(lbl, 3));
-
-            if let Some(ep) = label_inferred {
-                println!(
-                    "Inferred Start Episode #{} directly from DVD Volume Label ({}).",
-                    ep,
-                    volume_label.as_deref().unwrap_or("")
-                );
-                args.start_episode = ep;
-            } else {
-                let auto_ep = find_next_start_episode(&args.out_dir, show_name, title_year, args.season);
-                if auto_ep > 1 {
-                    println!(
-                        "Detected existing episodes in Season {:02} folder. Auto-setting Start Episode to #{}.",
-                        args.season, auto_ep
-                    );
-                    args.start_episode = auto_ep;
-                }
-            }
-        }
+        println!(
+            "TV Mode: Show '{}', Season {:02}, Start Episode #{}.",
+            show_name, args.season, args.start_episode
+        );
         if args.all_episodes {
             println!(
                 "\n--- TV Series Mode: Batch Ripping Season {} (Starting Episode S{:02}E{:02}) ---",
