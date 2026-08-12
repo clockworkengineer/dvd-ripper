@@ -20,11 +20,19 @@ pub fn get_volume_label(root_path: &str) -> Option<String> {
     use windows::core::PCWSTR;
     use windows::Win32::Storage::FileSystem::GetVolumeInformationW;
 
-    let mut path_wide: Vec<u16> = root_path.encode_utf16().collect();
-    if !path_wide.ends_with(&[b'\\' as u16]) {
-        path_wide.push(b'\\' as u16);
+    let mut path_wide = [0u16; 260];
+    let mut len = 0;
+    for c in root_path.encode_utf16() {
+        if len < 258 {
+            path_wide[len] = c;
+            len += 1;
+        }
     }
-    path_wide.push(0);
+    if len > 0 && path_wide[len - 1] != b'\\' as u16 {
+        path_wide[len] = b'\\' as u16;
+        len += 1;
+    }
+    path_wide[len] = 0;
 
     let mut volume_name = [0u16; 260];
 

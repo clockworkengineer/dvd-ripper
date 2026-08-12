@@ -7,7 +7,6 @@ use std::io::Write;
 use std::net::TcpStream;
 use std::time::Duration;
 use anyhow::{anyhow, Result};
-use serde_json::json;
 
 /// Formats and publishes an MQTT status telemetry payload to an MQTT broker.
 pub fn publish_mqtt_status(
@@ -27,13 +26,13 @@ pub fn publish_mqtt_status(
         Duration::from_secs(3),
     );
 
-    let payload = json!({
-        "appliance": "dvd-ripper",
-        "status": status,
-        "disc": disc_name,
-        "progress": progress,
-        "timestamp": chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
-    }).to_string();
+    let payload = format!(
+        "{{\"appliance\":\"dvd-ripper\",\"status\":\"{}\",\"disc\":\"{}\",\"progress\":{:.1},\"timestamp\":\"{}\"}}",
+        status,
+        disc_name,
+        progress,
+        chrono::Local::now().format("%Y-%m-%d %H:%M:%S")
+    );
 
     if let Ok(mut socket) = stream {
         // Send a minimal HTTP/TCP webhook post payload if server supports HTTP listener or basic packet

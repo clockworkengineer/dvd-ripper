@@ -121,27 +121,23 @@ fn handle_client(mut stream: TcpStream, drive_path: &str) -> Result<()> {
         return Ok(());
     }
 
-    let request = String::from_utf8_lossy(&buffer[..bytes_read]);
-    let first_line = request.lines().next().unwrap_or("");
-    let parts: Vec<&str> = first_line.split_whitespace().collect();
+    let req_bytes = &buffer[..bytes_read];
+    let first_line = req_bytes.split(|&b| b == b'\r' || b == b'\n').next().unwrap_or(&[]);
+    let mut parts = first_line.split(|&b| b == b' ');
 
-    if parts.len() < 2 {
-        return Ok(());
-    }
-
-    let method = parts[0];
-    let path = parts[1];
+    let method = parts.next().unwrap_or(&[]);
+    let path = parts.next().unwrap_or(&[]);
 
     match (method, path) {
-        ("GET", "/") | ("GET", "/index.html") => {
+        (b"GET", b"/") | (b"GET", b"/index.html") => {
             send_http_response(&mut stream, "200 OK", "text/html; charset=utf-8", EMBEDDED_DASHBOARD_HTML)?;
         }
-        ("GET", "/api/history") => {
+        (b"GET", b"/api/history") => {
             let history = load_history(None);
             let json_body = serde_json::to_string(&history).unwrap_or_else(|_| "[]".to_string());
             send_http_response(&mut stream, "200 OK", "application/json", &json_body)?;
         }
-        ("POST", "/api/eject") => {
+        (b"POST", b"/api/eject") => {
             let ok = eject_disc(drive_path);
             let json_body = format!("{{\"success\": {}}}", ok);
             send_http_response(&mut stream, "200 OK", "application/json", &json_body)?;
