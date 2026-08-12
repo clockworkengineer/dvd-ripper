@@ -7,6 +7,7 @@ mod cli;
 mod dvd;
 mod ffmpeg;
 mod gui;
+mod history;
 mod imdb;
 mod utils;
 

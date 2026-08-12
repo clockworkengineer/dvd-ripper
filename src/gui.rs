@@ -15,6 +15,7 @@ use crate::ffmpeg::{
     detect_tv_episodes, resolve_output_path, resolve_tv_output_path, run_ffmpeg_with_channel,
     ProgressEvent, TvEpisodeInfo,
 };
+use crate::history::{clear_history, load_history, save_history, RipRecord};
 use crate::imdb::lookup_film_details;
 use crate::utils::{
     find_next_start_episode, infer_start_episode_from_label, parse_season_disc_from_label,
@@ -63,6 +64,8 @@ pub struct DvdRipperApp {
     event_rx: Receiver<ProgressEvent>,
     cancel_tx: Option<Sender<()>>,
     cancel_flag: Option<Arc<AtomicBool>>,
+
+    history: Vec<RipRecord>,
 }
 
 impl Default for DvdRipperApp {
@@ -107,6 +110,8 @@ impl Default for DvdRipperApp {
             event_rx,
             cancel_tx: None,
             cancel_flag: None,
+
+            history: load_history(None),
         }
     }
 }
@@ -470,6 +475,16 @@ impl DvdRipperApp {
         self.is_ripping = false;
         self.detecting = false;
         self.status_message = "Ripping process cancelled by user.".to_string();
+
+        let title = if self.film_name.trim().is_empty() {
+            "Unknown DVD Rip".to_string()
+        } else {
+            self.film_name.trim().to_string()
+        };
+        let media_type = if self.is_tv_mode { "TV Series" } else { "Movie" };
+        let record = RipRecord::new(&title, media_type, &self.out_dir, "Cancelled");
+        self.history.insert(0, record);
+        let _ = save_history(&self.history, None);
     }
 
     fn poll_events(&mut self, ctx: &egui::Context) {
@@ -522,6 +537,16 @@ impl DvdRipperApp {
                     self.status_message = format!("Success! Saved to {}", path.display());
                     self.cancel_tx = None;
                     self.cancel_flag = None;
+
+                    let title = if self.film_name.trim().is_empty() {
+                        path.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_else(|| "Unknown DVD Rip".to_string())
+                    } else {
+                        self.film_name.trim().to_string()
+                    };
+                    let media_type = if self.is_tv_mode { "TV Series" } else { "Movie" };
+                    let record = RipRecord::new(&title, media_type, &path.to_string_lossy(), "Success");
+                    self.history.insert(0, record);
+                    let _ = save_history(&self.history, None);
                 }
                 ProgressEvent::Error(msg) => {
                     self.is_ripping = false;
@@ -753,11 +778,54 @@ impl eframe::App for DvdRipperApp {
 
             ui.add_space(8.0);
 
+            // Persistent Ripping History Section
+            ui.group(|ui| {
+                ui.horizontal(|ui| {
+                    ui.label(egui::RichText::new(format!("4. Ripping History ({})", self.history.len())).strong());
+                    if !self.history.is_empty() {
+                        if ui.button("🗑 Clear History").clicked() {
+                            self.history.clear();
+                            let _ = clear_history(None);
+                        }
+                    }
+                });
+
+                if self.history.is_empty() {
+                    ui.label(egui::RichText::new("No past rip records saved.").weak().italics().small());
+                } else {
+                    egui::ScrollArea::vertical()
+                        .max_height(100.0)
+                        .show(ui, |ui| {
+                            for rec in &self.history {
+                                ui.horizontal(|ui| {
+                                    ui.label(egui::RichText::new(&rec.timestamp).weak().monospace().small());
+                                    let tag_color = if rec.media_type == "TV Series" {
+                                        egui::Color32::from_rgb(100, 180, 240)
+                                    } else {
+                                        egui::Color32::from_rgb(240, 180, 100)
+                                    };
+                                    ui.label(egui::RichText::new(format!("[{}]", rec.media_type)).color(tag_color).small());
+                                    let status_color = if rec.status == "Success" {
+                                        egui::Color32::from_rgb(100, 200, 100)
+                                    } else {
+                                        egui::Color32::from_rgb(240, 100, 100)
+                                    };
+                                    ui.label(egui::RichText::new(&rec.status).color(status_color).small());
+                                    ui.label(egui::RichText::new(&rec.title).strong().small());
+                                    ui.label(egui::RichText::new(&rec.output_path).weak().monospace().small());
+                                });
+                            }
+                        });
+                }
+            });
+
+            ui.add_space(8.0);
+
             // Log Console Section
             ui.group(|ui| {
                 ui.label(egui::RichText::new("Log Console").strong());
                 egui::ScrollArea::vertical()
-                    .max_height(140.0)
+                    .max_height(120.0)
                     .stick_to_bottom(true)
                     .show(ui, |ui| {
                         for log in &self.logs {
@@ -773,7 +841,7 @@ impl eframe::App for DvdRipperApp {
 pub fn run_gui() -> eframe::Result<()> {
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
-            .with_inner_size([680.0, 740.0])
+            .with_inner_size([700.0, 840.0])
             .with_title("DVD Ripper (Movies & TV Series)"),
         ..Default::default()
     };
