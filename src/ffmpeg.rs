@@ -87,16 +87,20 @@ pub struct TvEpisodeInfo {
     pub formatted_name: String,
 }
 
-/// Probes all titles on the DVD drive and filters out intros/outros (<10m) and Play-All composite titles.
-pub fn detect_tv_episodes(
+/// Structure representing basic probed information for a DVD title track.
+#[derive(Debug, Clone)]
+pub struct DvdTitleInfo {
+    pub title_num: u32,
+    pub duration_secs: f64,
+}
+
+/// Probes all titles on the DVD drive (up to title 99, stopping after 3 consecutive failures).
+pub fn probe_dvd_titles(
     ffmpeg_path: &str,
     dvd_path: &Path,
-    show_name: &str,
-    season: u32,
-    start_ep: u32,
     cancel_flag: Option<&std::sync::atomic::AtomicBool>,
-) -> Vec<TvEpisodeInfo> {
-    let mut title_durations: Vec<(u32, f64)> = Vec::new();
+) -> Vec<DvdTitleInfo> {
+    let mut titles = Vec::new();
     let mut consecutive_failures = 0;
 
     for t in 1..=99 {
@@ -128,10 +132,10 @@ pub fn detect_tv_episodes(
                         let clean_duration = duration_str.trim_end_matches(',');
                         if let Some(secs) = parse_duration(clean_duration) {
                             found_duration = true;
-                            // Only consider titles >= 10 minutes (600 seconds)
-                            if secs >= 600.0 {
-                                title_durations.push((t, secs));
-                            }
+                            titles.push(DvdTitleInfo {
+                                title_num: t,
+                                duration_secs: secs,
+                            });
                         }
                     }
                 }
@@ -150,6 +154,25 @@ pub fn detect_tv_episodes(
             break;
         }
     }
+
+    titles
+}
+
+/// Probes all titles on the DVD drive and filters out intros/outros (<10m) and Play-All composite titles.
+pub fn detect_tv_episodes(
+    ffmpeg_path: &str,
+    dvd_path: &Path,
+    show_name: &str,
+    season: u32,
+    start_ep: u32,
+    cancel_flag: Option<&std::sync::atomic::AtomicBool>,
+) -> Vec<TvEpisodeInfo> {
+    let all_titles = probe_dvd_titles(ffmpeg_path, dvd_path, cancel_flag);
+    let title_durations: Vec<(u32, f64)> = all_titles
+        .into_iter()
+        .filter(|t| t.duration_secs >= 600.0) // Only consider titles >= 10 minutes (600 seconds)
+        .map(|t| (t.title_num, t.duration_secs))
+        .collect();
 
     if title_durations.is_empty() {
         return Vec::new();
@@ -188,61 +211,25 @@ pub fn detect_best_title(
     dvd_path: &Path,
     expected_runtime_secs: Option<f64>,
 ) -> u32 {
+    let titles = probe_dvd_titles(ffmpeg_path, dvd_path, None);
+    if titles.is_empty() {
+        return 1;
+    }
+
     let mut best_title = 1u32;
     let mut best_diff = f64::MAX;
     let mut max_duration = 0.0f64;
-    let mut consecutive_failures = 0;
 
-    for t in 1..=99 {
-        let output = Command::new(ffmpeg_path)
-            .stdin(std::process::Stdio::null())
-            .arg("-analyzeduration")
-            .arg("500000")
-            .arg("-probesize")
-            .arg("500000")
-            .arg("-f")
-            .arg("dvdvideo")
-            .arg("-title")
-            .arg(t.to_string())
-            .arg("-i")
-            .arg(dvd_path)
-            .output();
-
-        match output {
-            Ok(out) => {
-                let stderr = String::from_utf8_lossy(&out.stderr);
-                let mut found_duration = false;
-                for line in stderr.lines() {
-                    if let Some(duration_str) = extract_kv_field(line, "Duration: ") {
-                        let clean_duration = duration_str.trim_end_matches(',');
-                        if let Some(secs) = parse_duration(clean_duration) {
-                            found_duration = true;
-                            if let Some(target) = expected_runtime_secs {
-                                let diff = (secs - target).abs();
-                                if diff < best_diff {
-                                    best_diff = diff;
-                                    best_title = t;
-                                }
-                            } else if secs > max_duration {
-                                max_duration = secs;
-                                best_title = t;
-                            }
-                        }
-                    }
-                }
-                if !found_duration {
-                    consecutive_failures += 1;
-                } else {
-                    consecutive_failures = 0;
-                }
+    for t in titles {
+        if let Some(target) = expected_runtime_secs {
+            let diff = (t.duration_secs - target).abs();
+            if diff < best_diff {
+                best_diff = diff;
+                best_title = t.title_num;
             }
-            Err(_) => {
-                consecutive_failures += 1;
-            }
-        }
-
-        if consecutive_failures >= 3 {
-            break;
+        } else if t.duration_secs > max_duration {
+            max_duration = t.duration_secs;
+            best_title = t.title_num;
         }
     }
 

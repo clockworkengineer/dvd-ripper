@@ -180,36 +180,38 @@ pub fn lookup_omdb_details(query: &str) -> Option<FilmMetadata> {
     None
 }
 
+/// Helper: Normalizes a title query for metadata searches (expanding "dr" / "dr." -> "doctor", etc.).
+pub fn normalize_search_title(title: &str) -> String {
+    if title.starts_with("dr ") {
+        title.replacen("dr ", "doctor ", 1)
+    } else if title.starts_with("dr. ") {
+        title.replacen("dr. ", "doctor ", 1)
+    } else {
+        title.to_string()
+    }
+}
+
 /// Queries OMDb or IMDb APIs to resolve a raw DVD volume label or show title to full metadata.
 pub fn lookup_film_details(query: &str) -> Result<FilmMetadata> {
     let parsed_info = crate::utils::parse_season_disc_from_label(query);
     let mut candidates = Vec::new();
 
     if !parsed_info.clean_title.is_empty() {
-        let mut clean = parsed_info.clean_title.clone();
-        if clean.starts_with("dr ") {
-            clean = clean.replacen("dr ", "doctor ", 1);
-        } else if clean.starts_with("dr. ") {
-            clean = clean.replacen("dr. ", "doctor ", 1);
-        }
+        let clean = normalize_search_title(&parsed_info.clean_title);
         candidates.push(clean);
     }
 
-    let mut cleaned: String = query
+    let cleaned_raw: String = query
         .replace('_', " ")
         .replace('-', " ")
         .trim()
         .to_lowercase();
 
-    if cleaned.is_empty() {
+    if cleaned_raw.is_empty() {
         return Err(anyhow!("Cleaned query is empty"));
     }
 
-    if cleaned.starts_with("dr ") {
-        cleaned = cleaned.replacen("dr ", "doctor ", 1);
-    } else if cleaned.starts_with("dr. ") {
-        cleaned = cleaned.replacen("dr. ", "doctor ", 1);
-    }
+    let cleaned = normalize_search_title(&cleaned_raw);
 
     if !candidates.contains(&cleaned) {
         candidates.push(cleaned.clone());

@@ -32,10 +32,13 @@ impl RipRecord {
     }
 }
 
+fn resolve_history_path(path: Option<&Path>) -> PathBuf {
+    path.map(PathBuf::from).unwrap_or_else(|| PathBuf::from(HISTORY_FILE))
+}
+
 /// Loads history records from disk (default: `ripping_history.json`).
 pub fn load_history(path: Option<&Path>) -> Vec<RipRecord> {
-    let default_path = PathBuf::from(HISTORY_FILE);
-    let history_path = path.unwrap_or(&default_path);
+    let history_path = resolve_history_path(path);
     if !history_path.exists() {
         return Vec::new();
     }
@@ -47,8 +50,7 @@ pub fn load_history(path: Option<&Path>) -> Vec<RipRecord> {
 
 /// Saves history records to disk.
 pub fn save_history(records: &[RipRecord], path: Option<&Path>) -> Result<()> {
-    let default_path = PathBuf::from(HISTORY_FILE);
-    let history_path = path.unwrap_or(&default_path);
+    let history_path = resolve_history_path(path);
     let json = serde_json::to_string_pretty(records)?;
     fs::write(history_path, json)?;
     Ok(())
@@ -56,8 +58,7 @@ pub fn save_history(records: &[RipRecord], path: Option<&Path>) -> Result<()> {
 
 /// Clears history file on disk.
 pub fn clear_history(path: Option<&Path>) -> Result<()> {
-    let default_path = PathBuf::from(HISTORY_FILE);
-    let history_path = path.unwrap_or(&default_path);
+    let history_path = resolve_history_path(path);
     if history_path.exists() {
         fs::remove_file(history_path)?;
     }
