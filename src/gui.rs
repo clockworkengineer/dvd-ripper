@@ -687,19 +687,22 @@ impl eframe::App for DvdRipperApp {
 
                                 if !self.detected_episodes.is_empty() {
                                     ui.label(egui::RichText::new(format!("Detected Episodes ({}):", self.detected_episodes.len())).strong().small());
-                                    egui::ScrollArea::vertical().max_height(60.0).show(ui, |ui| {
-                                        for ep in &self.detected_episodes {
-                                            ui.label(
-                                                egui::RichText::new(format!(
-                                                    "• {} (Title #{}, {:.0} mins)",
-                                                    ep.formatted_name,
-                                                    ep.title_num,
-                                                    ep.duration_secs / 60.0
-                                                ))
-                                                .small(),
-                                            );
-                                        }
-                                    });
+                                    egui::ScrollArea::vertical()
+                                        .id_salt("detected_episodes_scroll")
+                                        .max_height(60.0)
+                                        .show(ui, |ui| {
+                                            for ep in &self.detected_episodes {
+                                                ui.label(
+                                                    egui::RichText::new(format!(
+                                                        "• {} (Title #{}, {:.0} mins)",
+                                                        ep.formatted_name,
+                                                        ep.title_num,
+                                                        ep.duration_secs / 60.0
+                                                    ))
+                                                    .small(),
+                                                );
+                                            }
+                                        });
                                 }
                             }
 
@@ -794,6 +797,7 @@ impl eframe::App for DvdRipperApp {
                     ui.label(egui::RichText::new("No past rip records saved.").weak().italics().small());
                 } else {
                     egui::ScrollArea::vertical()
+                        .id_salt("ripping_history_scroll")
                         .max_height(100.0)
                         .show(ui, |ui| {
                             for rec in &self.history {
@@ -825,6 +829,7 @@ impl eframe::App for DvdRipperApp {
             ui.group(|ui| {
                 ui.label(egui::RichText::new("Log Console").strong());
                 egui::ScrollArea::vertical()
+                    .id_salt("log_console_scroll")
                     .max_height(120.0)
                     .stick_to_bottom(true)
                     .show(ui, |ui| {
