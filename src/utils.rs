@@ -154,41 +154,83 @@ pub fn parse_season_disc_from_label(label: &str) -> ParsedLabelInfo {
     let mut disc = None;
     let mut title_words = Vec::new();
 
-    for word in words {
+    let mut i = 0;
+    while i < words.len() {
+        let word = words[i];
+
+        // 1. Combined s2d2 / s02d01 pattern
+        if season.is_none() || disc.is_none() {
+            if word.starts_with('s') && word.contains('d') {
+                let parts: Vec<&str> = word[1..].split('d').collect();
+                if parts.len() == 2 {
+                    if let (Ok(s), Ok(d)) = (parts[0].parse::<u32>(), parts[1].parse::<u32>()) {
+                        if season.is_none() {
+                            season = Some(s);
+                        }
+                        if disc.is_none() {
+                            disc = Some(d);
+                        }
+                        i += 1;
+                        continue;
+                    }
+                }
+            }
+        }
+
+        // 2. Season patterns: "s2", "s02", "season2", "series2", "season 2", "series 2"
         if season.is_none() {
             if word.starts_with('s') && word.len() >= 2 && word[1..].chars().all(|c| c.is_ascii_digit()) {
                 if let Ok(s) = word[1..].parse::<u32>() {
                     season = Some(s);
+                    i += 1;
                     continue;
                 }
-            } else if word.starts_with("season") && word.len() > 6 && word[6..].chars().all(|c| c.is_ascii_digit()) {
-                if let Ok(s) = word[6..].parse::<u32>() {
+            } else if (word.starts_with("season") && word.len() > 6 && word[6..].chars().all(|c| c.is_ascii_digit()))
+                || (word.starts_with("series") && word.len() > 6 && word[6..].chars().all(|c| c.is_ascii_digit()))
+            {
+                let digits = if word.starts_with("season") { &word[6..] } else { &word[6..] };
+                if let Ok(s) = digits.parse::<u32>() {
                     season = Some(s);
+                    i += 1;
+                    continue;
+                }
+            } else if (word == "season" || word == "series" || word == "s") && i + 1 < words.len() {
+                if let Ok(s) = words[i + 1].parse::<u32>() {
+                    season = Some(s);
+                    i += 2;
                     continue;
                 }
             }
         }
 
+        // 3. Disc patterns: "d1", "d01", "disc1", "vol1", "disc 2"
         if disc.is_none() {
             if word.starts_with('d') && word.len() >= 2 && word[1..].chars().all(|c| c.is_ascii_digit()) {
                 if let Ok(d) = word[1..].parse::<u32>() {
                     disc = Some(d);
+                    i += 1;
                     continue;
                 }
-            } else if word.starts_with("disc") && word.len() > 4 && word[4..].chars().all(|c| c.is_ascii_digit()) {
-                if let Ok(d) = word[4..].parse::<u32>() {
+            } else if (word.starts_with("disc") && word.len() > 4 && word[4..].chars().all(|c| c.is_ascii_digit()))
+                || (word.starts_with("vol") && word.len() > 3 && word[3..].chars().all(|c| c.is_ascii_digit()))
+            {
+                let digits = if word.starts_with("disc") { &word[4..] } else { &word[3..] };
+                if let Ok(d) = digits.parse::<u32>() {
                     disc = Some(d);
+                    i += 1;
                     continue;
                 }
-            } else if word.starts_with("vol") && word.len() > 3 && word[3..].chars().all(|c| c.is_ascii_digit()) {
-                if let Ok(d) = word[3..].parse::<u32>() {
+            } else if (word == "disc" || word == "vol" || word == "d") && i + 1 < words.len() {
+                if let Ok(d) = words[i + 1].parse::<u32>() {
                     disc = Some(d);
+                    i += 2;
                     continue;
                 }
             }
         }
 
         title_words.push(word);
+        i += 1;
     }
 
     let clean_title = title_words.join(" ");

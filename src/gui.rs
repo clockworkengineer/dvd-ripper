@@ -516,6 +516,7 @@ impl DvdRipperApp {
                         self.is_tv_mode = true;
                         self.out_dir = "TV".to_string();
                         self.check_and_auto_set_start_episode();
+                        self.trigger_tv_scan();
                     }
                     self.detecting = false;
                     self.detect_status = "Detection complete.".to_string();
