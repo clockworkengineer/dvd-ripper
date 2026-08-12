@@ -127,6 +127,21 @@ impl DvdRipperApp {
         self.trigger_detection_with_query(None);
     }
 
+    fn update_detected_episode_names(&mut self) {
+        let show_name = if self.film_name.trim().is_empty() {
+            "TV Show".to_string()
+        } else {
+            self.film_name.trim().to_string()
+        };
+        let season = self.season_number;
+        let mut ep_num = self.start_episode;
+        for ep in &mut self.detected_episodes {
+            ep.episode_num = ep_num;
+            ep.formatted_name = format!("{} - S{:02}E{:02}", show_name, season, ep_num);
+            ep_num += 1;
+        }
+    }
+
     fn check_and_auto_set_start_episode(&mut self) {
         if self.is_tv_mode {
             let dvd_path = normalize_dvd_path(&self.input_drive);
@@ -136,12 +151,21 @@ impl DvdRipperApp {
                     self.season_number = s;
                 }
 
-                if let Some(ep) = infer_start_episode_from_label(&lbl, 3) {
+                let eps_per_disc = if !self.detected_episodes.is_empty() {
+                    self.detected_episodes.len() as u32
+                } else if self.expected_runtime_secs.map_or(false, |r| r < 2000.0) {
+                    6
+                } else {
+                    6
+                };
+
+                if let Some(ep) = infer_start_episode_from_label(&lbl, eps_per_disc) {
                     self.start_episode = ep;
                     self.detect_status = format!(
                         "Inferred Season {:02}, Start Episode #{} directly from DVD label ({})",
                         self.season_number, self.start_episode, lbl
                     );
+                    self.update_detected_episode_names();
                     return;
                 }
             }
@@ -161,6 +185,7 @@ impl DvdRipperApp {
                     );
                 }
             }
+            self.update_detected_episode_names();
         }
     }
 
@@ -674,9 +699,12 @@ impl eframe::App for DvdRipperApp {
                                     ui.label("Season #:");
                                     if ui.add(egui::DragValue::new(&mut self.season_number).range(1..=99)).changed() {
                                         self.check_and_auto_set_start_episode();
+                                        self.update_detected_episode_names();
                                     }
                                     ui.label("Start Ep #:");
-                                    ui.add(egui::DragValue::new(&mut self.start_episode).range(1..=99));
+                                    if ui.add(egui::DragValue::new(&mut self.start_episode).range(1..=99)).changed() {
+                                        self.update_detected_episode_names();
+                                    }
                                     if ui.button("🔄 Auto Ep").clicked() {
                                         self.check_and_auto_set_start_episode();
                                     }

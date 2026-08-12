@@ -94,6 +94,8 @@ pub fn find_next_start_episode(
 pub fn infer_start_episode_from_label(volume_label: &str, eps_per_disc: u32) -> Option<u32> {
     let label_upper = volume_label.to_uppercase();
 
+    let default_eps = if eps_per_disc > 0 { eps_per_disc } else { 6 };
+
     // 1. Look for explicit disc patterns like DISC3, DISC_3, D3, VOL3, VOL_3, PART3
     let re_patterns = ["DISC", "VOL", "PART", "DISK"];
 
@@ -107,8 +109,7 @@ pub fn infer_start_episode_from_label(volume_label: &str, eps_per_disc: u32) -> 
                 .collect();
             if let Ok(disc_num) = num_str.parse::<u32>() {
                 if disc_num > 0 {
-                    let ep_count = if eps_per_disc > 0 { eps_per_disc } else { 3 };
-                    return Some((disc_num - 1) * ep_count + 1);
+                    return Some((disc_num - 1) * default_eps + 1);
                 }
             }
         }
@@ -130,8 +131,7 @@ pub fn infer_start_episode_from_label(volume_label: &str, eps_per_disc: u32) -> 
                 let base = num - (num % 10) + 5;
                 let base_num = if num >= base { base } else { num };
                 let disc_num = (num - base_num) + 1;
-                let ep_count = if eps_per_disc > 0 { eps_per_disc } else { 3 };
-                return Some((disc_num - 1) * ep_count + 1);
+                return Some((disc_num - 1) * default_eps + 1);
             }
         }
     }
