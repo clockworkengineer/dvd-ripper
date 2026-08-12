@@ -117,16 +117,25 @@ impl DvdRipperApp {
         app
     }
 
+    fn film_name_opt(&self) -> Option<String> {
+        let trimmed = self.film_name.trim();
+        if trimmed.is_empty() {
+            None
+        } else {
+            Some(trimmed.to_string())
+        }
+    }
+
+    fn effective_show_name(&self) -> String {
+        self.film_name_opt().unwrap_or_else(|| "TV Show".to_string())
+    }
+
     fn trigger_detection(&mut self) {
         self.trigger_detection_with_query(None);
     }
 
     fn update_detected_episode_names(&mut self) {
-        let show_name = if self.film_name.trim().is_empty() {
-            "TV Show".to_string()
-        } else {
-            self.film_name.trim().to_string()
-        };
+        let show_name = self.effective_show_name();
         let season = self.season_number;
         let mut ep_num = self.start_episode;
         for ep in &mut self.detected_episodes {
@@ -208,11 +217,7 @@ impl DvdRipperApp {
 
         let ffmpeg_path = self.ffmpeg_path.clone();
         let dvd_path = normalize_dvd_path(&self.input_drive);
-        let show_name = if self.film_name.trim().is_empty() {
-            "TV Show".to_string()
-        } else {
-            self.film_name.trim().to_string()
-        };
+        let show_name = self.effective_show_name();
         let season = self.season_number;
         let start_ep = self.start_episode;
         let tx = self.event_tx.clone();
@@ -257,11 +262,7 @@ impl DvdRipperApp {
 
         let is_tv = self.is_tv_mode;
         let all_eps = self.all_episodes;
-        let show_name_opt = if self.film_name.trim().is_empty() {
-            None
-        } else {
-            Some(self.film_name.trim().to_string())
-        };
+        let show_name_opt = self.film_name_opt();
         let year_opt = self.film_year.trim().parse::<u32>().ok();
         let season = self.season_number;
         let start_ep = self.start_episode;
@@ -434,11 +435,7 @@ impl DvdRipperApp {
         self.detecting = false;
         self.status_message = "Ripping process cancelled by user.".to_string();
 
-        let title = if self.film_name.trim().is_empty() {
-            "Unknown DVD Rip".to_string()
-        } else {
-            self.film_name.trim().to_string()
-        };
+        let title = self.film_name_opt().unwrap_or_else(|| "Unknown DVD Rip".to_string());
         let media_type = if self.is_tv_mode { "TV Series" } else { "Movie" };
         let record = RipRecord::new(&title, media_type, &self.out_dir, "Cancelled");
         self.history.insert(0, record);

@@ -50,15 +50,21 @@ pub fn get_volume_label(root_path: &str) -> Option<String> {
 
 /// Linux POSIX block device ISO-9660 Primary Volume Descriptor reader.
 #[cfg(not(target_os = "windows"))]
+fn resolve_device_path(root_path: &str) -> &str {
+    if root_path.is_empty() || root_path == "D:\\" || root_path == "D:" {
+        "/dev/sr0"
+    } else {
+        root_path
+    }
+}
+
+/// Retrieves the local volume label of a DVD drive using platform-native calls.
+#[cfg(not(target_os = "windows"))]
 pub fn get_volume_label(root_path: &str) -> Option<String> {
     use std::fs::File;
     use std::io::{Read, Seek, SeekFrom};
 
-    let dev_path = if root_path.is_empty() || root_path == "D:\\" || root_path == "D:" {
-        "/dev/sr0"
-    } else {
-        root_path
-    };
+    let dev_path = resolve_device_path(root_path);
 
     if let Ok(mut file) = File::open(dev_path) {
         // Sector 16 is at offset 32768 (16 * 2048) in ISO-9660 Primary Volume Descriptor
@@ -103,11 +109,7 @@ pub fn eject_disc(root_path: &str) -> bool {
     #[cfg(not(target_os = "windows"))]
     {
         use std::process::Command;
-        let dev_path = if root_path.is_empty() || root_path == "D:\\" || root_path == "D:" {
-            "/dev/sr0"
-        } else {
-            root_path
-        };
+        let dev_path = resolve_device_path(root_path);
         Command::new("eject").arg(dev_path).status().map_or(false, |s| s.success())
     }
 }
