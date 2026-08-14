@@ -44,6 +44,13 @@ pub struct DvdRipperApp {
     rating: String,
     raw_poster_bytes: Option<Vec<u8>>,
     poster_texture: Option<egui::TextureHandle>,
+    // Stream & Notification options
+    all_audio: bool,
+    audio_lang: String,
+    subtitles: bool,
+    sub_lang: String,
+    webhook_url: String,
+    no_overwrite: bool,
 
     detecting: bool,
     detect_status: String,
@@ -82,6 +89,13 @@ impl Default for DvdRipperApp {
             start_episode: 1,
             all_episodes: true,
             detected_episodes: Vec::new(),
+
+            all_audio: false,
+            audio_lang: String::new(),
+            subtitles: false,
+            sub_lang: String::new(),
+            webhook_url: String::new(),
+            no_overwrite: false,
 
             plot: String::new(),
             genre: String::new(),
@@ -275,6 +289,13 @@ impl DvdRipperApp {
         let expected_runtime = self.expected_runtime_secs;
         let tx = self.event_tx.clone();
 
+        let all_audio = self.all_audio;
+        let audio_lang = if self.audio_lang.trim().is_empty() { None } else { Some(self.audio_lang.trim().to_string()) };
+        let subtitles = self.subtitles;
+        let sub_lang = if self.sub_lang.trim().is_empty() { None } else { Some(self.sub_lang.trim().to_string()) };
+        let webhook_url = if self.webhook_url.trim().is_empty() { None } else { Some(self.webhook_url.trim().to_string()) };
+        let no_overwrite = self.no_overwrite;
+
         std::thread::spawn(move || {
             if is_tv && all_eps {
                 let show_name = show_name_opt.as_deref().unwrap_or("TV Show");
@@ -304,7 +325,7 @@ impl DvdRipperApp {
                         return;
                     }
 
-                    let args = Args::new_tv(
+                    let mut args = Args::new_tv(
                         drive.clone(),
                         out_dir.clone(),
                         ep.title_num,
@@ -314,6 +335,12 @@ impl DvdRipperApp {
                         preset.clone(),
                         ffmpeg_path.clone(),
                     );
+                    args.all_audio = all_audio;
+                    args.audio_lang = audio_lang.clone();
+                    args.subtitles = subtitles;
+                    args.sub_lang = sub_lang.clone();
+                    args.webhook_url = webhook_url.clone();
+                    args.no_overwrite = no_overwrite;
 
                     match resolve_tv_output_path(&args, show_name_opt.as_deref(), year_opt, season, ep.episode_num) {
                         Ok(abs_out) => {
@@ -358,7 +385,7 @@ impl DvdRipperApp {
             } else if is_tv {
                 let show_name = show_name_opt.as_deref().unwrap_or("TV Show");
                 let ep_num = if start_ep > 0 { start_ep } else { 1 };
-                let args = Args::new_tv(
+                let mut args = Args::new_tv(
                     drive.clone(),
                     out_dir.clone(),
                     title_num,
@@ -368,6 +395,12 @@ impl DvdRipperApp {
                     preset.clone(),
                     ffmpeg_path.clone(),
                 );
+                args.all_audio = all_audio;
+                args.audio_lang = audio_lang.clone();
+                args.subtitles = subtitles;
+                args.sub_lang = sub_lang.clone();
+                args.webhook_url = webhook_url.clone();
+                args.no_overwrite = no_overwrite;
 
                 match resolve_tv_output_path(&args, show_name_opt.as_deref(), year_opt, season, ep_num) {
                     Ok(abs_out) => {
@@ -391,7 +424,7 @@ impl DvdRipperApp {
                     }
                 }
             } else {
-                let args = Args::new_movie(
+                let mut args = Args::new_movie(
                     drive.clone(),
                     out_dir.clone(),
                     title_num,
@@ -399,6 +432,12 @@ impl DvdRipperApp {
                     preset.clone(),
                     ffmpeg_path.clone(),
                 );
+                args.all_audio = all_audio;
+                args.audio_lang = audio_lang.clone();
+                args.subtitles = subtitles;
+                args.sub_lang = sub_lang.clone();
+                args.webhook_url = webhook_url.clone();
+                args.no_overwrite = no_overwrite;
 
                 match resolve_output_path(&args, show_name_opt.as_deref(), year_opt) {
                     Ok(abs_out) => {
@@ -690,6 +729,21 @@ impl eframe::App for DvdRipperApp {
                         } else {
                             ui.label(egui::RichText::new("(Fast Lossless Stream Copy)").weak());
                         }
+                    });
+
+                    ui.horizontal(|ui| {
+                        ui.checkbox(&mut self.all_audio, "All Audio Tracks");
+                        ui.label("Audio Lang:");
+                        ui.add(egui::TextEdit::singleline(&mut self.audio_lang).hint_text("eng").desired_width(40.0));
+                        ui.checkbox(&mut self.subtitles, "Subtitles");
+                        ui.label("Sub Lang:");
+                        ui.add(egui::TextEdit::singleline(&mut self.sub_lang).hint_text("eng").desired_width(40.0));
+                        ui.checkbox(&mut self.no_overwrite, "No Overwrite Protection");
+                    });
+
+                    ui.horizontal(|ui| {
+                        ui.label("Webhook Notification URL:");
+                        ui.add(egui::TextEdit::singleline(&mut self.webhook_url).hint_text("https://discord.com/api/webhooks/...").desired_width(280.0));
                     });
                 });
             });

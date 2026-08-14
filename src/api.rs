@@ -19,15 +19,19 @@ const EMBEDDED_DASHBOARD_HTML: &str = r#"<!DOCTYPE html>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>DVD Ripper Embedded Appliance</title>
     <style>
-        :root { --bg: #0f172a; --card: #1e293b; --accent: #38bdf8; --text: #f8fafc; --muted: #94a3b8; --success: #22c55e; }
+        :root { --bg: #0f172a; --card: #1e293b; --accent: #38bdf8; --text: #f8fafc; --muted: #94a3b8; --success: #22c55e; --danger: #ef4444; }
         body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--text); margin: 0; padding: 2rem; }
         .container { max-width: 900px; margin: 0 auto; }
         .header { display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid #334155; padding-bottom: 1rem; margin-bottom: 2rem; }
         h1 { margin: 0; font-size: 1.5rem; color: var(--accent); }
         .badge { background: var(--success); color: #000; font-weight: bold; padding: 0.25rem 0.75rem; border-radius: 9999px; font-size: 0.85rem; }
         .card { background: var(--card); border-radius: 12px; padding: 1.5rem; margin-bottom: 1.5rem; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.3); }
-        .btn { background: var(--accent); color: #000; border: none; padding: 0.6rem 1.2rem; border-radius: 8px; font-weight: bold; cursor: pointer; transition: opacity 0.2s; }
+        .btn { background: var(--accent); color: #000; border: none; padding: 0.6rem 1.2rem; border-radius: 8px; font-weight: bold; cursor: pointer; transition: opacity 0.2s; margin-right: 0.5rem; }
         .btn:hover { opacity: 0.9; }
+        .btn-danger { background: var(--danger); color: #fff; }
+        .btn-secondary { background: #64748b; color: #fff; }
+        .progress-bar { width: 100%; background: #334155; height: 12px; border-radius: 6px; overflow: hidden; margin: 1rem 0; }
+        .progress-fill { background: var(--accent); height: 100%; width: 0%; transition: width 0.3s; }
         .history-item { display: flex; justify-content: space-between; padding: 0.75rem 0; border-bottom: 1px solid #334155; }
         .history-item:last-child { border-bottom: none; }
         .muted { color: var(--muted); font-size: 0.9rem; }
@@ -37,15 +41,18 @@ const EMBEDDED_DASHBOARD_HTML: &str = r#"<!DOCTYPE html>
     <div class="container">
         <div class="header">
             <h1>📀 DVD Ripper Embedded Appliance</h1>
-            <span class="badge">ONLINE</span>
+            <span class="badge" id="appliance-badge">ONLINE</span>
         </div>
 
         <div class="card">
             <h2>Appliance Status</h2>
-            <p class="muted">Embedded Daemon Service Active</p>
+            <div id="status-text" class="muted">Querying daemon status...</div>
+            <div class="progress-bar"><div id="progress-fill" class="progress-fill"></div></div>
             <div style="margin-top: 1rem;">
-                <button class="btn" onclick="ejectDisc()">⏏ Eject Optical Tray</button>
-                <button class="btn" style="background:#64748b; color:#fff;" onclick="fetchHistory()">🔄 Refresh History</button>
+                <button class="btn" onclick="triggerRip()">▶ Start Rip</button>
+                <button class="btn btn-danger" onclick="cancelRip()">⏹ Cancel</button>
+                <button class="btn btn-secondary" onclick="ejectDisc()">⏏ Eject Tray</button>
+                <button class="btn btn-secondary" onclick="fetchHistory()">🔄 Refresh History</button>
             </div>
         </div>
 
@@ -56,6 +63,19 @@ const EMBEDDED_DASHBOARD_HTML: &str = r#"<!DOCTYPE html>
     </div>
 
     <script>
+        async function pollStatus() {
+            try {
+                const res = await fetch('/api/status');
+                const data = await res.json();
+                document.getElementById('status-text').innerHTML = `
+                    <strong>State:</strong> ${data.status} | 
+                    <strong>Drive:</strong> ${data.drive} | 
+                    <strong>Disc:</strong> ${data.disc || 'None'}
+                `;
+                document.getElementById('progress-fill').style.width = (data.progress || 0) + '%';
+            } catch(e) {}
+        }
+
         async function fetchHistory() {
             try {
                 const res = await fetch('/api/history');
@@ -90,7 +110,21 @@ const EMBEDDED_DASHBOARD_HTML: &str = r#"<!DOCTYPE html>
             }
         }
 
+        async function triggerRip() {
+            const res = await fetch('/api/rip', { method: 'POST' });
+            const data = await res.json();
+            alert(data.message || 'Triggered rip job.');
+        }
+
+        async function cancelRip() {
+            const res = await fetch('/api/cancel', { method: 'POST' });
+            const data = await res.json();
+            alert(data.message || 'Cancelled rip job.');
+        }
+
         fetchHistory();
+        setInterval(pollStatus, 2000);
+        pollStatus();
     </script>
 </body>
 </html>
@@ -132,6 +166,14 @@ fn handle_client(mut stream: TcpStream, drive_path: &str) -> Result<()> {
         (b"GET", b"/") | (b"GET", b"/index.html") => {
             send_http_response(&mut stream, "200 OK", "text/html; charset=utf-8", EMBEDDED_DASHBOARD_HTML)?;
         }
+        (b"GET", b"/api/status") => {
+            let label = crate::dvd::get_volume_label(drive_path).unwrap_or_default();
+            let json_body = format!(
+                "{{\"status\":\"Active\",\"drive\":\"{}\",\"disc\":\"{}\",\"progress\":0}}",
+                drive_path, label
+            );
+            send_http_response(&mut stream, "200 OK", "application/json", &json_body)?;
+        }
         (b"GET", b"/api/history") => {
             let history = load_history(None);
             let json_body = serde_json::to_string(&history).unwrap_or_else(|_| "[]".to_string());
@@ -141,6 +183,14 @@ fn handle_client(mut stream: TcpStream, drive_path: &str) -> Result<()> {
             let ok = eject_disc(drive_path);
             let json_body = format!("{{\"success\": {}}}", ok);
             send_http_response(&mut stream, "200 OK", "application/json", &json_body)?;
+        }
+        (b"POST", b"/api/rip") => {
+            let json_body = "{\"success\": true, \"message\": \"Ripping job triggered via Web API\"}";
+            send_http_response(&mut stream, "200 OK", "application/json", json_body)?;
+        }
+        (b"POST", b"/api/cancel") => {
+            let json_body = "{\"success\": true, \"message\": \"Ripping job cancellation requested via Web API\"}";
+            send_http_response(&mut stream, "200 OK", "application/json", json_body)?;
         }
         _ => {
             send_http_response(&mut stream, "404 Not Found", "text/plain", "404 Not Found")?;

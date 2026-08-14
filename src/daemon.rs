@@ -33,6 +33,9 @@ pub fn run_daemon(args: Args, poll_interval_secs: u64) -> Result<()> {
                     if let Some(ref broker) = args.mqtt_broker {
                         let _ = crate::mqtt::publish_mqtt_status(broker, &label, "Detected", 0.0);
                     }
+                    if let Some(ref webhook) = args.webhook_url {
+                        let _ = crate::mqtt::send_webhook_notification(webhook, &label, "Detected", "New DVD disc detected on optical drive");
+                    }
 
                     let mut job_args = args.clone();
                     let meta_res = lookup_film_details(&label);
@@ -102,6 +105,9 @@ pub fn run_daemon(args: Args, poll_interval_secs: u64) -> Result<()> {
                     println!("[Daemon Event] Ripping completed for disc: {}", label);
                     if let Some(ref broker) = args.mqtt_broker {
                         let _ = crate::mqtt::publish_mqtt_status(broker, &label, "Completed", 100.0);
+                    }
+                    if let Some(ref webhook) = args.webhook_url {
+                        let _ = crate::mqtt::send_webhook_notification(webhook, &label, "Completed", "Successfully finished backup of DVD disc");
                     }
                     println!("[Daemon Event] Ejecting optical disc tray...");
                     let _ = crate::dvd::eject_disc(&args.input);

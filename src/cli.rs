@@ -72,6 +72,30 @@ pub struct Args {
     /// Automatically rip all detected TV episode titles on the disc sequentially
     #[arg(long = "all-episodes")]
     pub all_episodes: bool,
+
+    /// Include all audio tracks from DVD title in output
+    #[arg(long = "all-audio")]
+    pub all_audio: bool,
+
+    /// Preferred audio track language code (e.g. eng, fre, spa)
+    #[arg(long = "audio-lang")]
+    pub audio_lang: Option<String>,
+
+    /// Extract subtitle tracks from DVD title into output container
+    #[arg(long)]
+    pub subtitles: bool,
+
+    /// Preferred subtitle track language code (e.g. eng, fre, spa)
+    #[arg(long = "sub-lang")]
+    pub sub_lang: Option<String>,
+
+    /// Webhook URL (e.g. Discord, Slack, Ntfy, Telegram) for HTTP status POST notifications
+    #[arg(long = "webhook-url")]
+    pub webhook_url: Option<String>,
+
+    /// Do not overwrite existing destination files (auto-append incremental numeric suffix)
+    #[arg(long = "no-overwrite")]
+    pub no_overwrite: bool,
 }
 
 impl Default for Args {
@@ -92,6 +116,12 @@ impl Default for Args {
             season: 1,
             start_episode: 1,
             all_episodes: false,
+            all_audio: false,
+            audio_lang: None,
+            subtitles: false,
+            sub_lang: None,
+            webhook_url: None,
+            no_overwrite: false,
         }
     }
 }

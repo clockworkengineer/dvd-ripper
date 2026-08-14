@@ -46,3 +46,35 @@ pub fn publish_mqtt_status(
     println!("[MQTT Telemetry] Broadcasted payload to {}: {}", broker, payload);
     Ok(())
 }
+
+/// Sends an HTTP POST JSON Webhook notification (Discord / Slack / Ntfy / Telegram compatible).
+pub fn send_webhook_notification(
+    webhook_url: &str,
+    disc_name: &str,
+    status: &str,
+    message: &str,
+) -> Result<()> {
+    let payload = format!(
+        "{{\"appliance\":\"dvd-ripper\",\"status\":\"{}\",\"disc\":\"{}\",\"message\":\"{}\",\"content\":\"📀 DVD Ripper [{}] - {}: {}\",\"timestamp\":\"{}\"}}",
+        status,
+        disc_name,
+        message,
+        disc_name,
+        status,
+        message,
+        chrono::Local::now().format("%Y-%m-%d %H:%M:%S")
+    );
+
+    let client = reqwest::blocking::Client::builder()
+        .timeout(Duration::from_secs(5))
+        .build()?;
+
+    let resp = client
+        .post(webhook_url)
+        .header("Content-Type", "application/json")
+        .body(payload)
+        .send()?;
+
+    println!("[Webhook Telemetry] Sent notification to {} (HTTP {})", webhook_url, resp.status());
+    Ok(())
+}

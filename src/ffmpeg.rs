@@ -11,6 +11,47 @@ use anyhow::{anyhow, Context, Result};
 use crate::cli::Args;
 use crate::utils::{extract_kv_field, format_episode_name, format_title_folder_name, parse_duration};
 
+/// Helper: Ensures parent directories exist and returns absolute path with optional collision incrementing.
+fn ensure_absolute_parent_dir(base_dir: &str, path: PathBuf, no_overwrite: bool) -> Result<PathBuf> {
+    let mut absolute_output = if path.is_absolute() {
+        path
+    } else {
+        let target = PathBuf::from(base_dir).join(path);
+        if target.is_absolute() {
+            target
+        } else {
+            std::env::current_dir()?.join(target)
+        }
+    };
+
+    if no_overwrite && absolute_output.exists() {
+        let parent = absolute_output.parent().unwrap_or_else(|| Path::new("")).to_path_buf();
+        let stem = absolute_output.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
+        let ext = absolute_output.extension().map(|e| e.to_string_lossy().to_string()).unwrap_or_default();
+
+        let mut counter = 1;
+        loop {
+            let candidate_name = if ext.is_empty() {
+                format!("{}_{}", stem, counter)
+            } else {
+                format!("{}_{}.{}", stem, counter, ext)
+            };
+            let candidate_path = parent.join(candidate_name);
+            if !candidate_path.exists() {
+                absolute_output = candidate_path;
+                break;
+            }
+            counter += 1;
+        }
+    }
+
+    if let Some(parent) = absolute_output.parent() {
+        std::fs::create_dir_all(parent).context("Failed to create output parent directory")?;
+    }
+
+    Ok(absolute_output)
+}
+
 /// Resolves the absolute output file path based on detected film metadata, configured output directory, or user CLI args.
 pub fn resolve_output_path(
     args: &Args,
@@ -27,7 +68,7 @@ pub fn resolve_output_path(
         PathBuf::from(format!("output.{}", extension))
     };
 
-    ensure_absolute_parent_dir(&args.out_dir, rel_or_abs_file)
+    ensure_absolute_parent_dir(&args.out_dir, rel_or_abs_file, args.no_overwrite)
 }
 
 /// Resolves the absolute output file path for a TV series episode (e.g. TV/The Office (2005)/Season 01/The Office - S01E01.mpg).
@@ -55,27 +96,7 @@ pub fn resolve_tv_output_path(
         .join(season_folder)
         .join(filename);
 
-    ensure_absolute_parent_dir(root_dir, rel_file)
-}
-
-/// Helper: Ensures parent directories exist and returns absolute path.
-fn ensure_absolute_parent_dir(base_dir: &str, path: PathBuf) -> Result<PathBuf> {
-    let absolute_output = if path.is_absolute() {
-        path
-    } else {
-        let target = PathBuf::from(base_dir).join(path);
-        if target.is_absolute() {
-            target
-        } else {
-            std::env::current_dir()?.join(target)
-        }
-    };
-
-    if let Some(parent) = absolute_output.parent() {
-        std::fs::create_dir_all(parent).context("Failed to create output parent directory")?;
-    }
-
-    Ok(absolute_output)
+    ensure_absolute_parent_dir(root_dir, rel_file, args.no_overwrite)
 }
 
 /// Structure representing a detected TV episode title on a DVD disc.
@@ -259,7 +280,25 @@ pub fn build_ffmpeg_command(
 
     cmd.arg("-i").arg(dvd_path);
     cmd.arg("-map").arg("0:v");
-    cmd.arg("-map").arg("0:a?");
+
+    // Audio stream mapping
+    if args.all_audio {
+        cmd.arg("-map").arg("0:a");
+    } else if let Some(ref lang) = args.audio_lang {
+        cmd.arg("-map").arg(format!("0:a:m:language:{}", lang));
+    } else {
+        cmd.arg("-map").arg("0:a?");
+    }
+
+    // Subtitle stream mapping
+    if args.subtitles {
+        if let Some(ref lang) = args.sub_lang {
+            cmd.arg("-map").arg(format!("0:s:m:language:{}", lang));
+        } else {
+            cmd.arg("-map").arg("0:s?");
+        }
+        cmd.arg("-c:s").arg("dvdsub");
+    }
 
     if args.transcode {
         match args.hwaccel.to_lowercase().as_str() {
@@ -606,5 +645,41 @@ mod tests {
         assert!(cmd_args.contains(&"-title".to_string()));
         let title_idx = cmd_args.iter().position(|r| r == "-title").unwrap();
         assert_eq!(cmd_args[title_idx + 1], "3");
+    }
+
+    #[test]
+    fn test_build_ffmpeg_command_audio_subtitle_options() {
+        let args = Args {
+            all_audio: true,
+            subtitles: true,
+            sub_lang: Some("eng".to_string()),
+            ..Default::default()
+        };
+
+        let output_path = PathBuf::from("Films/Test/Test.mpg");
+        let cmd = build_ffmpeg_command(&args, Path::new("D:\\"), &output_path, 1);
+        let cmd_args: Vec<String> = cmd.get_args().map(|s| s.to_string_lossy().to_string()).collect();
+
+        assert!(cmd_args.contains(&"0:a".to_string()));
+        assert!(cmd_args.contains(&"0:s:m:language:eng".to_string()));
+        assert!(cmd_args.contains(&"dvdsub".to_string()));
+    }
+
+    #[test]
+    fn test_resolve_output_path_no_overwrite() {
+        let temp = TestTempDir::new("no_overwrite_test");
+        let out_dir_str = temp.0.to_string_lossy().to_string();
+
+        let dummy_file = temp.0.join("output.mpg");
+        std::fs::write(&dummy_file, b"existing").unwrap();
+
+        let args = Args {
+            out_dir: out_dir_str,
+            no_overwrite: true,
+            ..Default::default()
+        };
+
+        let path = resolve_output_path(&args, None, None).unwrap();
+        assert!(path.to_string_lossy().contains("output_1.mpg"));
     }
 }
