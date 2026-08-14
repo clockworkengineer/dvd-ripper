@@ -113,4 +113,21 @@ mod tests {
         clear_history(Some(&file_path)).unwrap();
         assert!(load_history(Some(&file_path)).is_empty());
     }
+
+    #[test]
+    fn test_resolve_history_path_defaults() {
+        assert_eq!(resolve_history_path(None), PathBuf::from("ripping_history.json"));
+        let custom = PathBuf::from("/tmp/custom_history.json");
+        assert_eq!(resolve_history_path(Some(&custom)), custom);
+    }
+
+    #[test]
+    fn test_rip_record_construction() {
+        let rec = RipRecord::new("The Matrix", "Movie", "Films/The Matrix.mp4", "Success");
+        assert_eq!(rec.title, "The Matrix");
+        assert_eq!(rec.media_type, "Movie");
+        assert_eq!(rec.output_path, "Films/The Matrix.mp4");
+        assert_eq!(rec.status, "Success");
+        assert!(!rec.timestamp.is_empty());
+    }
 }

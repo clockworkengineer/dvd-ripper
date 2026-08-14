@@ -121,3 +121,25 @@ pub fn eject_disc(root_path: &str) -> bool {
         Command::new("eject").arg(dev_path).status().map_or(false, |s| s.success())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_normalize_dvd_path() {
+        assert_eq!(normalize_dvd_path("D:"), PathBuf::from("D:\\"));
+        assert_eq!(normalize_dvd_path("D:\\"), PathBuf::from("D:\\"));
+        assert_eq!(normalize_dvd_path("/dev/sr0"), PathBuf::from("/dev/sr0"));
+        assert_eq!(normalize_dvd_path("E:"), PathBuf::from("E:\\"));
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    #[test]
+    fn test_resolve_device_path() {
+        assert_eq!(resolve_device_path(""), "/dev/sr0");
+        assert_eq!(resolve_device_path("D:"), "/dev/sr0");
+        assert_eq!(resolve_device_path("D:\\"), "/dev/sr0");
+        assert_eq!(resolve_device_path("/dev/sr1"), "/dev/sr1");
+    }
+}

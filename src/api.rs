@@ -148,6 +148,14 @@ pub fn start_embedded_api_server(port: u16, drive_path: String) -> Result<()> {
     Ok(())
 }
 
+pub fn parse_http_route(req_bytes: &[u8]) -> (&[u8], &[u8]) {
+    let first_line = req_bytes.split(|&b| b == b'\r' || b == b'\n').next().unwrap_or(&[]);
+    let mut parts = first_line.split(|&b| b == b' ');
+    let method = parts.next().unwrap_or(&[]);
+    let path = parts.next().unwrap_or(&[]);
+    (method, path)
+}
+
 fn handle_client(mut stream: TcpStream, drive_path: &str) -> Result<()> {
     let mut buffer = [0u8; 1024];
     let bytes_read = stream.read(&mut buffer)?;
@@ -156,11 +164,7 @@ fn handle_client(mut stream: TcpStream, drive_path: &str) -> Result<()> {
     }
 
     let req_bytes = &buffer[..bytes_read];
-    let first_line = req_bytes.split(|&b| b == b'\r' || b == b'\n').next().unwrap_or(&[]);
-    let mut parts = first_line.split(|&b| b == b' ');
-
-    let method = parts.next().unwrap_or(&[]);
-    let path = parts.next().unwrap_or(&[]);
+    let (method, path) = parse_http_route(req_bytes);
 
     match (method, path) {
         (b"GET", b"/") | (b"GET", b"/index.html") => {
@@ -207,4 +211,27 @@ fn send_http_response(stream: &mut TcpStream, status: &str, content_type: &str, 
     );
     stream.write_all(response.as_bytes())?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_http_route() {
+        let req1 = b"GET / HTTP/1.1\r\nHost: localhost\r\n\r\n";
+        assert_eq!(parse_http_route(req1), (b"GET" as &[u8], b"/" as &[u8]));
+
+        let req2 = b"GET /api/status HTTP/1.1\r\nHost: localhost\r\n\r\n";
+        assert_eq!(parse_http_route(req2), (b"GET" as &[u8], b"/api/status" as &[u8]));
+
+        let req3 = b"POST /api/eject HTTP/1.1\r\nHost: localhost\r\n\r\n";
+        assert_eq!(parse_http_route(req3), (b"POST" as &[u8], b"/api/eject" as &[u8]));
+
+        let req4 = b"POST /api/rip HTTP/1.1\r\nHost: localhost\r\n\r\n";
+        assert_eq!(parse_http_route(req4), (b"POST" as &[u8], b"/api/rip" as &[u8]));
+
+        let req5 = b"DELETE /api/unknown HTTP/1.1\r\nHost: localhost\r\n\r\n";
+        assert_eq!(parse_http_route(req5), (b"DELETE" as &[u8], b"/api/unknown" as &[u8]));
+    }
 }

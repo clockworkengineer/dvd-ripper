@@ -9,17 +9,22 @@ use std::time::Duration;
 use anyhow::{anyhow, Result};
 
 /// Formats and publishes an MQTT status telemetry payload to an MQTT broker.
+fn format_broker_address(broker: &str) -> String {
+    if broker.contains(':') {
+        broker.to_string()
+    } else {
+        format!("{}:1883", broker)
+    }
+}
+
+/// Formats and publishes an MQTT status telemetry payload to an MQTT broker.
 pub fn publish_mqtt_status(
     broker: &str,
     disc_name: &str,
     status: &str,
     progress: f64,
 ) -> Result<()> {
-    let host_port = if broker.contains(':') {
-        broker.to_string()
-    } else {
-        format!("{}:1883", broker)
-    };
+    let host_port = format_broker_address(broker);
 
     let stream = TcpStream::connect_timeout(
         &host_port.parse().map_err(|e| anyhow!("Invalid broker address: {}", e))?,
@@ -77,4 +82,16 @@ pub fn send_webhook_notification(
 
     println!("[Webhook Telemetry] Sent notification to {} (HTTP {})", webhook_url, resp.status());
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_format_broker_address() {
+        assert_eq!(format_broker_address("192.168.1.50"), "192.168.1.50:1883");
+        assert_eq!(format_broker_address("192.168.1.50:18833"), "192.168.1.50:18833");
+        assert_eq!(format_broker_address("mqtt.local:8883"), "mqtt.local:8883");
+    }
 }

@@ -682,4 +682,37 @@ mod tests {
         let path = resolve_output_path(&args, None, None).unwrap();
         assert!(path.to_string_lossy().contains("output_1.mpg"));
     }
+
+    #[test]
+    fn test_build_ffmpeg_command_hwaccel_modes() {
+        let output_path = PathBuf::from("output.mp4");
+
+        let args_nvenc = Args {
+            transcode: true,
+            hwaccel: "nvenc".to_string(),
+            preset: "fast".to_string(),
+            ..Default::default()
+        };
+        let cmd = build_ffmpeg_command(&args_nvenc, Path::new("D:\\"), &output_path, 1);
+        let cmd_args: Vec<String> = cmd.get_args().map(|s| s.to_string_lossy().to_string()).collect();
+        assert!(cmd_args.contains(&"h264_nvenc".to_string()));
+
+        let args_vaapi = Args {
+            transcode: true,
+            hwaccel: "vaapi".to_string(),
+            ..Default::default()
+        };
+        let cmd_vaapi = build_ffmpeg_command(&args_vaapi, Path::new("D:\\"), &output_path, 1);
+        let cmd_args_vaapi: Vec<String> = cmd_vaapi.get_args().map(|s| s.to_string_lossy().to_string()).collect();
+        assert!(cmd_args_vaapi.contains(&"h264_vaapi".to_string()));
+
+        let args_qsv = Args {
+            transcode: true,
+            hwaccel: "qsv".to_string(),
+            ..Default::default()
+        };
+        let cmd_qsv = build_ffmpeg_command(&args_qsv, Path::new("D:\\"), &output_path, 1);
+        let cmd_args_qsv: Vec<String> = cmd_qsv.get_args().map(|s| s.to_string_lossy().to_string()).collect();
+        assert!(cmd_args_qsv.contains(&"h264_qsv".to_string()));
+    }
 }

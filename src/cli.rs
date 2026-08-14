@@ -170,3 +170,64 @@ impl Args {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_args_defaults() {
+        let args = Args::default();
+        assert_eq!(args.input, "D:\\");
+        assert_eq!(args.out_dir, "Films");
+        assert_eq!(args.title, 0);
+        assert!(!args.transcode);
+        assert_eq!(args.preset, "veryfast");
+        assert!(!args.tv);
+        assert!(!args.all_audio);
+        assert!(!args.subtitles);
+        assert!(!args.no_overwrite);
+    }
+
+    #[test]
+    fn test_args_new_movie() {
+        let args = Args::new_movie(
+            "E:\\".to_string(),
+            "MoviesOut".to_string(),
+            2,
+            true,
+            "fast".to_string(),
+            "custom_ffmpeg".to_string(),
+        );
+
+        assert_eq!(args.input, "E:\\");
+        assert_eq!(args.out_dir, "MoviesOut");
+        assert_eq!(args.title, 2);
+        assert!(args.transcode);
+        assert_eq!(args.preset, "fast");
+        assert_eq!(args.ffmpeg, "custom_ffmpeg");
+        assert!(!args.tv);
+    }
+
+    #[test]
+    fn test_args_new_tv() {
+        let args = Args::new_tv(
+            "F:\\".to_string(),
+            "TVOut".to_string(),
+            1,
+            3,
+            5,
+            false,
+            "medium".to_string(),
+            "ffmpeg".to_string(),
+        );
+
+        assert_eq!(args.input, "F:\\");
+        assert_eq!(args.out_dir, "TVOut");
+        assert_eq!(args.title, 1);
+        assert!(args.tv);
+        assert_eq!(args.season, 3);
+        assert_eq!(args.start_episode, 5);
+        assert!(!args.transcode);
+    }
+}

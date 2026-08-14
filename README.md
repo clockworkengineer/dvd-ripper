@@ -9,9 +9,12 @@ A fast, portable DVD backup utility written in Rust featuring both a **Portable 
 ## 🌟 Key Features
 
 - **Portable Native Desktop GUI**: Pure Rust immediate-mode GUI (`eframe`/`egui`). Zero C++ or WebKit runtime dependencies. Compiles into a single lightweight executable.
-- **Embedded Web REST API & Appliance Dashboard**: Built-in HTTP REST API and HTML5 web dashboard (`http://localhost:8080`) providing live appliance monitoring, ripping history, and remote optical disc ejection control.
-- **Headless Auto-Rip Daemon Appliance Mode**: Watcher loop (`--daemon`) that monitors optical drives, automatically detects inserted discs, fetches metadata, batch rips content, broadcasts smart home status, and ejects the tray upon completion.
-- **MQTT Smart Home Telemetry**: Native Home Assistant telemetry reporting (`--mqtt-broker`) for real-time progress and disc status updates.
+- **Embedded Web REST API & Appliance Dashboard**: Built-in HTTP REST API and interactive HTML5 web dashboard (`http://localhost:8080`) providing live appliance status monitoring (`GET /api/status`), remote ripping control (`POST /api/rip`, `POST /api/cancel`), ripping history (`GET /api/history`), and optical disc tray ejection (`POST /api/eject`).
+- **Headless Auto-Rip Daemon Appliance Mode**: Watcher loop (`--daemon`) that monitors optical drives, automatically detects inserted discs, fetches metadata, batch rips content, broadcasts smart home status, triggers webhooks, and ejects the tray upon completion.
+- **Smart Home & Webhook Telemetry Notifications**: Native Home Assistant MQTT reporting (`--mqtt-broker`) and HTTP JSON Webhook notifications (`--webhook-url`) compatible with Discord, Slack, Ntfy, and Telegram.
+- **Audio & Subtitle Track Stream Selection**: Multi-language audio track extraction (`--all-audio`, `--audio-lang`) and subtitle stream extraction (`--subtitles`, `--sub-lang`).
+- **Output File Overwrite Protection**: Automatic duplicate file collision resolution (`--no-overwrite`) appending incremental numeric suffixes (`Title_1.mpg`, `Title_2.mpg`).
+- **Portable Multi-OS Installer**: Built-in installer (`dvd-ripper-installer`) supporting user and system-wide installation, FFmpeg dependency auditing, and system PATH configuration on Windows, Linux, and macOS.
 - **Persistent Ripping History**: Tracks all completed and cancelled backup events in a structured `ripping_history.json` database log.
 - **TV Series Multi-Episode Ripping Mode**: Probes disc titles to detect individual TV episodes, automatically filtering out short intros (<10m) and "Play All" composite titles. Automatically structures files into Plex/Jellyfin standard TV naming: `TV/<Show Name> (<Year>)/Season <SS>/<Show Name> - S<SS>E<EE>.<ext>`.
 - **Automatic Movie & TV Show Identification**: Reads DVD volume labels (via Windows Win32 API / Linux ISO-9660 reader), queries OMDb and IMDb APIs to fetch title, release year, genre, director, cast, IMDb rating, plot summary, and official poster thumbnail. Automatically sets TV mode when a TV series disc is detected.
@@ -28,7 +31,7 @@ A fast, portable DVD backup utility written in Rust featuring both a **Portable 
 
 1. **Rust Toolchain**: Rust 2024 edition (`cargo` & `rustc`). Install via [rustup.rs](https://rustup.rs/).
 2. **FFmpeg**: Must be installed and available in system `PATH` (or specified via `--ffmpeg <path>`). FFmpeg must be built with DVD reading support (`dvdvideo` demuxer enabled).
-3. **OS**: Windows or Linux (Volume label queries use Win32 API on Windows and ISO-9660 Primary Volume Descriptor reading on Linux).
+3. **OS**: Windows, Linux, or macOS.
 
 ---
 
@@ -83,22 +86,25 @@ Or double-click `dvd-ripper.exe`.
 
 #### GUI Features:
 - **1. DVD Drive & Detection**: Set input drive letter (`D:\`) and click **"🔍 Detect DVD"** for async metadata lookup.
-- **2. Media Metadata & Mode Settings**: Toggle **🎬 Movie Mode** or **📺 TV Series Mode**. Configure Show Name, Season #, Starting Episode #, **Batch Rip All Episodes**, and view detected episode title lists.
+- **2. Media Metadata & Mode Settings**: Toggle **🎬 Movie Mode** or **📺 TV Series Mode**. Configure Show Name, Season #, Starting Episode #, Audio Track Languages, Subtitle Languages, Webhook Notifications, and **Batch Rip All Episodes**.
 - **3. Ripping Process**: Click **▶ Batch Rip All Episodes** or **▶ Start Rip**. Monitor animated progress, FPS, and speed per episode.
 - **4. Persistent Ripping History**: View and clear past rip records saved in `ripping_history.json`.
 - **5. Log Console**: Scrollable live stream of FFmpeg output logs.
 
 ---
 
-### 2. Embedded Appliance Daemon Mode
+## 🌐 Embedded Web REST API Dashboard
 
-To run in headless auto-ripping appliance daemon mode:
+When running in Daemon appliance mode (`--daemon`), an embedded web server is launched on port 8080 (`http://localhost:8080`):
 
-```bash
-dvd-ripper.exe --daemon --input D:\ --mqtt-broker 192.168.1.50:1883
-```
-
-This starts the embedded Web REST API server on `http://localhost:8080`, polls the drive every 10 seconds, auto-detects inserted media, batch rips the disc content, publishes Home Assistant telemetry over MQTT, records history, and ejects the tray upon completion.
+| Method | Endpoint | Description |
+|---|---|---|
+| `GET` | `/` | Serves interactive HTML5 Web Dashboard |
+| `GET` | `/api/status` | Returns JSON status (`status`, `drive`, `disc`, `progress`) |
+| `GET` | `/api/history` | Returns JSON array of past ripping records |
+| `POST` | `/api/rip` | Triggers a ripping job remotely |
+| `POST` | `/api/cancel` | Requests cancellation of active ripping job |
+| `POST` | `/api/eject` | Ejects the optical drive tray |
 
 ---
 
@@ -130,10 +136,16 @@ Options:
       --cli                        Force command-line interface mode instead of GUI
       --daemon                     Run as a headless embedded appliance daemon watching optical drive insertion
       --mqtt-broker <MQTT_BROKER>  Optional MQTT broker address (e.g. 192.168.1.50:1883) for smart home telemetry
+      --webhook-url <WEBHOOK_URL>  Optional HTTP Webhook URL (Discord/Slack/Ntfy/Telegram) for JSON POST notifications
       --tv                         Enable TV series disc ripping mode
       --season <SEASON>            Season number for TV series mode [default: 1]
       --start-episode <EPISODE>   Starting episode number for first detected title on disc [default: 1]
       --all-episodes               Automatically batch rip all detected TV episode titles on the disc sequentially
+      --all-audio                  Include all audio tracks from DVD title in output
+      --audio-lang <LANG>          Preferred audio track language code (e.g. eng, fre, spa)
+      --subtitles                  Extract subtitle tracks from DVD title into output container
+      --sub-lang <LANG>            Preferred subtitle track language code (e.g. eng, fre, spa)
+      --no-overwrite               Do not overwrite existing files (auto-append incremental numeric suffix)
   -h, --help                       Print help information
   -V, --version                    Print version
 ```
@@ -142,16 +154,16 @@ Options:
 
 ## 💡 CLI Examples
 
-### 1. Batch Rip TV Series Disc (All Episodes)
-Automatically detects all episode titles on the disc and rips them to `TV/The Office (2005)/Season 01/The Office - S01E01.mpg`, `S01E02.mpg`, etc.:
+### 1. Batch Rip TV Series Disc with Subtitles & All Audio Tracks
+Automatically detects all episode titles on the disc, maps all audio tracks and English subtitles, and rips them to `TV/`:
 ```bash
-dvd-ripper.exe --cli D: --tv --season 1 --all-episodes
+dvd-ripper.exe --cli D: --tv --season 1 --all-episodes --all-audio --subtitles --sub-lang eng
 ```
 
-### 2. Headless Daemon Watcher with Smart Home Telemetry
-Monitors drive D:\ for disc insertions, auto-rips movies and TV series, publishes status to MQTT broker, and ejects disc when finished:
+### 2. Headless Daemon Watcher with Smart Home Telemetry & Webhook Alerts
+Monitors drive D:\ for disc insertions, auto-rips content, posts notifications to Discord webhook, and ejects disc when finished:
 ```bash
-dvd-ripper.exe --daemon --input D:\ --mqtt-broker 192.168.1.50:1883
+dvd-ripper.exe --daemon --input D:\ --webhook-url https://discord.com/api/webhooks/... --mqtt-broker 192.168.1.50:1883
 ```
 
 ### 3. Movie Auto-Title Detection & Fast Remux (Default)
@@ -172,24 +184,26 @@ dvd-ripper.exe --cli D: --tv --season 1 --all-episodes --transcode --hwaccel nve
 
 ```
 src/
-├── main.rs       - Application entry point orchestrating GUI, CLI, or Daemon mode for Movies & TV Series
-├── api.rs        - Embedded HTTP REST API & HTML5 Web UI appliance dashboard server
-├── cli.rs        - Command-line argument schema (clap) with --tv, --season, --start-episode, --daemon, --mqtt-broker
-├── daemon.rs     - Headless auto-rip watcher loop for optical disc insertion, metadata resolution, & auto-eject
-├── dvd.rs        - Drive path normalization, Win32 & ISO-9660 volume label queries, & optical tray eject API
-├── ffmpeg.rs     - Title probing (probe_dvd_titles, detect_best_title & detect_tv_episodes), path resolution, & execution engine
-├── gui.rs        - Native desktop GUI implementation (eframe/egui) with Movie/TV toggles, posters, & history view
-├── history.rs    - Persistent JSON ripping history database log (load, save, clear, record)
-├── imdb.rs       - OMDb / IMDb API client, runtime & plot parsing models (FilmMetadata with is_series)
-├── mqtt.rs       - MQTT smart home telemetry publisher for Home Assistant status reporting
-└── utils.rs      - Duration parsing, filename sanitization, season/disc label extraction, & DRY string helpers
+├── main.rs         - Application entry point orchestrating GUI, CLI, or Daemon mode for Movies & TV Series
+├── api.rs          - Embedded HTTP REST API & HTML5 Web UI appliance dashboard server
+├── cli.rs          - Command-line argument schema (clap) with audio/subtitle/webhook options
+├── daemon.rs       - Headless auto-rip watcher loop for optical disc insertion, metadata resolution, & auto-eject
+├── dvd.rs          - Drive path normalization, Win32 & ISO-9660 volume label queries, & optical tray eject API
+├── ffmpeg.rs       - Title probing, stream mapping, collision protection, & execution engine
+├── gui.rs          - Native desktop GUI implementation (eframe/egui) with stream controls & history view
+├── history.rs      - Persistent JSON ripping history database log (load, save, clear, record)
+├── imdb.rs         - OMDb / IMDb API client, runtime & plot parsing models (FilmMetadata with is_series)
+├── mqtt.rs         - MQTT smart home telemetry & HTTP Webhook notification engine
+├── utils.rs        - Duration parsing, filename sanitization, season/disc label extraction, & DRY string helpers
+└── bin/
+    └── installer.rs - Portable multi-OS installer binary (dvd-ripper-installer)
 ```
 
 ---
 
 ## 🧪 Testing
 
-Run the test suite:
+Run the full test suite (26 unit tests):
 ```bash
 cargo test
 ```
