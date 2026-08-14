@@ -9,8 +9,10 @@ A fast, portable DVD backup utility written in Rust featuring both a **Portable 
 ## 🌟 Key Features
 
 - **Portable Native Desktop GUI**: Pure Rust immediate-mode GUI (`eframe`/`egui`). Zero C++ or WebKit runtime dependencies. Compiles into a single lightweight executable.
-- **Embedded Web REST API & Appliance Dashboard**: Built-in HTTP REST API and interactive HTML5 web dashboard (`http://localhost:8080`) providing live appliance status monitoring (`GET /api/status`), remote ripping control (`POST /api/rip`, `POST /api/cancel`), ripping history (`GET /api/history`), and optical disc tray ejection (`POST /api/eject`).
-- **Headless Auto-Rip Daemon Appliance Mode**: Watcher loop (`--daemon`) that monitors optical drives, automatically detects inserted discs, fetches metadata, batch rips content, broadcasts smart home status, triggers webhooks, and ejects the tray upon completion.
+- **Embedded Web REST API & Appliance Dashboard**: Built-in HTTP REST API and interactive HTML5 web dashboard (`http://localhost:8080`) providing live appliance status monitoring (`GET /api/status`), interactive IMDb candidate search & selection (`GET /api/search?q=...`, `POST /api/select`), remote ripping control (`POST /api/rip`, `POST /api/cancel`), ripping history (`GET /api/history`), and optical disc tray ejection (`POST /api/eject`).
+- **Headless Auto-Rip Daemon Appliance Mode**: Watcher loop (`--daemon`) that monitors optical drives, automatically detects inserted discs, fetches metadata, awaits movie selection via CLI or Web UI, batch rips content, broadcasts smart home status, triggers webhooks, and ejects the tray upon completion.
+- **Controlled Headless Selection Workflow**: On disc insertion, appliance status transitions to `"Detected - Search Required"` and auto-ripping is paused until the correct movie candidate is searched and selected via CLI flags (`-s`, `--imdb-id`, `--select-index`), terminal prompt, or the Web Dashboard. The **▶ Start Rip** control is safely enabled only when a DVD is present and title selection is complete.
+- **Real-Time Cancellation & Progress Tracking**: Real-time FFmpeg progress streaming (0.0% to 100.0%, FPS, Speed) with instant job cancellation support (`POST /api/cancel` / `⏹ Cancel`).
 - **Smart Home & Webhook Telemetry Notifications**: Native Home Assistant MQTT reporting (`--mqtt-broker`) and HTTP JSON Webhook notifications (`--webhook-url`) compatible with Discord, Slack, Ntfy, and Telegram.
 - **Audio & Subtitle Track Stream Selection**: Multi-language audio track extraction (`--all-audio`, `--audio-lang`) and subtitle stream extraction (`--subtitles`, `--sub-lang`).
 - **Output File Overwrite Protection**: Automatic duplicate file collision resolution (`--no-overwrite`) appending incremental numeric suffixes (`Title_1.mpg`, `Title_2.mpg`).
@@ -22,8 +24,34 @@ A fast, portable DVD backup utility written in Rust featuring both a **Portable 
 - **Hardware Acceleration Support**: Supports embedded and GPU hardware video acceleration (`--hwaccel` copy, v4l2m2m, vaapi, nvenc, qsv).
 - **Fast Lossless Remuxing (Default)**: Losslessly copies raw video and audio streams (`-c copy`) into an MPEG program stream container for maximum extraction speed.
 - **H.264 / AAC Transcoding**: Optional high-quality transcoding mode (`--transcode`) using `libx264` and `aac` with customizable encoding presets.
-- **Live Progress & Monitoring**: Smooth progress bar (0–100%), real-time FPS & Speed indicators, interactive **Start** & **Cancel** controls, and a live log console.
 - **Dual Execution Modes**: Launching without flags opens the native GUI window. Command-line users can pass `--cli`, `--daemon`, or standard CLI arguments for terminal workflows and automation scripts.
+
+---
+
+## 📁 Output Destination Directories
+
+By default, ripped files are output relative to your current working directory using a clean, Plex/Jellyfin-compatible media hierarchy:
+
+### 1. Default Directory Structure
+- **Movies**: Saved into **`Films/`** (or your custom `--out-dir` path).
+  - **Path**: `Films/<Movie Title> (<Year>)/<Movie Title> (<Year>).<ext>`
+  - **Example**: `Films/Kill Bill Vol. 2 (2004)/Kill Bill Vol. 2 (2004).mpg` (or `.mp4` if re-encoded).
+
+- **TV Series**: Saved into **`TV/`** when TV mode (`--tv`) is enabled.
+  - **Path**: `TV/<Show Name> (<Year>)/Season <NN>/<Show Name> - S<NN>E<NN>.<ext>`
+  - **Example**: `TV/The Office (2005)/Season 01/The Office - S01E01.mpg`
+
+### 2. Custom Destination Options
+- **Custom Output Directory (`-d` / `--out-dir`)**:
+  ```bash
+  dvd-ripper --daemon -d "D:\Media"
+  ```
+  *Saves movie backups to `D:\Media\Films\...` and TV shows to `D:\Media\TV\...`.*
+
+- **Custom Output File Path (`-o` / `--output`)**:
+  ```bash
+  dvd-ripper --cli D: -o "D:\Backups\MyMovie.mp4" --transcode
+  ```
 
 ---
 
@@ -87,7 +115,7 @@ Or double-click `dvd-ripper.exe`.
 #### GUI Features:
 - **1. DVD Drive & Detection**: Set input drive letter (`D:\`) and click **"🔍 Detect DVD"** for async metadata lookup.
 - **2. Media Metadata & Mode Settings**: Toggle **🎬 Movie Mode** or **📺 TV Series Mode**. Configure Show Name, Season #, Starting Episode #, Audio Track Languages, Subtitle Languages, Webhook Notifications, and **Batch Rip All Episodes**.
-- **3. Ripping Process**: Click **▶ Batch Rip All Episodes** or **▶ Start Rip**. Monitor animated progress, FPS, and speed per episode.
+- **3. Ripping Process**: Click **▶ Batch Rip All Episodes** or **▶ Start Rip**. Monitor animated progress, percentage, FPS, and speed per episode.
 - **4. Persistent Ripping History**: View and clear past rip records saved in `ripping_history.json`.
 - **5. Log Console**: Scrollable live stream of FFmpeg output logs.
 
@@ -100,12 +128,12 @@ When running in Daemon appliance mode (`--daemon`), an embedded web server is la
 | Method | Endpoint | Description |
 |---|---|---|
 | `GET` | `/` | Serves interactive HTML5 Web Dashboard |
-| `GET` | `/api/status` | Returns JSON status (`status`, `drive`, `disc`, `progress`) |
+| `GET` | `/api/status` | Returns JSON status (`status`, `drive`, `disc`, `current_title`, `progress`, `fps`, `speed`, `has_selected_movie`) |
 | `GET` | `/api/history` | Returns JSON array of past ripping records |
 | `GET` | `/api/search?q=<QUERY>` | Returns JSON array of candidate search results from IMDb/OMDb |
 | `POST` | `/api/select` | Selects a specific IMDb candidate entry by `{ "imdb_id": "tt0266697" }` |
-| `POST` | `/api/rip` | Triggers a ripping job remotely |
-| `POST` | `/api/cancel` | Requests cancellation of active ripping job |
+| `POST` | `/api/rip` | Triggers a ripping job remotely (requires disc presence & prior candidate selection) |
+| `POST` | `/api/cancel` | Requests cancellation of active ripping job and kills FFmpeg process |
 | `POST` | `/api/eject` | Ejects the optical drive tray |
 
 ---
@@ -172,15 +200,15 @@ dvd-ripper.exe --cli D: --tv --season 1 --all-episodes --all-audio --subtitles -
 ```
 
 ### 2. Headless Daemon Watcher with Smart Home Telemetry & Webhook Alerts
-Monitors drive D:\ for disc insertions, auto-rips content, posts notifications to Discord webhook, and ejects disc when finished:
+Monitors drive D:\ for disc insertions, awaits movie selection, posts notifications to Discord webhook, and ejects disc when finished:
 ```bash
 dvd-ripper.exe --daemon D:\ --webhook-url https://discord.com/api/webhooks/... --mqtt-broker 192.168.1.50:1883
 ```
 
-### 3. Movie Auto-Title Detection & Fast Remux (Default)
-Auto-selects main title based on movie running time and losslessly remuxes into `Films/`:
+### 3. Interactive IMDb Search Selection in Headless CLI Mode
+Searches IMDb candidates for "Kill Bill", prompts terminal selection, and rips chosen movie:
 ```bash
-dvd-ripper.exe --cli D:
+dvd-ripper.exe --cli D: -s "Kill Bill"
 ```
 
 ### 4. Transcode TV Episodes with NVENC Hardware Acceleration
@@ -196,14 +224,14 @@ dvd-ripper.exe --cli D: --tv --season 1 --all-episodes --transcode --hwaccel nve
 ```
 src/
 ├── main.rs         - Application entry point orchestrating GUI, CLI, or Daemon mode for Movies & TV Series
-├── api.rs          - Embedded HTTP REST API & HTML5 Web UI appliance dashboard server
-├── cli.rs          - Command-line argument schema (clap) with audio/subtitle/webhook options
+├── api.rs          - Embedded HTTP REST API & HTML5 Web UI appliance dashboard server with cancellation & search handlers
+├── cli.rs          - Command-line argument schema (clap) with search flags, audio/subtitle/webhook options
 ├── daemon.rs       - Headless auto-rip watcher loop for optical disc insertion, metadata resolution, & auto-eject
 ├── dvd.rs          - Drive path normalization, Win32 & ISO-9660 volume label queries, & optical tray eject API
-├── ffmpeg.rs       - Title probing, stream mapping, collision protection, & execution engine
+├── ffmpeg.rs       - Title probing, stream mapping, collision protection, progress streaming, & execution engine
 ├── gui.rs          - Native desktop GUI implementation (eframe/egui) with stream controls & history view
 ├── history.rs      - Persistent JSON ripping history database log (load, save, clear, record)
-├── imdb.rs         - OMDb / IMDb API client, runtime & plot parsing models (FilmMetadata with is_series)
+├── imdb.rs         - OMDb / IMDb API client, candidate search, runtime & plot parsing models
 ├── mqtt.rs         - MQTT smart home telemetry & HTTP Webhook notification engine
 ├── utils.rs        - Duration parsing, filename sanitization, season/disc label extraction, & DRY string helpers
 └── bin/
@@ -214,7 +242,7 @@ src/
 
 ## 🧪 Testing
 
-Run the full test suite (26 unit tests):
+Run the full test suite (31 unit tests):
 ```bash
 cargo test
 ```
