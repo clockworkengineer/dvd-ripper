@@ -34,15 +34,38 @@ A fast, portable DVD backup utility written in Rust featuring both a **Portable 
 
 ## 🚀 Installation & Building
 
-Clone the repository and build using Cargo:
+### Option 1: Automatic Cross-Platform Installer (Recommended)
+
+DVD Ripper includes a portable, multi-OS installer (`dvd-ripper-installer`) that handles binary installation, FFmpeg auditing, system PATH configuration, and Linux systemd/udev service setup:
 
 ```bash
+# Clone the repository
 git clone https://github.com/your-username/dvd-ripper.git
 cd dvd-ripper
+
+# Build the release binaries
 cargo build --release
+
+# Run the installer (User mode by default)
+cargo run --bin dvd-ripper-installer
 ```
 
-The compiled single executable will be saved at `target/release/dvd-ripper.exe`.
+#### Installer CLI Options:
+```text
+Usage: dvd-ripper-installer [OPTIONS]
+
+Options:
+      --system     Install system-wide (requires Administrator / root privileges)
+      --user       Install for current user (default: %LOCALAPPDATA%\dvd-ripper\bin or ~/.local/bin)
+  -d, --dir <DIR>  Custom target installation directory
+  -u, --uninstall  Uninstall DVD Ripper from system
+      --service    Install Linux systemd service and udev rules (Linux system-wide mode)
+  -y, --yes        Non-interactive mode (automatically answer yes to prompts)
+```
+
+### Option 2: Direct Binary Execution
+
+The compiled single executable will be saved at `target/release/dvd-ripper.exe` (or `target/release/dvd-ripper` on Linux/macOS). You can run or move this binary directly.
 
 ---
 

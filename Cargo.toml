@@ -3,6 +3,14 @@ name = "dvd-ripper"
 version = "0.1.0"
 edition = "2024"
 
+[[bin]]
+name = "dvd-ripper"
+path = "src/main.rs"
+
+[[bin]]
+name = "dvd-ripper-installer"
+path = "src/bin/installer.rs"
+
 [features]
 default = ["gui"]
 gui = ["dep:eframe", "dep:image"]
