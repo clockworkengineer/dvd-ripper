@@ -24,8 +24,142 @@ use dvd::{get_volume_label, normalize_dvd_path};
 use ffmpeg::{
     detect_tv_episodes, resolve_output_path, resolve_tv_output_path, run_ffmpeg_with_progress,
 };
-use imdb::lookup_film_details;
+use imdb::{fetch_search_candidates, lookup_film_details, lookup_omdb_by_id};
 use utils::sanitize_filename;
+
+fn resolve_cli_metadata(args: &mut Args, volume_label: Option<&str>) -> (Option<String>, Option<u32>, Option<f64>) {
+    // 1. Direct IMDb ID selection
+    if let Some(ref imdb_id) = args.imdb_id {
+        println!("Looking up exact IMDb ID: {}", imdb_id);
+        if let Some(meta) = lookup_omdb_by_id(imdb_id) {
+            let clean_name = sanitize_filename(&meta.title);
+            let runtime_desc = meta
+                .runtime_secs
+                .map(|r| format!(", {:.0} mins", r / 60.0))
+                .unwrap_or_default();
+            println!("IMDb ID Match: {} ({:?}{})", clean_name, meta.year, runtime_desc);
+            if meta.is_series {
+                println!("Media identified as TV Series.");
+                args.tv = true;
+            }
+            return (Some(clean_name), meta.year, meta.runtime_secs);
+        } else {
+            println!("Warning: Could not fetch details for IMDb ID '{}'.", imdb_id);
+        }
+    }
+
+    // 2. Search query or volume label detection
+    let search_term = if let Some(ref q) = args.search {
+        Some(q.clone())
+    } else {
+        volume_label.map(|l| l.to_string())
+    };
+
+    if let Some(query) = search_term {
+        if args.search.is_some() {
+            println!("Searching IMDb candidates for query: '{}'", query);
+        } else {
+            println!("Detected DVD Volume Label: {}", query);
+        }
+
+        let candidates = fetch_search_candidates(&query);
+        let mut selected_candidate_id: Option<String> = None;
+
+        if !candidates.is_empty() {
+            if let Some(idx) = args.select_index {
+                if idx >= 1 && idx <= candidates.len() {
+                    let cand = &candidates[idx - 1];
+                    println!(
+                        "Selected candidate #{}/{} from CLI argument: {} ({:?}) [{}]",
+                        idx,
+                        candidates.len(),
+                        cand.title,
+                        cand.year,
+                        cand.imdb_id
+                    );
+                    selected_candidate_id = Some(cand.imdb_id.clone());
+                } else {
+                    println!(
+                        "Warning: Invalid --select-index {}, available range is 1-{}",
+                        idx,
+                        candidates.len()
+                    );
+                }
+            } else if args.search.is_some() || candidates.len() > 1 {
+                println!("\n--- IMDb Search Candidates for '{}' ---", query);
+                for (i, cand) in candidates.iter().enumerate() {
+                    let yr_str = cand.year.map(|y| format!(" ({})", y)).unwrap_or_default();
+                    println!(
+                        "  [{}] {} {} - [{}] ({})",
+                        i + 1,
+                        cand.title,
+                        yr_str,
+                        cand.imdb_id,
+                        cand.type_field
+                    );
+                }
+                println!("  [0] Skip candidate selection / use auto-detection");
+
+                use std::io::{self, Write};
+                print!("Select entry [1-{}, default 1, 0 to skip]: ", candidates.len());
+                let _ = io::stdout().flush();
+                let mut input = String::new();
+                if io::stdin().read_line(&mut input).is_ok() {
+                    let trimmed = input.trim();
+                    if trimmed.is_empty() {
+                        selected_candidate_id = Some(candidates[0].imdb_id.clone());
+                    } else if let Ok(num) = trimmed.parse::<usize>() {
+                        if num >= 1 && num <= candidates.len() {
+                            selected_candidate_id = Some(candidates[num - 1].imdb_id.clone());
+                        } else if num == 0 {
+                            println!("Skipped candidate selection.");
+                        }
+                    }
+                }
+            }
+        }
+
+        if let Some(imdb_id) = selected_candidate_id {
+            if let Some(meta) = lookup_omdb_by_id(&imdb_id) {
+                let clean_name = sanitize_filename(&meta.title);
+                let runtime_desc = meta
+                    .runtime_secs
+                    .map(|r| format!(", {:.0} mins", r / 60.0))
+                    .unwrap_or_default();
+                println!("Selected Metadata: {} ({:?}{})", clean_name, meta.year, runtime_desc);
+                if meta.is_series {
+                    println!("Media identified as TV Series.");
+                    args.tv = true;
+                }
+                return (Some(clean_name), meta.year, meta.runtime_secs);
+            }
+        }
+
+        // Fallback to lookup_film_details if no candidate selected or search returned empty
+        match lookup_film_details(&query) {
+            Ok(meta) => {
+                let clean_name = sanitize_filename(&meta.title);
+                let runtime_desc = meta
+                    .runtime_secs
+                    .map(|r| format!(", {:.0} mins", r / 60.0))
+                    .unwrap_or_default();
+                println!("Metadata Result: {} ({:?}{})", clean_name, meta.year, runtime_desc);
+                if meta.is_series {
+                    println!("Media identified as TV Series.");
+                    args.tv = true;
+                }
+                return (Some(clean_name), meta.year, meta.runtime_secs);
+            }
+            Err(e) => {
+                println!("Warning: Failed to look up metadata details for '{}': {}", query, e);
+            }
+        }
+    } else {
+        println!("Warning: Could not detect DVD volume label and no search query provided.");
+    }
+
+    (None, None, None)
+}
 
 fn main() -> Result<()> {
     #[cfg(feature = "gui")]
@@ -40,6 +174,10 @@ fn main() -> Result<()> {
                 || arg == "--version"
                 || arg == "--tv"
                 || arg == "--daemon"
+                || arg == "-s"
+                || arg == "--search"
+                || arg == "--imdb-id"
+                || arg == "--select-index"
         });
 
         if !is_cli {
@@ -68,43 +206,15 @@ fn main() -> Result<()> {
     }
     println!("Target DVD path: {}", dvd_path.display());
 
-    // 2. Try to auto-detect media metadata from volume label
-    let mut title_name = None;
-    let mut title_year = None;
-    let mut film_runtime = None;
+    // 2. Resolve metadata via IMDb search, ID selection, or volume label auto-detection
     let volume_label = get_volume_label(&dvd_path.to_string_lossy());
+    let (title_name, title_year, film_runtime) =
+        resolve_cli_metadata(&mut args, volume_label.as_deref());
 
-    if let Some(ref label) = volume_label {
-        println!("Detected DVD Volume Label: {}", label);
-        match lookup_film_details(label) {
-            Ok(meta) => {
-                let clean_name = sanitize_filename(&meta.title);
-                let runtime_desc = meta
-                    .runtime_secs
-                    .map(|r| format!(", {:.0} mins", r / 60.0))
-                    .unwrap_or_default();
-                println!(
-                    "Auto-detected Metadata: {} ({:?}{})",
-                    clean_name, meta.year, runtime_desc
-                );
-                title_name = Some(clean_name);
-                title_year = meta.year;
-                film_runtime = meta.runtime_secs;
-
-                if meta.is_series {
-                    println!("Media identified as TV Series.");
-                    args.tv = true;
-                }
-            }
-            Err(e) => {
-                println!(
-                    "Warning: Failed to look up metadata details for label '{}': {}",
-                    label, e
-                );
-            }
-        }
-    } else {
-        println!("Warning: Could not detect DVD volume label.");
+    if title_name.is_none() {
+        return Err(anyhow!(
+            "Ripping disabled: No movie searched and selected. Please specify --search <QUERY> or --imdb-id <ID> to select a movie."
+        ));
     }
 
     // 3. Execution path for TV series vs Movie

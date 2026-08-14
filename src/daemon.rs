@@ -9,9 +9,6 @@ use anyhow::Result;
 
 use crate::cli::Args;
 use crate::dvd::{get_volume_label, normalize_dvd_path};
-use crate::ffmpeg::{detect_tv_episodes, resolve_output_path, resolve_tv_output_path, run_ffmpeg_with_progress};
-use crate::history::record_rip_event;
-use crate::imdb::lookup_film_details;
 
 /// Launches the headless appliance daemon loop polling optical drives for inserted DVDs.
 pub fn run_daemon(args: Args, poll_interval_secs: u64) -> Result<()> {
@@ -29,101 +26,28 @@ pub fn run_daemon(args: Args, poll_interval_secs: u64) -> Result<()> {
                 if !label.is_empty() && label != last_processed_label {
                     println!("[Daemon Event] New Disc Detected: {}", label);
                     last_processed_label = label.clone();
-                    crate::api::update_appliance_status("Detected", &label, "", 0.0, "0", "0x");
+                    crate::api::set_disc_detected(&label);
 
                     if let Some(ref broker) = args.mqtt_broker {
-                        let _ = crate::mqtt::publish_mqtt_status(broker, &label, "Detected", 0.0);
+                        let _ = crate::mqtt::publish_mqtt_status(broker, &label, "Detected - Search Required", 0.0);
                     }
                     if let Some(ref webhook) = args.webhook_url {
-                        let _ = crate::mqtt::send_webhook_notification(webhook, &label, "Detected", "New DVD disc detected on optical drive");
+                        let _ = crate::mqtt::send_webhook_notification(webhook, &label, "Detected", "New DVD disc inserted. Search and select movie to begin ripping.");
                     }
-
-                    let mut job_args = args.clone();
-                    let meta_res = lookup_film_details(&label);
-
-                    let title_name = if let Ok(meta) = meta_res {
-                        println!("[Daemon Metadata] Found: {} ({})", meta.title, meta.year.unwrap_or(0));
-                        if meta.is_series {
-                            job_args.tv = true;
-                            job_args.out_dir = "TV".to_string();
-                        }
-                        meta.title
-                    } else {
-                        label.clone()
-                    };
-
-                    crate::api::update_appliance_status("Ripping", &label, &title_name, 0.0, "0", "0x");
-
-                    if job_args.tv {
-                        println!("[Daemon] Starting TV series batch rip...");
-                        let episodes = detect_tv_episodes(
-                            &job_args.ffmpeg,
-                            &dvd_path,
-                            &title_name,
-                            job_args.season,
-                            job_args.start_episode,
-                            None,
-                        );
-                        for ep in &episodes {
-                            if let Ok(out_path) = resolve_tv_output_path(
-                                &job_args,
-                                Some(&title_name),
-                                None,
-                                job_args.season,
-                                ep.episode_num,
-                            ) {
-                                println!("[Daemon Ripping] Episode -> {}", out_path.display());
-                                crate::api::update_appliance_status("Ripping", &label, &ep.formatted_name, 0.0, "0", "0x");
-                                if let Some(ref broker) = args.mqtt_broker {
-                                    let _ = crate::mqtt::publish_mqtt_status(broker, &ep.formatted_name, "Ripping", 50.0);
-                                }
-                                if run_ffmpeg_with_progress(
-                                    &job_args,
-                                    &dvd_path,
-                                    &out_path,
-                                    &ep.formatted_name,
-                                    Some(ep.duration_secs),
-                                ).is_ok() {
-                                    let _ = record_rip_event(&ep.formatted_name, "TV Series", &out_path.to_string_lossy(), "Success");
-                                }
-                            }
-                        }
-                    } else {
-                        if let Ok(out_path) = resolve_output_path(&job_args, Some(&title_name), None) {
-                            println!("[Daemon Ripping] Movie -> {}", out_path.display());
-                            crate::api::update_appliance_status("Ripping", &label, &title_name, 0.0, "0", "0x");
-                            if let Some(ref broker) = args.mqtt_broker {
-                                let _ = crate::mqtt::publish_mqtt_status(broker, &title_name, "Ripping", 50.0);
-                            }
-                            if run_ffmpeg_with_progress(
-                                &job_args,
-                                &dvd_path,
-                                &out_path,
-                                &title_name,
-                                None,
-                            ).is_ok() {
-                                let _ = record_rip_event(&title_name, "Movie", &out_path.to_string_lossy(), "Success");
-                            }
-                        }
-                    }
-
-                    println!("[Daemon Event] Ripping completed for disc: {}", label);
-                    crate::api::update_appliance_status("Completed", &label, "", 100.0, "0", "0x");
-                    if let Some(ref broker) = args.mqtt_broker {
-                        let _ = crate::mqtt::publish_mqtt_status(broker, &label, "Completed", 100.0);
-                    }
-                    if let Some(ref webhook) = args.webhook_url {
-                        let _ = crate::mqtt::send_webhook_notification(webhook, &label, "Completed", "Successfully finished backup of DVD disc");
-                    }
-                    println!("[Daemon Event] Ejecting optical disc tray...");
-                    let _ = crate::dvd::eject_disc(&args.input);
-                    println!();
+                    println!("[Daemon Event] Disc inserted: '{}'. Awaiting movie search & selection to enable ripping.", label);
                 }
-            } else {
-                last_processed_label.clear();
             }
         } else {
-            last_processed_label.clear();
+            if !last_processed_label.is_empty() {
+                last_processed_label.clear();
+                let handle = crate::api::get_appliance_status_handle();
+                if let Ok(mut state) = handle.lock() {
+                    state.disc.clear();
+                    state.current_title.clear();
+                    state.has_selected_movie = false;
+                    state.status = "Idle".to_string();
+                }
+            }
         }
 
         thread::sleep(Duration::from_secs(poll_interval_secs));

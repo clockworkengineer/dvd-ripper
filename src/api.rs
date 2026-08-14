@@ -1,11 +1,24 @@
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc::{channel, Sender};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::thread;
 use anyhow::Result;
 
 use crate::dvd::eject_disc;
 use crate::history::load_history;
+
+static CANCEL_FLAG: OnceLock<Arc<AtomicBool>> = OnceLock::new();
+static CANCEL_TX: OnceLock<Arc<Mutex<Option<Sender<()>>>>> = OnceLock::new();
+
+pub fn get_cancel_flag_handle() -> Arc<AtomicBool> {
+    CANCEL_FLAG.get_or_init(|| Arc::new(AtomicBool::new(false))).clone()
+}
+
+pub fn get_cancel_tx_handle() -> Arc<Mutex<Option<Sender<()>>>> {
+    CANCEL_TX.get_or_init(|| Arc::new(Mutex::new(None))).clone()
+}
 
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct ApplianceStatusInfo {
@@ -16,6 +29,9 @@ pub struct ApplianceStatusInfo {
     pub progress: f64,
     pub fps: String,
     pub speed: String,
+    pub has_selected_movie: bool,
+    pub is_series: bool,
+    pub year: Option<u32>,
 }
 
 static APPLIANCE_STATUS: OnceLock<Arc<Mutex<ApplianceStatusInfo>>> = OnceLock::new();
@@ -31,9 +47,25 @@ pub fn get_appliance_status_handle() -> Arc<Mutex<ApplianceStatusInfo>> {
                 progress: 0.0,
                 fps: "0".to_string(),
                 speed: "0x".to_string(),
+                has_selected_movie: false,
+                is_series: false,
+                year: None,
             }))
         })
         .clone()
+}
+
+pub fn set_disc_detected(disc_label: &str) {
+    let handle = get_appliance_status_handle();
+    if let Ok(mut state) = handle.lock() {
+        if state.disc != disc_label {
+            state.disc = disc_label.to_string();
+            state.current_title.clear();
+            state.has_selected_movie = false;
+            state.status = "Detected - Search Required".to_string();
+            state.progress = 0.0;
+        }
+    }
 }
 
 pub fn update_appliance_status(
@@ -76,6 +108,7 @@ const EMBEDDED_DASHBOARD_HTML: &str = r#"<!DOCTYPE html>
         .card { background: var(--card); border-radius: 12px; padding: 1.5rem; margin-bottom: 1.5rem; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.3); }
         .btn { background: var(--accent); color: #000; border: none; padding: 0.6rem 1.2rem; border-radius: 8px; font-weight: bold; cursor: pointer; transition: opacity 0.2s; margin-right: 0.5rem; }
         .btn:hover { opacity: 0.9; }
+        .btn:disabled { opacity: 0.4; cursor: not-allowed; }
         .btn-danger { background: var(--danger); color: #fff; }
         .btn-secondary { background: #64748b; color: #fff; }
         .progress-bar { width: 100%; background: #334155; height: 12px; border-radius: 6px; overflow: hidden; margin: 1rem 0; }
@@ -97,11 +130,20 @@ const EMBEDDED_DASHBOARD_HTML: &str = r#"<!DOCTYPE html>
             <div id="status-text" class="muted">Querying daemon status...</div>
             <div class="progress-bar"><div id="progress-fill" class="progress-fill"></div></div>
             <div style="margin-top: 1rem;">
-                <button class="btn" onclick="triggerRip()">▶ Start Rip</button>
+                <button class="btn" id="start-rip-btn" onclick="triggerRip()" disabled style="opacity: 0.4; cursor: not-allowed;" title="Insert DVD and select a movie to enable ripping.">▶ Start Rip</button>
                 <button class="btn btn-danger" onclick="cancelRip()">⏹ Cancel</button>
                 <button class="btn btn-secondary" onclick="ejectDisc()">⏏ Eject Tray</button>
                 <button class="btn btn-secondary" onclick="fetchHistory()">🔄 Refresh History</button>
             </div>
+        </div>
+
+        <div class="card">
+            <h2>🔍 IMDb Metadata Search & Candidate Selection</h2>
+            <div style="display: flex; gap: 0.5rem; margin-bottom: 1rem;">
+                <input type="text" id="search-input" placeholder="Search title or show name (e.g. Kill Bill, Aliens)..." style="flex: 1; padding: 0.6rem; border-radius: 8px; border: 1px solid #334155; background: #0f172a; color: #fff;" onkeypress="if(event.key==='Enter') searchImdb()">
+                <button class="btn" onclick="searchImdb()">🔍 Search IMDb</button>
+            </div>
+            <div id="search-results"></div>
         </div>
 
         <div class="card">
@@ -118,10 +160,78 @@ const EMBEDDED_DASHBOARD_HTML: &str = r#"<!DOCTYPE html>
                 document.getElementById('status-text').innerHTML = `
                     <strong>State:</strong> ${data.status} | 
                     <strong>Drive:</strong> ${data.drive} | 
-                    <strong>Disc:</strong> ${data.disc || 'None'}
+                    <strong>Disc/Title:</strong> ${data.current_title || data.disc || 'None'}
                 `;
                 document.getElementById('progress-fill').style.width = (data.progress || 0) + '%';
+
+                const hasDvd = data.disc && data.disc.length > 0;
+                const hasSelected = data.has_selected_movie === true;
+                const startBtn = document.getElementById('start-rip-btn');
+                if (startBtn) {
+                    if (hasDvd && hasSelected) {
+                        startBtn.disabled = false;
+                        startBtn.style.opacity = '1';
+                        startBtn.style.cursor = 'pointer';
+                        startBtn.title = 'Start Ripping DVD';
+                    } else {
+                        startBtn.disabled = true;
+                        startBtn.style.opacity = '0.4';
+                        startBtn.style.cursor = 'not-allowed';
+                        if (!hasDvd) {
+                            startBtn.title = 'Insert a DVD disc to enable ripping.';
+                        } else {
+                            startBtn.title = 'Search and select a movie to enable ripping.';
+                        }
+                    }
+                }
             } catch(e) {}
+        }
+
+        async function searchImdb() {
+            const query = document.getElementById('search-input').value.trim();
+            if (!query) return;
+            const container = document.getElementById('search-results');
+            container.innerHTML = '<p class="muted">Searching IMDb/OMDb candidates...</p>';
+            try {
+                const res = await fetch('/api/search?q=' + encodeURIComponent(query));
+                const data = await res.json();
+                if (!data || data.length === 0) {
+                    container.innerHTML = '<p class="muted">No search results found.</p>';
+                    return;
+                }
+                container.innerHTML = data.map(item => `
+                    <div class="history-item">
+                        <div>
+                            <strong>${item.title}</strong> ${item.year ? '<span class="muted">(' + item.year + ')</span>' : ''}
+                            <div class="muted">IMDb ID: ${item.imdb_id} | Type: ${item.type_field}</div>
+                        </div>
+                        <div>
+                            <button class="btn" style="padding: 0.35rem 0.8rem; font-size: 0.85rem;" onclick="selectCandidate('${item.imdb_id}')">Select</button>
+                        </div>
+                    </div>
+                `).join('');
+            } catch(e) {
+                container.innerHTML = '<p class="muted" style="color:var(--danger)">Search request failed.</p>';
+            }
+        }
+
+        async function selectCandidate(imdbId) {
+            try {
+                const res = await fetch('/api/select', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ imdb_id: imdbId })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    alert('Selected title: ' + data.title + (data.year ? ' (' + data.year + ')' : ''));
+                    pollStatus();
+                } else {
+                    alert(data.message || 'Selection failed.');
+                }
+            } catch(e) {
+                alert('Error selecting title candidate.');
+            }
         }
 
         async function fetchHistory() {
@@ -161,13 +271,21 @@ const EMBEDDED_DASHBOARD_HTML: &str = r#"<!DOCTYPE html>
         async function triggerRip() {
             const res = await fetch('/api/rip', { method: 'POST' });
             const data = await res.json();
-            alert(data.message || 'Triggered rip job.');
+            if (!data.success) {
+                alert('⚠️ ' + (data.message || 'Cannot start rip.'));
+            } else {
+                alert(data.message || 'Triggered rip job.');
+                pollStatus();
+            }
         }
 
         async function cancelRip() {
-            const res = await fetch('/api/cancel', { method: 'POST' });
-            const data = await res.json();
-            alert(data.message || 'Cancelled rip job.');
+            if (confirm('Cancel active DVD ripping process?')) {
+                const res = await fetch('/api/cancel', { method: 'POST' });
+                const data = await res.json();
+                alert(data.message || 'Cancelled rip job.');
+                pollStatus();
+            }
         }
 
         fetchHistory();
@@ -204,8 +322,31 @@ pub fn parse_http_route(req_bytes: &[u8]) -> (&[u8], &[u8]) {
     (method, path)
 }
 
+pub fn parse_query_param(path: &str, param_name: &str) -> Option<String> {
+    let query_start = path.find('?')?;
+    let query_str = &path[query_start + 1..];
+    for pair in query_str.split('&') {
+        let mut kv = pair.splitn(2, '=');
+        let key = kv.next()?;
+        if key == param_name {
+            let val = kv.next().unwrap_or("");
+            let decoded = val.replace('+', " ").replace("%20", " ");
+            return Some(decoded);
+        }
+    }
+    None
+}
+
+pub fn extract_body(req_bytes: &[u8]) -> Option<&str> {
+    if let Some(pos) = req_bytes.windows(4).position(|w| w == b"\r\n\r\n") {
+        std::str::from_utf8(&req_bytes[pos + 4..]).ok()
+    } else {
+        None
+    }
+}
+
 fn handle_client(mut stream: TcpStream, drive_path: &str) -> Result<()> {
-    let mut buffer = [0u8; 1024];
+    let mut buffer = [0u8; 4096];
     let bytes_read = stream.read(&mut buffer)?;
     if bytes_read == 0 {
         return Ok(());
@@ -214,44 +355,217 @@ fn handle_client(mut stream: TcpStream, drive_path: &str) -> Result<()> {
     let req_bytes = &buffer[..bytes_read];
     let (method, path) = parse_http_route(req_bytes);
 
-    match (method, path) {
-        (b"GET", b"/") | (b"GET", b"/index.html") => {
-            send_http_response(&mut stream, "200 OK", "text/html; charset=utf-8", EMBEDDED_DASHBOARD_HTML)?;
+    let path_str = String::from_utf8_lossy(path);
+    let method_str = String::from_utf8_lossy(method);
+
+    if method_str == "GET" && (path_str == "/" || path_str == "/index.html") {
+        send_http_response(&mut stream, "200 OK", "text/html; charset=utf-8", EMBEDDED_DASHBOARD_HTML)?;
+    } else if method_str == "GET" && path_str == "/api/status" {
+        let handle = get_appliance_status_handle();
+        let json_body = if let Ok(state) = handle.lock() {
+            serde_json::to_string(&*state).unwrap_or_else(|_| "{}".to_string())
+        } else {
+            let label = crate::dvd::get_volume_label(drive_path).unwrap_or_default();
+            format!(
+                "{{\"status\":\"Active\",\"drive\":\"{}\",\"disc\":\"{}\",\"current_title\":\"\",\"progress\":0,\"fps\":\"0\",\"speed\":\"0x\"}}",
+                drive_path, label
+            )
+        };
+        send_http_response(&mut stream, "200 OK", "application/json", &json_body)?;
+    } else if method_str == "GET" && path_str == "/api/history" {
+        let history = load_history(None);
+        let json_body = serde_json::to_string(&history).unwrap_or_else(|_| "[]".to_string());
+        send_http_response(&mut stream, "200 OK", "application/json", &json_body)?;
+    } else if method_str == "GET" && path_str.starts_with("/api/search") {
+        let query = parse_query_param(&path_str, "q").unwrap_or_default();
+        let candidates = if !query.trim().is_empty() {
+            crate::imdb::fetch_search_candidates(query.trim())
+        } else {
+            Vec::new()
+        };
+        let json_body = serde_json::to_string(&candidates).unwrap_or_else(|_| "[]".to_string());
+        send_http_response(&mut stream, "200 OK", "application/json", &json_body)?;
+    } else if method_str == "POST" && path_str.starts_with("/api/select") {
+        let body_str = extract_body(req_bytes).unwrap_or_default();
+        let mut imdb_id = parse_query_param(&path_str, "imdb_id");
+        if imdb_id.is_none() && !body_str.trim().is_empty() {
+            if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(body_str) {
+                if let Some(id) = parsed.get("imdb_id").and_then(|v| v.as_str()) {
+                    imdb_id = Some(id.to_string());
+                }
+            }
         }
-        (b"GET", b"/api/status") => {
-            let handle = get_appliance_status_handle();
-            let json_body = if let Ok(state) = handle.lock() {
-                serde_json::to_string(&*state).unwrap_or_else(|_| "{}".to_string())
+
+        if let Some(ref id) = imdb_id {
+            if let Some(meta) = crate::imdb::lookup_omdb_by_id(id) {
+                let handle = get_appliance_status_handle();
+                if let Ok(mut state) = handle.lock() {
+                    state.current_title = meta.title.clone();
+                    state.year = meta.year;
+                    state.is_series = meta.is_series;
+                    state.has_selected_movie = true;
+                    state.status = format!("Ready (Selected: {})", meta.title);
+                }
+                let escaped_title = meta.title.replace('"', "\\\"");
+                let year_str = meta.year.map(|y| y.to_string()).unwrap_or_else(|| "null".to_string());
+                let json_body = format!(
+                    "{{\"success\":true,\"title\":\"{}\",\"year\":{},\"is_series\":{}}}",
+                    escaped_title, year_str, meta.is_series
+                );
+                send_http_response(&mut stream, "200 OK", "application/json", &json_body)?;
             } else {
-                let label = crate::dvd::get_volume_label(drive_path).unwrap_or_default();
-                format!(
-                    "{{\"status\":\"Active\",\"drive\":\"{}\",\"disc\":\"{}\",\"current_title\":\"\",\"progress\":0,\"fps\":\"0\",\"speed\":\"0x\"}}",
-                    drive_path, label
-                )
-            };
+                let json_body = "{\"success\":false,\"message\":\"Failed to find metadata for IMDb ID\"}";
+                send_http_response(&mut stream, "404 Not Found", "application/json", json_body)?;
+            }
+        } else {
+            let json_body = "{\"success\":false,\"message\":\"Missing imdb_id parameter\"}";
+            send_http_response(&mut stream, "400 Bad Request", "application/json", json_body)?;
+        }
+    } else if method_str == "POST" && path_str == "/api/eject" {
+        let ok = eject_disc(drive_path);
+        let json_body = format!("{{\"success\": {}}}", ok);
+        send_http_response(&mut stream, "200 OK", "application/json", &json_body)?;
+    } else if method_str == "POST" && path_str == "/api/rip" {
+        let handle = get_appliance_status_handle();
+        let (has_selected, title, is_series, year, disc) = if let Ok(state) = handle.lock() {
+            (state.has_selected_movie, state.current_title.clone(), state.is_series, state.year, state.disc.clone())
+        } else {
+            (false, String::new(), false, None, String::new())
+        };
+
+        if disc.trim().is_empty() {
+            let json_body = "{\"success\": false, \"message\": \"Ripping disabled: No DVD disc is present in the optical drive.\"}";
+            send_http_response(&mut stream, "400 Bad Request", "application/json", json_body)?;
+        } else if !has_selected || title.trim().is_empty() {
+            let json_body = "{\"success\": false, \"message\": \"Ripping disabled: Please search and select a movie first.\"}";
+            send_http_response(&mut stream, "400 Bad Request", "application/json", json_body)?;
+        } else {
+            update_appliance_status("Ripping", "", &title, 0.0, "0", "0x");
+            let drive_clone = drive_path.to_string();
+            let escaped_title = title.replace('"', "\\\"");
+
+            let cancel_flag = get_cancel_flag_handle();
+            cancel_flag.store(false, Ordering::SeqCst);
+            let (cancel_tx, _cancel_rx) = channel();
+            if let Ok(mut lock) = get_cancel_tx_handle().lock() {
+                *lock = Some(cancel_tx);
+            }
+
+            thread::spawn(move || {
+                let mut args = crate::cli::Args {
+                    input: drive_clone.clone(),
+                    tv: is_series,
+                    ..Default::default()
+                };
+                if is_series {
+                    args.out_dir = "TV".to_string();
+                }
+                let dvd_path = crate::dvd::normalize_dvd_path(&drive_clone);
+
+                let res = if is_series {
+                    let episodes = crate::ffmpeg::detect_tv_episodes(
+                        &args.ffmpeg,
+                        &dvd_path,
+                        &title,
+                        args.season,
+                        args.start_episode,
+                        Some(&cancel_flag),
+                    );
+                    let mut success = true;
+                    for ep in &episodes {
+                        if cancel_flag.load(Ordering::SeqCst) {
+                            success = false;
+                            break;
+                        }
+                        if let Ok(out_path) = crate::ffmpeg::resolve_tv_output_path(
+                            &args,
+                            Some(&title),
+                            year,
+                            args.season,
+                            ep.episode_num,
+                        ) {
+                            update_appliance_status("Ripping", "", &ep.formatted_name, 50.0, "0", "0x");
+                            let run_res = crate::ffmpeg::run_ffmpeg_with_channel(
+                                &args,
+                                &dvd_path,
+                                &out_path,
+                                &ep.formatted_name,
+                                Some(ep.duration_secs),
+                                None,
+                                None,
+                                Some(cancel_flag.clone()),
+                                true,
+                            );
+                            if run_res.is_ok() {
+                                let _ = crate::history::record_rip_event(&ep.formatted_name, "TV Series", &out_path.to_string_lossy(), "Success");
+                            } else {
+                                success = false;
+                                if cancel_flag.load(Ordering::SeqCst) {
+                                    let _ = crate::history::record_rip_event(&ep.formatted_name, "TV Series", &out_path.to_string_lossy(), "Cancelled");
+                                }
+                                break;
+                            }
+                        }
+                    }
+                    if success && !cancel_flag.load(Ordering::SeqCst) {
+                        Ok(())
+                    } else {
+                        Err(anyhow::anyhow!("Ripping cancelled or failed"))
+                    }
+                } else {
+                    if let Ok(out_path) = crate::ffmpeg::resolve_output_path(&args, Some(&title), year) {
+                        update_appliance_status("Ripping", "", &title, 50.0, "0", "0x");
+                        let run_res = crate::ffmpeg::run_ffmpeg_with_channel(
+                            &args,
+                            &dvd_path,
+                            &out_path,
+                            &title,
+                            None,
+                            None,
+                            None,
+                            Some(cancel_flag.clone()),
+                            false,
+                        );
+                        if run_res.is_ok() {
+                            let _ = crate::history::record_rip_event(&title, "Movie", &out_path.to_string_lossy(), "Success");
+                            Ok(())
+                        } else {
+                            if cancel_flag.load(Ordering::SeqCst) {
+                                let _ = crate::history::record_rip_event(&title, "Movie", &out_path.to_string_lossy(), "Cancelled");
+                            }
+                            Err(anyhow::anyhow!("Ripping cancelled or failed"))
+                        }
+                    } else {
+                        Err(anyhow::anyhow!("Failed to resolve output path"))
+                    }
+                };
+
+                if cancel_flag.load(Ordering::SeqCst) {
+                    update_appliance_status("Cancelled", "", "", 0.0, "0", "0x");
+                } else if res.is_ok() {
+                    update_appliance_status("Completed", "", &title, 100.0, "0", "0x");
+                    let _ = crate::dvd::eject_disc(&drive_clone);
+                } else {
+                    update_appliance_status("Failed", "", "", 0.0, "0", "0x");
+                }
+            });
+
+            let json_body = format!("{{\"success\": true, \"message\": \"Started ripping selected title: {}\"}}", escaped_title);
             send_http_response(&mut stream, "200 OK", "application/json", &json_body)?;
         }
-        (b"GET", b"/api/history") => {
-            let history = load_history(None);
-            let json_body = serde_json::to_string(&history).unwrap_or_else(|_| "[]".to_string());
-            send_http_response(&mut stream, "200 OK", "application/json", &json_body)?;
+    } else if method_str == "POST" && path_str == "/api/cancel" {
+        let flag = get_cancel_flag_handle();
+        flag.store(true, Ordering::SeqCst);
+        if let Ok(mut lock) = get_cancel_tx_handle().lock() {
+            if let Some(tx) = lock.take() {
+                let _ = tx.send(());
+            }
         }
-        (b"POST", b"/api/eject") => {
-            let ok = eject_disc(drive_path);
-            let json_body = format!("{{\"success\": {}}}", ok);
-            send_http_response(&mut stream, "200 OK", "application/json", &json_body)?;
-        }
-        (b"POST", b"/api/rip") => {
-            let json_body = "{\"success\": true, \"message\": \"Ripping job triggered via Web API\"}";
-            send_http_response(&mut stream, "200 OK", "application/json", json_body)?;
-        }
-        (b"POST", b"/api/cancel") => {
-            let json_body = "{\"success\": true, \"message\": \"Ripping job cancellation requested via Web API\"}";
-            send_http_response(&mut stream, "200 OK", "application/json", json_body)?;
-        }
-        _ => {
-            send_http_response(&mut stream, "404 Not Found", "text/plain", "404 Not Found")?;
-        }
+        update_appliance_status("Cancelled", "", "", 0.0, "0", "0x");
+        let json_body = "{\"success\": true, \"message\": \"Ripping process cancelled by user.\"}";
+        send_http_response(&mut stream, "200 OK", "application/json", json_body)?;
+    } else {
+        send_http_response(&mut stream, "404 Not Found", "text/plain", "404 Not Found")?;
     }
 
     Ok(())
@@ -286,5 +600,23 @@ mod tests {
 
         let req5 = b"DELETE /api/unknown HTTP/1.1\r\nHost: localhost\r\n\r\n";
         assert_eq!(parse_http_route(req5), (b"DELETE" as &[u8], b"/api/unknown" as &[u8]));
+    }
+
+    #[test]
+    fn test_parse_query_param() {
+        let path1 = "/api/search?q=Kill+Bill";
+        assert_eq!(parse_query_param(path1, "q"), Some("Kill Bill".to_string()));
+
+        let path2 = "/api/select?imdb_id=tt0266697&foo=bar";
+        assert_eq!(parse_query_param(path2, "imdb_id"), Some("tt0266697".to_string()));
+
+        let path3 = "/api/status";
+        assert_eq!(parse_query_param(path3, "q"), None);
+    }
+
+    #[test]
+    fn test_extract_body() {
+        let req = b"POST /api/select HTTP/1.1\r\nContent-Type: application/json\r\n\r\n{\"imdb_id\":\"tt0266697\"}";
+        assert_eq!(extract_body(req), Some("{\"imdb_id\":\"tt0266697\"}"));
     }
 }

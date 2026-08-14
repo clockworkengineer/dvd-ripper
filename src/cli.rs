@@ -96,6 +96,18 @@ pub struct Args {
     /// Do not overwrite existing destination files (auto-append incremental numeric suffix)
     #[arg(long = "no-overwrite")]
     pub no_overwrite: bool,
+
+    /// Search query term to query IMDb/OMDb metadata candidates
+    #[arg(short = 's', long = "search")]
+    pub search: Option<String>,
+
+    /// Select specific IMDb ID directly (e.g. tt0090605)
+    #[arg(long = "imdb-id")]
+    pub imdb_id: Option<String>,
+
+    /// Select 1-based index candidate directly from search results
+    #[arg(long = "select-index")]
+    pub select_index: Option<usize>,
 }
 
 impl Default for Args {
@@ -122,6 +134,9 @@ impl Default for Args {
             sub_lang: None,
             webhook_url: None,
             no_overwrite: false,
+            search: None,
+            imdb_id: None,
+            select_index: None,
         }
     }
 }
@@ -229,5 +244,21 @@ mod tests {
         assert_eq!(args.season, 3);
         assert_eq!(args.start_episode, 5);
         assert!(!args.transcode);
+    }
+
+    #[test]
+    fn test_args_search_flags() {
+        let mut args = Args::default();
+        assert!(args.search.is_none());
+        assert!(args.imdb_id.is_none());
+        assert!(args.select_index.is_none());
+
+        args.search = Some("Kill Bill".to_string());
+        args.imdb_id = Some("tt0266697".to_string());
+        args.select_index = Some(1);
+
+        assert_eq!(args.search.as_deref(), Some("Kill Bill"));
+        assert_eq!(args.imdb_id.as_deref(), Some("tt0266697"));
+        assert_eq!(args.select_index, Some(1));
     }
 }

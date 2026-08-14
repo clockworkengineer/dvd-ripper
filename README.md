@@ -102,6 +102,8 @@ When running in Daemon appliance mode (`--daemon`), an embedded web server is la
 | `GET` | `/` | Serves interactive HTML5 Web Dashboard |
 | `GET` | `/api/status` | Returns JSON status (`status`, `drive`, `disc`, `progress`) |
 | `GET` | `/api/history` | Returns JSON array of past ripping records |
+| `GET` | `/api/search?q=<QUERY>` | Returns JSON array of candidate search results from IMDb/OMDb |
+| `POST` | `/api/select` | Selects a specific IMDb candidate entry by `{ "imdb_id": "tt0266697" }` |
 | `POST` | `/api/rip` | Triggers a ripping job remotely |
 | `POST` | `/api/cancel` | Requests cancellation of active ripping job |
 | `POST` | `/api/eject` | Ejects the optical drive tray |
@@ -115,6 +117,12 @@ To run in terminal mode, pass `--cli` or standard command line arguments:
 ```bash
 # Basic rip from drive D:\ (auto-detects title based on running time / duration)
 cargo run -- --cli D:\
+
+# Interactive IMDb search and candidate selection in terminal:
+cargo run -- --cli -s "Kill Bill"
+
+# Directly specify candidate by IMDb ID:
+cargo run -- --cli --imdb-id tt0266697
 ```
 
 #### Command Line Syntax & Options:
@@ -135,6 +143,9 @@ Options:
       --hwaccel <HWACCEL>          Hardware acceleration mode for transcoding (copy, v4l2m2m, vaapi, nvenc, qsv) [default: copy]
       --cli                        Force command-line interface mode instead of GUI
       --daemon                     Run as a headless embedded appliance daemon watching optical drive insertion
+  -s, --search <QUERY>             Search query term to query IMDb/OMDb metadata candidates
+      --imdb-id <IMDB_ID>          Select specific IMDb ID directly (e.g. tt0090605)
+      --select-index <INDEX>       Select 1-based candidate index directly from search results
       --mqtt-broker <MQTT_BROKER>  Optional MQTT broker address (e.g. 192.168.1.50:1883) for smart home telemetry
       --webhook-url <WEBHOOK_URL>  Optional HTTP Webhook URL (Discord/Slack/Ntfy/Telegram) for JSON POST notifications
       --tv                         Enable TV series disc ripping mode
