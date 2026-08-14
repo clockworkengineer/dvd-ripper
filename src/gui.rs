@@ -52,6 +52,10 @@ pub struct DvdRipperApp {
     webhook_url: String,
     no_overwrite: bool,
 
+    // Search Modal Popup state
+    show_search_modal: bool,
+    search_candidates: Vec<crate::imdb::SearchResultItem>,
+
     detecting: bool,
     detect_status: String,
 
@@ -104,6 +108,9 @@ impl Default for DvdRipperApp {
             rating: String::new(),
             raw_poster_bytes: None,
             poster_texture: None,
+
+            show_search_modal: false,
+            search_candidates: Vec::new(),
 
             detecting: false,
             detect_status: String::new(),
@@ -169,6 +176,22 @@ impl DvdRipperApp {
         self.trigger_detection_with_query(Some(query));
     }
 
+    fn select_candidate_by_id(&mut self, imdb_id: &str) {
+        self.detecting = true;
+        self.detect_status = "Loading selected title details...".to_string();
+        let id = imdb_id.to_string();
+        let tx = self.event_tx.clone();
+
+        std::thread::spawn(move || {
+            if let Some(meta) = crate::imdb::lookup_omdb_by_id(&id) {
+                let _ = tx.send(ProgressEvent::Metadata(meta));
+            } else {
+                let _ = tx.send(ProgressEvent::Log("Failed to load details for selected title.".to_string()));
+                let _ = tx.send(ProgressEvent::Log("META_FAIL".to_string()));
+            }
+        });
+    }
+
     fn trigger_detection_with_query(&mut self, query_override: Option<String>) {
         if self.detecting || self.is_ripping {
             return;
@@ -193,27 +216,32 @@ impl DvdRipperApp {
                 return;
             };
 
-            let _ = tx.send(ProgressEvent::Log(format!("Searching metadata for query: '{}'", search_term)));
-            match lookup_film_details(&search_term) {
-                Ok(meta) => {
-                    let clean = sanitize_filename(&meta.title);
-                    let year_str = meta.year.map(|y| y.to_string()).unwrap_or_default();
-                    let runtime_desc = meta
-                        .runtime_secs
-                        .map(|r| format!(" [Runtime: {:.0}m]", r / 60.0))
-                        .unwrap_or_default();
-                    let _ = tx.send(ProgressEvent::Log(format!(
-                        "Metadata Found: {} ({}){}",
-                        clean, year_str, runtime_desc
-                    )));
-                    let _ = tx.send(ProgressEvent::Metadata(meta));
-                }
-                Err(e) => {
-                    let _ = tx.send(ProgressEvent::Log(format!(
-                        "Lookup notice: {}. If '{}' is a disc catalog code, enter the show name (e.g. 'Doctor Who') and click '🔍 Search'.",
-                        e, search_term
-                    )));
-                    let _ = tx.send(ProgressEvent::Log("META_FAIL".to_string()));
+            let _ = tx.send(ProgressEvent::Log(format!("Searching metadata candidates for query: '{}'", search_term)));
+            let candidates = crate::imdb::fetch_search_candidates(&search_term);
+            if !candidates.is_empty() {
+                let _ = tx.send(ProgressEvent::SearchResults(candidates));
+            } else {
+                match lookup_film_details(&search_term) {
+                    Ok(meta) => {
+                        let clean = sanitize_filename(&meta.title);
+                        let year_str = meta.year.map(|y| y.to_string()).unwrap_or_default();
+                        let runtime_desc = meta
+                            .runtime_secs
+                            .map(|r| format!(" [Runtime: {:.0}m]", r / 60.0))
+                            .unwrap_or_default();
+                        let _ = tx.send(ProgressEvent::Log(format!(
+                            "Metadata Found: {} ({}){}",
+                            clean, year_str, runtime_desc
+                        )));
+                        let _ = tx.send(ProgressEvent::Metadata(meta));
+                    }
+                    Err(e) => {
+                        let _ = tx.send(ProgressEvent::Log(format!(
+                            "Lookup notice: {}. If '{}' is a disc catalog code, enter the show name (e.g. 'Doctor Who') and click '🔍 Search'.",
+                            e, search_term
+                        )));
+                        let _ = tx.send(ProgressEvent::Log("META_FAIL".to_string()));
+                    }
                 }
             }
         });
@@ -496,6 +524,19 @@ impl DvdRipperApp {
                         }
                     }
                 }
+                ProgressEvent::SearchResults(candidates) => {
+                    self.detecting = false;
+                    self.detect_status = format!("Found {} search matches.", candidates.len());
+                    if candidates.len() == 1 {
+                        let id = candidates[0].imdb_id.clone();
+                        self.select_candidate_by_id(&id);
+                    } else if candidates.len() > 1 {
+                        self.search_candidates = candidates;
+                        self.show_search_modal = true;
+                    } else {
+                        self.status_message = "No search results found.".to_string();
+                    }
+                }
                 ProgressEvent::Metadata(meta) => {
                     self.film_name = meta.title;
                     self.film_year = meta.year.map(|y| y.to_string()).unwrap_or_default();
@@ -561,6 +602,57 @@ impl DvdRipperApp {
                     self.poster_texture = Some(texture);
                 }
             }
+        }
+    }
+
+    pub fn render_search_modal(&mut self, ctx: &egui::Context) {
+        if !self.show_search_modal {
+            return;
+        }
+
+        let mut selected_id = None;
+
+        egui::Window::new("🔍 Select Movie / TV Show Match")
+            .collapsible(false)
+            .resizable(true)
+            .default_size([550.0, 380.0])
+            .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+            .show(ctx, |ui| {
+                ui.label("Multiple matches were found on OMDb/IMDb. Select the correct title:");
+                ui.separator();
+
+                egui::ScrollArea::vertical().max_height(280.0).show(ui, |ui| {
+                    for cand in &self.search_candidates {
+                        ui.group(|ui| {
+                            ui.horizontal(|ui| {
+                                ui.vertical(|ui| {
+                                    let year_str = cand.year.map(|y| format!(" ({})", y)).unwrap_or_default();
+                                    let type_str = format!("[{}]", cand.type_field.to_uppercase());
+                                    ui.label(egui::RichText::new(format!("{} {}", cand.title, year_str)).strong());
+                                    ui.label(egui::RichText::new(format!("Type: {}  |  IMDb ID: {}", type_str, cand.imdb_id)).small().weak());
+                                });
+                                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                    if ui.button("Select ▶").clicked() {
+                                        selected_id = Some(cand.imdb_id.clone());
+                                    }
+                                });
+                            });
+                        });
+                        ui.add_space(4.0);
+                    }
+                });
+
+                ui.separator();
+                ui.horizontal(|ui| {
+                    if ui.button("Cancel").clicked() {
+                        self.show_search_modal = false;
+                    }
+                });
+            });
+
+        if let Some(imdb_id) = selected_id {
+            self.show_search_modal = false;
+            self.select_candidate_by_id(&imdb_id);
         }
     }
 }
@@ -847,6 +939,8 @@ impl eframe::App for DvdRipperApp {
                     });
             });
         });
+
+        self.render_search_modal(ctx);
     }
 }
 

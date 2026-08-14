@@ -346,11 +346,12 @@ pub fn build_ffmpeg_command(
     cmd
 }
 
-/// Event emitted during FFmpeg ripping process.
+/// Event emitted during FFmpeg ripping process or async GUI metadata lookup.
 #[derive(Debug, Clone)]
 pub enum ProgressEvent {
     Log(String),
     Metadata(crate::imdb::FilmMetadata),
+    SearchResults(Vec<crate::imdb::SearchResultItem>),
     TvEpisodesDetected(Vec<TvEpisodeInfo>),
     Progress {
         percent: f64,
@@ -528,17 +529,20 @@ pub fn run_ffmpeg_with_channel(
                 if let Some(total) = total_seconds {
                     let percent = (secs / total * 100.0).min(100.0).max(0.0);
 
+                    crate::api::update_appliance_status("Ripping", "", display_title, percent, &fps, &speed);
+
                     if tx.is_none() {
                         let width = 30;
                         let filled = ((percent / 100.0) * width as f64).round() as usize;
                         let empty = width - filled;
-                        print!(
-                            "\rProgress: [{}{}] {:.1}% | FPS: {} | Speed: {}",
+                        println!(
+                            "[Daemon Progress] [{}{}] {:.1}% | FPS: {} | Speed: {} | {}",
                             "█".repeat(filled),
                             "░".repeat(empty),
                             percent,
                             fps,
-                            speed
+                            speed,
+                            display_title
                         );
                         std::io::stdout().flush().ok();
                     } else if let Some(ref sender) = tx {

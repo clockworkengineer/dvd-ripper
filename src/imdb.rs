@@ -135,6 +135,173 @@ fn get_http_client() -> &'static reqwest::blocking::Client {
     })
 }
 
+/// Represents a structured candidate search result item for UI popup selection.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
+pub struct SearchResultItem {
+    pub title: String,
+    pub year: Option<u32>,
+    pub imdb_id: String,
+    pub type_field: String,
+    pub poster_url: Option<String>,
+}
+
+/// Represents a search result entry from OMDb search endpoint.
+#[derive(Deserialize, Debug)]
+pub struct OmdbSearchItem {
+    #[serde(rename = "Title")]
+    pub title: Option<String>,
+    #[serde(rename = "Year")]
+    pub year: Option<String>,
+    #[serde(rename = "imdbID")]
+    pub imdb_id: Option<String>,
+    #[serde(rename = "Type")]
+    pub type_field: Option<String>,
+    #[serde(rename = "Poster")]
+    pub poster: Option<String>,
+}
+
+/// Represents response from OMDb search endpoint (`s=`).
+#[derive(Deserialize, Debug)]
+pub struct OmdbSearchResponse {
+    #[serde(rename = "Search")]
+    pub search: Option<Vec<OmdbSearchItem>>,
+    #[serde(rename = "Response")]
+    pub response: Option<String>,
+}
+
+/// Fetches list of candidate search matches for interactive user selection in the UI popup.
+pub fn fetch_search_candidates(query: &str) -> Vec<SearchResultItem> {
+    let client = get_http_client();
+    let parsed_info = crate::utils::parse_season_disc_from_label(query);
+    let mut search_terms = Vec::new();
+
+    if !parsed_info.clean_title.is_empty() {
+        search_terms.push(normalize_search_title(&parsed_info.clean_title));
+    }
+    let cleaned_raw = query.replace('_', " ").replace('-', " ").trim().to_lowercase();
+    if !cleaned_raw.is_empty() && !search_terms.contains(&cleaned_raw) {
+        search_terms.push(cleaned_raw);
+    }
+    if search_terms.is_empty() {
+        search_terms.push(query.to_string());
+    }
+
+    let mut results = Vec::new();
+    for term in search_terms {
+        let encoded = term.replace(' ', "+");
+        let url = format!("https://www.omdbapi.com/?s={}&apikey=trilogy", encoded);
+        if let Ok(resp) = client.get(&url).send() {
+            if let Ok(text) = resp.text() {
+                if let Ok(omdb_search) = serde_json::from_str::<OmdbSearchResponse>(&text) {
+                    if omdb_search.response.as_deref() == Some("True") {
+                        if let Some(items) = omdb_search.search {
+                            for item in items {
+                                if let (Some(t), Some(id)) = (item.title, item.imdb_id) {
+                                    let y = item.year.as_deref().and_then(|yr| yr.get(..4)).and_then(|yr| yr.parse::<u32>().ok());
+                                    let type_field = item.type_field.unwrap_or_else(|| "movie".to_string());
+                                    let poster_url = item.poster.filter(|p| p != "N/A");
+                                    let candidate = SearchResultItem {
+                                        title: t,
+                                        year: y,
+                                        imdb_id: id,
+                                        type_field,
+                                        poster_url,
+                                    };
+                                    if !results.contains(&candidate) {
+                                        results.push(candidate);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        if !results.is_empty() {
+            break;
+        }
+    }
+    results
+}
+
+/// Queries OMDb API by IMDb ID (`i=tt...`) for exact movie/show metadata.
+pub fn lookup_omdb_by_id(imdb_id: &str) -> Option<FilmMetadata> {
+    let client = get_http_client();
+    let url = format!("https://www.omdbapi.com/?i={}&apikey=trilogy", imdb_id);
+    let resp = client.get(&url).send().ok()?;
+    let text = resp.text().ok()?;
+    let omdb: OmdbResponse = serde_json::from_str(&text).ok()?;
+
+    if omdb.response.as_deref() == Some("True") {
+        if let Some(title) = omdb.title {
+            let year = omdb
+                .year
+                .as_deref()
+                .and_then(|y| y.get(..4))
+                .and_then(|y| y.parse::<u32>().ok());
+            let runtime_secs = omdb.runtime.as_deref().and_then(parse_runtime_minutes);
+            let poster_url = omdb.poster.filter(|p| p != "N/A");
+            let plot = omdb.plot.filter(|p| p != "N/A");
+            let genre = omdb.genre.filter(|g| g != "N/A");
+            let director = omdb.director.filter(|d| d != "N/A");
+            let actors = omdb.actors.filter(|a| a != "N/A");
+            let rating = omdb.imdb_rating.filter(|r| r != "N/A");
+
+            let is_series = omdb.type_field.as_deref() == Some("series");
+            let total_seasons = omdb
+                .total_seasons
+                .as_deref()
+                .and_then(|s| s.parse::<u32>().ok());
+
+            let mut poster_bytes = None;
+            if let Some(ref p_url) = poster_url {
+                if let Ok(p_resp) = client.get(p_url).send() {
+                    if let Ok(bytes) = p_resp.bytes() {
+                        poster_bytes = Some(bytes.to_vec());
+                    }
+                }
+            }
+
+            return Some(FilmMetadata {
+                title,
+                year,
+                runtime_secs,
+                poster_url,
+                plot,
+                genre,
+                director,
+                actors,
+                rating,
+                is_series,
+                total_seasons,
+                poster_bytes,
+            });
+        }
+    }
+    None
+}
+
+/// Queries OMDb search endpoint (`s=query`) and fetches exact metadata for the top matching IMDb result.
+pub fn lookup_omdb_search(query: &str) -> Option<FilmMetadata> {
+    let client = get_http_client();
+    let encoded_query = query.replace(' ', "+");
+    let url = format!("https://www.omdbapi.com/?s={}&apikey=trilogy", encoded_query);
+    let resp = client.get(&url).send().ok()?;
+    let text = resp.text().ok()?;
+    let omdb_search: OmdbSearchResponse = serde_json::from_str(&text).ok()?;
+
+    if omdb_search.response.as_deref() == Some("True") {
+        if let Some(items) = omdb_search.search {
+            if let Some(first) = items.first() {
+                if let Some(ref imdb_id) = first.imdb_id {
+                    return lookup_omdb_by_id(imdb_id);
+                }
+            }
+        }
+    }
+    None
+}
+
 /// Queries OMDb API for movie title, release year, running time, plot summary, and poster image.
 pub fn lookup_omdb_details(query: &str) -> Option<FilmMetadata> {
     let client = get_http_client();
@@ -190,18 +357,27 @@ pub fn lookup_omdb_details(query: &str) -> Option<FilmMetadata> {
             });
         }
     }
-    None
+
+    // If exact title match failed, try search query endpoint (e.g. for volume titles like "kill bill vol1")
+    lookup_omdb_search(query)
 }
 
-/// Helper: Normalizes a title query for metadata searches (expanding "dr" / "dr." -> "doctor", etc.).
+/// Helper: Normalizes a title query for metadata searches (expanding "dr" -> "doctor", "vol1" -> "vol 1", etc.).
 pub fn normalize_search_title(title: &str) -> String {
-    if title.starts_with("dr ") {
+    let mut clean = if title.starts_with("dr ") {
         title.replacen("dr ", "doctor ", 1)
     } else if title.starts_with("dr. ") {
         title.replacen("dr. ", "doctor ", 1)
     } else {
         title.to_string()
-    }
+    };
+
+    clean = clean.replace("vol1", "vol 1")
+                 .replace("vol2", "vol 2")
+                 .replace("vol3", "vol 3")
+                 .replace("vol4", "vol 4");
+
+    clean
 }
 
 /// Queries OMDb or IMDb APIs to resolve a raw DVD volume label or show title to full metadata.
@@ -211,7 +387,15 @@ pub fn lookup_film_details(query: &str) -> Result<FilmMetadata> {
 
     if !parsed_info.clean_title.is_empty() {
         let clean = normalize_search_title(&parsed_info.clean_title);
-        candidates.push(clean);
+        candidates.push(clean.clone());
+
+        // Also add candidate stripping trailing volume markers (e.g. "kill bill" from "kill bill vol 1")
+        if let Some(root) = clean.split(" vol ").next() {
+            let root_str = root.trim().to_string();
+            if !root_str.is_empty() && root_str != clean {
+                candidates.push(root_str);
+            }
+        }
     }
 
     let cleaned_raw: String = query
@@ -228,6 +412,14 @@ pub fn lookup_film_details(query: &str) -> Result<FilmMetadata> {
 
     if !candidates.contains(&cleaned) {
         candidates.push(cleaned.clone());
+    }
+
+    // Try root candidate stripping "vol"
+    if let Some(root) = cleaned.split(" vol").next() {
+        let root_str = root.trim().to_string();
+        if !root_str.is_empty() && !candidates.contains(&root_str) {
+            candidates.push(root_str);
+        }
     }
 
     for cand in &candidates {
@@ -317,5 +509,19 @@ mod tests {
         assert_eq!(meta.title, "Doctor Who");
         assert_eq!(meta.year, Some(2005));
         assert!(meta.is_series);
+    }
+
+    #[test]
+    fn test_lookup_kill_bill_vol1_volume_label() {
+        let meta = lookup_film_details("KILL_BILL_VOL1").unwrap();
+        assert!(meta.title.contains("Kill Bill"));
+        assert!(meta.year.is_some());
+    }
+
+    #[test]
+    fn test_fetch_search_candidates_multiple_results() {
+        let candidates = fetch_search_candidates("Kill Bill");
+        assert!(!candidates.is_empty());
+        assert!(candidates.iter().any(|c| c.title.contains("Kill Bill")));
     }
 }

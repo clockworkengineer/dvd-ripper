@@ -1,15 +1,63 @@
-/**
- * @file api.rs
- * @brief Zero-dependency embedded HTTP REST API and HTML5 Web UI management dashboard.
- */
-
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::thread;
 use anyhow::Result;
 
 use crate::dvd::eject_disc;
 use crate::history::load_history;
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ApplianceStatusInfo {
+    pub status: String,
+    pub drive: String,
+    pub disc: String,
+    pub current_title: String,
+    pub progress: f64,
+    pub fps: String,
+    pub speed: String,
+}
+
+static APPLIANCE_STATUS: OnceLock<Arc<Mutex<ApplianceStatusInfo>>> = OnceLock::new();
+
+pub fn get_appliance_status_handle() -> Arc<Mutex<ApplianceStatusInfo>> {
+    APPLIANCE_STATUS
+        .get_or_init(|| {
+            Arc::new(Mutex::new(ApplianceStatusInfo {
+                status: "Idle".to_string(),
+                drive: "D:\\".to_string(),
+                disc: "".to_string(),
+                current_title: "".to_string(),
+                progress: 0.0,
+                fps: "0".to_string(),
+                speed: "0x".to_string(),
+            }))
+        })
+        .clone()
+}
+
+pub fn update_appliance_status(
+    status: &str,
+    disc: &str,
+    title: &str,
+    progress: f64,
+    fps: &str,
+    speed: &str,
+) {
+    let handle = get_appliance_status_handle();
+    if let Ok(mut state) = handle.lock() {
+        state.status = status.to_string();
+        if !disc.is_empty() {
+            state.disc = disc.to_string();
+        }
+        if !title.is_empty() {
+            state.current_title = title.to_string();
+        }
+        state.progress = progress;
+        state.fps = fps.to_string();
+        state.speed = speed.to_string();
+    }
+}
 
 /// Embedded HTML5 Web UI Dashboard string embedded directly into the binary.
 const EMBEDDED_DASHBOARD_HTML: &str = r#"<!DOCTYPE html>
@@ -171,11 +219,16 @@ fn handle_client(mut stream: TcpStream, drive_path: &str) -> Result<()> {
             send_http_response(&mut stream, "200 OK", "text/html; charset=utf-8", EMBEDDED_DASHBOARD_HTML)?;
         }
         (b"GET", b"/api/status") => {
-            let label = crate::dvd::get_volume_label(drive_path).unwrap_or_default();
-            let json_body = format!(
-                "{{\"status\":\"Active\",\"drive\":\"{}\",\"disc\":\"{}\",\"progress\":0}}",
-                drive_path, label
-            );
+            let handle = get_appliance_status_handle();
+            let json_body = if let Ok(state) = handle.lock() {
+                serde_json::to_string(&*state).unwrap_or_else(|_| "{}".to_string())
+            } else {
+                let label = crate::dvd::get_volume_label(drive_path).unwrap_or_default();
+                format!(
+                    "{{\"status\":\"Active\",\"drive\":\"{}\",\"disc\":\"{}\",\"current_title\":\"\",\"progress\":0,\"fps\":\"0\",\"speed\":\"0x\"}}",
+                    drive_path, label
+                )
+            };
             send_http_response(&mut stream, "200 OK", "application/json", &json_body)?;
         }
         (b"GET", b"/api/history") => {

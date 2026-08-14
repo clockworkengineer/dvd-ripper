@@ -50,18 +50,20 @@ pub fn extract_kv_field<'a>(line: &'a str, key: &str) -> Option<&'a str> {
     }
 }
 
-/// DRY helper: Formats a film/show folder name, appending `(Year)` if provided.
+/// DRY helper: Formats a film/show folder name, appending `(Year)` if provided, with sanitized path characters.
 pub fn format_title_folder_name(name: &str, year: Option<u32>) -> String {
+    let clean_name = sanitize_filename(name);
     if let Some(y) = year {
-        format!("{} ({})", name, y)
+        format!("{} ({})", clean_name, y)
     } else {
-        name.to_string()
+        clean_name
     }
 }
 
-/// DRY helper: Formats a standard TV episode name (e.g. `Show Name - S01E02`).
+/// DRY helper: Formats a standard TV episode name (e.g. `Show Name - S01E02`), with sanitized path characters.
 pub fn format_episode_name(show_name: &str, season: u32, ep_num: u32) -> String {
-    format!("{} - S{:02}E{:02}", show_name, season, ep_num)
+    let clean_name = sanitize_filename(show_name);
+    format!("{} - S{:02}E{:02}", clean_name, season, ep_num)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -197,6 +199,7 @@ mod tests {
     #[test]
     fn test_formatting_helpers() {
         assert_eq!(format_title_folder_name("Aliens", Some(1986)), "Aliens (1986)");
+        assert_eq!(format_title_folder_name("Kill Bill: Vol. 1", Some(2003)), "Kill Bill Vol. 1 (2003)");
         assert_eq!(format_title_folder_name("The Office", None), "The Office");
         assert_eq!(format_episode_name("Doctor Who", 1, 3), "Doctor Who - S01E03");
     }

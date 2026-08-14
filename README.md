@@ -163,7 +163,7 @@ dvd-ripper.exe --cli D: --tv --season 1 --all-episodes --all-audio --subtitles -
 ### 2. Headless Daemon Watcher with Smart Home Telemetry & Webhook Alerts
 Monitors drive D:\ for disc insertions, auto-rips content, posts notifications to Discord webhook, and ejects disc when finished:
 ```bash
-dvd-ripper.exe --daemon --input D:\ --webhook-url https://discord.com/api/webhooks/... --mqtt-broker 192.168.1.50:1883
+dvd-ripper.exe --daemon D:\ --webhook-url https://discord.com/api/webhooks/... --mqtt-broker 192.168.1.50:1883
 ```
 
 ### 3. Movie Auto-Title Detection & Fast Remux (Default)

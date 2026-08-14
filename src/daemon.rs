@@ -29,6 +29,7 @@ pub fn run_daemon(args: Args, poll_interval_secs: u64) -> Result<()> {
                 if !label.is_empty() && label != last_processed_label {
                     println!("[Daemon Event] New Disc Detected: {}", label);
                     last_processed_label = label.clone();
+                    crate::api::update_appliance_status("Detected", &label, "", 0.0, "0", "0x");
 
                     if let Some(ref broker) = args.mqtt_broker {
                         let _ = crate::mqtt::publish_mqtt_status(broker, &label, "Detected", 0.0);
@@ -51,6 +52,8 @@ pub fn run_daemon(args: Args, poll_interval_secs: u64) -> Result<()> {
                         label.clone()
                     };
 
+                    crate::api::update_appliance_status("Ripping", &label, &title_name, 0.0, "0", "0x");
+
                     if job_args.tv {
                         println!("[Daemon] Starting TV series batch rip...");
                         let episodes = detect_tv_episodes(
@@ -70,6 +73,7 @@ pub fn run_daemon(args: Args, poll_interval_secs: u64) -> Result<()> {
                                 ep.episode_num,
                             ) {
                                 println!("[Daemon Ripping] Episode -> {}", out_path.display());
+                                crate::api::update_appliance_status("Ripping", &label, &ep.formatted_name, 0.0, "0", "0x");
                                 if let Some(ref broker) = args.mqtt_broker {
                                     let _ = crate::mqtt::publish_mqtt_status(broker, &ep.formatted_name, "Ripping", 50.0);
                                 }
@@ -87,6 +91,7 @@ pub fn run_daemon(args: Args, poll_interval_secs: u64) -> Result<()> {
                     } else {
                         if let Ok(out_path) = resolve_output_path(&job_args, Some(&title_name), None) {
                             println!("[Daemon Ripping] Movie -> {}", out_path.display());
+                            crate::api::update_appliance_status("Ripping", &label, &title_name, 0.0, "0", "0x");
                             if let Some(ref broker) = args.mqtt_broker {
                                 let _ = crate::mqtt::publish_mqtt_status(broker, &title_name, "Ripping", 50.0);
                             }
@@ -103,6 +108,7 @@ pub fn run_daemon(args: Args, poll_interval_secs: u64) -> Result<()> {
                     }
 
                     println!("[Daemon Event] Ripping completed for disc: {}", label);
+                    crate::api::update_appliance_status("Completed", &label, "", 100.0, "0", "0x");
                     if let Some(ref broker) = args.mqtt_broker {
                         let _ = crate::mqtt::publish_mqtt_status(broker, &label, "Completed", 100.0);
                     }
