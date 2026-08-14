@@ -128,6 +128,10 @@ const EMBEDDED_DASHBOARD_HTML: &str = r#"<!DOCTYPE html>
         <div class="card">
             <h2>Appliance Status</h2>
             <div id="status-text" class="muted">Querying daemon status...</div>
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 0.75rem; margin-bottom: 0.25rem;">
+                <span class="muted" id="progress-state-label">Progress</span>
+                <span id="progress-percent-label" style="font-weight: bold; color: var(--accent); font-size: 1.1rem;">0.0%</span>
+            </div>
             <div class="progress-bar"><div id="progress-fill" class="progress-fill"></div></div>
             <div style="margin-top: 1rem;">
                 <button class="btn" id="start-rip-btn" onclick="triggerRip()" disabled style="opacity: 0.4; cursor: not-allowed;" title="Insert DVD and select a movie to enable ripping.">▶ Start Rip</button>
@@ -157,12 +161,14 @@ const EMBEDDED_DASHBOARD_HTML: &str = r#"<!DOCTYPE html>
             try {
                 const res = await fetch('/api/status');
                 const data = await res.json();
-                document.getElementById('status-text').innerHTML = `
-                    <strong>State:</strong> ${data.status} | 
-                    <strong>Drive:</strong> ${data.drive} | 
-                    <strong>Disc/Title:</strong> ${data.current_title || data.disc || 'None'}
-                `;
-                document.getElementById('progress-fill').style.width = (data.progress || 0) + '%';
+                const pct = (data.progress || 0).toFixed(1);
+                let statusDetails = `<strong>State:</strong> ${data.status} | <strong>Drive:</strong> ${data.drive} | <strong>Disc/Title:</strong> ${data.current_title || data.disc || 'None'}`;
+                if (data.fps && data.fps !== '0' && data.fps !== 'N/A') {
+                    statusDetails += ` | <strong>FPS:</strong> ${data.fps} | <strong>Speed:</strong> ${data.speed}`;
+                }
+                document.getElementById('status-text').innerHTML = statusDetails;
+                document.getElementById('progress-fill').style.width = pct + '%';
+                document.getElementById('progress-percent-label').innerText = pct + '%';
 
                 const hasDvd = data.disc && data.disc.length > 0;
                 const hasSelected = data.has_selected_movie === true;
@@ -462,6 +468,16 @@ fn handle_client(mut stream: TcpStream, drive_path: &str) -> Result<()> {
                 }
                 let dvd_path = crate::dvd::normalize_dvd_path(&drive_clone);
 
+                let (event_tx, event_rx) = channel();
+                let item_title = title.clone();
+                thread::spawn(move || {
+                    while let Ok(event) = event_rx.recv() {
+                        if let crate::ffmpeg::ProgressEvent::Progress { percent, fps, speed, .. } = event {
+                            update_appliance_status("Ripping", "", &item_title, percent as f64, &fps, &speed);
+                        }
+                    }
+                });
+
                 let res = if is_series {
                     let episodes = crate::ffmpeg::detect_tv_episodes(
                         &args.ffmpeg,
@@ -484,14 +500,14 @@ fn handle_client(mut stream: TcpStream, drive_path: &str) -> Result<()> {
                             args.season,
                             ep.episode_num,
                         ) {
-                            update_appliance_status("Ripping", "", &ep.formatted_name, 50.0, "0", "0x");
+                            update_appliance_status("Ripping", "", &ep.formatted_name, 0.0, "0", "0x");
                             let run_res = crate::ffmpeg::run_ffmpeg_with_channel(
                                 &args,
                                 &dvd_path,
                                 &out_path,
                                 &ep.formatted_name,
                                 Some(ep.duration_secs),
-                                None,
+                                Some(event_tx.clone()),
                                 None,
                                 Some(cancel_flag.clone()),
                                 true,
@@ -514,14 +530,14 @@ fn handle_client(mut stream: TcpStream, drive_path: &str) -> Result<()> {
                     }
                 } else {
                     if let Ok(out_path) = crate::ffmpeg::resolve_output_path(&args, Some(&title), year) {
-                        update_appliance_status("Ripping", "", &title, 50.0, "0", "0x");
+                        update_appliance_status("Ripping", "", &title, 0.0, "0", "0x");
                         let run_res = crate::ffmpeg::run_ffmpeg_with_channel(
                             &args,
                             &dvd_path,
                             &out_path,
                             &title,
                             None,
-                            None,
+                            Some(event_tx),
                             None,
                             Some(cancel_flag.clone()),
                             false,
