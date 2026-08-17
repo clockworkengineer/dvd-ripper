@@ -4,6 +4,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{channel, Sender};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::thread;
+use std::time::Duration;
 use anyhow::Result;
 
 use crate::dvd::eject_disc;
@@ -157,39 +158,44 @@ const EMBEDDED_DASHBOARD_HTML: &str = r#"<!DOCTYPE html>
     </div>
 
     <script>
+        function renderStatusData(data) {
+            document.getElementById('appliance-badge').innerText = data.status || 'Idle';
+            const pct = (data.progress || 0).toFixed(1);
+            let statusDetails = `<strong>State:</strong> ${data.status} | <strong>Drive:</strong> ${data.drive} | <strong>Disc/Title:</strong> ${data.current_title || data.disc || 'None'}`;
+            if (data.fps && data.fps !== '0' && data.fps !== 'N/A') {
+                statusDetails += ` | <strong>FPS:</strong> ${data.fps} | <strong>Speed:</strong> ${data.speed}`;
+            }
+            document.getElementById('status-text').innerHTML = statusDetails;
+            document.getElementById('progress-fill').style.width = pct + '%';
+            document.getElementById('progress-percent-label').innerText = pct + '%';
+
+            const hasDvd = data.disc && data.disc.length > 0;
+            const hasSelected = data.has_selected_movie === true;
+            const startBtn = document.getElementById('start-rip-btn');
+            if (startBtn) {
+                if (hasDvd && hasSelected) {
+                    startBtn.disabled = false;
+                    startBtn.style.opacity = '1';
+                    startBtn.style.cursor = 'pointer';
+                    startBtn.title = 'Start Ripping DVD';
+                } else {
+                    startBtn.disabled = true;
+                    startBtn.style.opacity = '0.4';
+                    startBtn.style.cursor = 'not-allowed';
+                    if (!hasDvd) {
+                        startBtn.title = 'Insert a DVD disc to enable ripping.';
+                    } else {
+                        startBtn.title = 'Search and select a movie to enable ripping.';
+                    }
+                }
+            }
+        }
+
         async function pollStatus() {
             try {
                 const res = await fetch('/api/status');
                 const data = await res.json();
-                const pct = (data.progress || 0).toFixed(1);
-                let statusDetails = `<strong>State:</strong> ${data.status} | <strong>Drive:</strong> ${data.drive} | <strong>Disc/Title:</strong> ${data.current_title || data.disc || 'None'}`;
-                if (data.fps && data.fps !== '0' && data.fps !== 'N/A') {
-                    statusDetails += ` | <strong>FPS:</strong> ${data.fps} | <strong>Speed:</strong> ${data.speed}`;
-                }
-                document.getElementById('status-text').innerHTML = statusDetails;
-                document.getElementById('progress-fill').style.width = pct + '%';
-                document.getElementById('progress-percent-label').innerText = pct + '%';
-
-                const hasDvd = data.disc && data.disc.length > 0;
-                const hasSelected = data.has_selected_movie === true;
-                const startBtn = document.getElementById('start-rip-btn');
-                if (startBtn) {
-                    if (hasDvd && hasSelected) {
-                        startBtn.disabled = false;
-                        startBtn.style.opacity = '1';
-                        startBtn.style.cursor = 'pointer';
-                        startBtn.title = 'Start Ripping DVD';
-                    } else {
-                        startBtn.disabled = true;
-                        startBtn.style.opacity = '0.4';
-                        startBtn.style.cursor = 'not-allowed';
-                        if (!hasDvd) {
-                            startBtn.title = 'Insert a DVD disc to enable ripping.';
-                        } else {
-                            startBtn.title = 'Search and select a movie to enable ripping.';
-                        }
-                    }
-                }
+                renderStatusData(data);
             } catch(e) {}
         }
 
@@ -295,7 +301,18 @@ const EMBEDDED_DASHBOARD_HTML: &str = r#"<!DOCTYPE html>
         }
 
         fetchHistory();
-        setInterval(pollStatus, 2000);
+        if (!!window.EventSource) {
+            const evtSource = new EventSource('/api/events');
+            evtSource.onmessage = function(e) {
+                try {
+                    const data = JSON.parse(e.data);
+                    if (data && data.status) {
+                        renderStatusData(data);
+                    }
+                } catch(err) {}
+            };
+        }
+        setInterval(pollStatus, 3000);
         pollStatus();
     </script>
 </body>
@@ -373,6 +390,23 @@ fn handle_client(mut stream: TcpStream, drive_path: &str) -> Result<()> {
 
     if method_str == "GET" && (path_str == "/" || path_str == "/index.html") {
         send_http_response(&mut stream, "200 OK", "text/html; charset=utf-8", EMBEDDED_DASHBOARD_HTML)?;
+    } else if method_str == "GET" && path_str == "/api/events" {
+        let headers = "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nCache-Control: no-cache\r\nConnection: keep-alive\r\n\r\n";
+        if stream.write_all(headers.as_bytes()).is_ok() {
+            for _ in 0..10 {
+                let handle = get_appliance_status_handle();
+                let json_body = if let Ok(state) = handle.lock() {
+                    serde_json::to_string(&*state).unwrap_or_else(|_| "{}".to_string())
+                } else {
+                    "{}".to_string()
+                };
+                let event_payload = format!("data: {}\n\n", json_body);
+                if stream.write_all(event_payload.as_bytes()).is_err() {
+                    break;
+                }
+                thread::sleep(Duration::from_millis(500));
+            }
+        }
     } else if method_str == "GET" && path_str == "/api/status" {
         let handle = get_appliance_status_handle();
         let json_body = if let Ok(state) = handle.lock() {
@@ -641,5 +675,11 @@ mod tests {
     fn test_extract_body() {
         let req = b"POST /api/select HTTP/1.1\r\nContent-Type: application/json\r\n\r\n{\"imdb_id\":\"tt0266697\"}";
         assert_eq!(extract_body(req), Some("{\"imdb_id\":\"tt0266697\"}"));
+    }
+
+    #[test]
+    fn test_parse_sse_events_route() {
+        let req = b"GET /api/events HTTP/1.1\r\nHost: localhost\r\nAccept: text/event-stream\r\n\r\n";
+        assert_eq!(parse_http_route(req), (b"GET" as &[u8], b"/api/events" as &[u8]));
     }
 }

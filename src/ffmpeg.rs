@@ -367,46 +367,80 @@ pub fn build_ffmpeg_command(
         cmd.arg("-c:s").arg("dvdsub");
     }
 
+    let profile = args.profile.to_lowercase();
+    let codec = args.codec.to_lowercase();
     let is_mkv = args.mkv
+        || profile == "archival"
         || absolute_output
             .extension()
             .map_or(false, |ext| ext.eq_ignore_ascii_case("mkv"));
 
-    if args.transcode {
-        match args.hwaccel.to_lowercase().as_str() {
-            "v4l2" | "v4l2m2m" => {
-                cmd.arg("-c:v").arg("h264_v4l2m2m");
-                cmd.arg("-b:v").arg("4M");
-                cmd.arg("-c:a").arg("aac");
-                cmd.arg("-b:a").arg("128k");
-            }
-            "vaapi" => {
-                cmd.arg("-vaapi_device").arg("/dev/dri/renderD128");
-                cmd.arg("-vf").arg("format=nv12,hwupload");
-                cmd.arg("-c:v").arg("h264_vaapi");
-                cmd.arg("-c:a").arg("aac");
-                cmd.arg("-b:a").arg("128k");
-            }
-            "nvenc" => {
-                cmd.arg("-c:v").arg("h264_nvenc");
-                cmd.arg("-preset").arg(&args.preset);
-                cmd.arg("-c:a").arg("aac");
-                cmd.arg("-b:a").arg("128k");
-            }
-            "qsv" => {
-                cmd.arg("-c:v").arg("h264_qsv");
-                cmd.arg("-preset").arg(&args.preset);
-                cmd.arg("-c:a").arg("aac");
-                cmd.arg("-b:a").arg("128k");
-            }
-            _ => {
+    if profile == "archival" {
+        cmd.arg("-c").arg("copy");
+        cmd.arg("-f").arg("matroska");
+    } else if args.transcode || profile == "plex" || profile == "mobile" {
+        if profile == "mobile" {
+            cmd.arg("-vf").arg("scale=-2:720");
+            cmd.arg("-c:v").arg("libx264");
+            cmd.arg("-preset").arg(&args.preset);
+            cmd.arg("-crf").arg("24");
+            cmd.arg("-c:a").arg("aac");
+            cmd.arg("-b:a").arg("128k");
+        } else if profile == "plex" {
+            if codec == "hevc" || codec == "h265" {
+                cmd.arg("-c:v").arg("libx265");
+            } else if codec == "av1" {
+                cmd.arg("-c:v").arg("libsvtav1");
+            } else {
                 cmd.arg("-c:v").arg("libx264");
-                cmd.arg("-preset").arg(&args.preset);
-                cmd.arg("-crf").arg("22");
-                cmd.arg("-c:a").arg("aac");
-                cmd.arg("-b:a").arg("128k");
+            }
+            cmd.arg("-preset").arg(&args.preset);
+            cmd.arg("-crf").arg("20");
+            cmd.arg("-c:a").arg("aac");
+            cmd.arg("-b:a").arg("192k");
+        } else {
+            match args.hwaccel.to_lowercase().as_str() {
+                "v4l2" | "v4l2m2m" => {
+                    cmd.arg("-c:v").arg("h264_v4l2m2m");
+                    cmd.arg("-b:v").arg("4M");
+                    cmd.arg("-c:a").arg("aac");
+                    cmd.arg("-b:a").arg("128k");
+                }
+                "vaapi" => {
+                    cmd.arg("-vaapi_device").arg("/dev/dri/renderD128");
+                    cmd.arg("-vf").arg("format=nv12,hwupload");
+                    cmd.arg("-c:v").arg("h264_vaapi");
+                    cmd.arg("-c:a").arg("aac");
+                    cmd.arg("-b:a").arg("128k");
+                }
+                "nvenc" => {
+                    cmd.arg("-c:v").arg("h264_nvenc");
+                    cmd.arg("-preset").arg(&args.preset);
+                    cmd.arg("-c:a").arg("aac");
+                    cmd.arg("-b:a").arg("128k");
+                }
+                "qsv" => {
+                    cmd.arg("-c:v").arg("h264_qsv");
+                    cmd.arg("-preset").arg(&args.preset);
+                    cmd.arg("-c:a").arg("aac");
+                    cmd.arg("-b:a").arg("128k");
+                }
+                _ => {
+                    if codec == "hevc" || codec == "h265" {
+                        cmd.arg("-c:v").arg("libx265");
+                    } else if codec == "av1" {
+                        cmd.arg("-c:v").arg("libsvtav1");
+                    } else {
+                        cmd.arg("-c:v").arg("libx264");
+                    }
+                    cmd.arg("-preset").arg(&args.preset);
+                    cmd.arg("-crf").arg("22");
+                    cmd.arg("-c:a").arg("aac");
+                    cmd.arg("-b:a").arg("128k");
+                }
             }
         }
+
         if is_mkv {
             cmd.arg("-f").arg("matroska");
         }
@@ -830,5 +864,35 @@ mod tests {
         assert!(cmd_args.contains(&"-f".to_string()));
         assert!(cmd_args.contains(&"matroska".to_string()));
         assert!(cmd_args.contains(&"dvdsub".to_string()));
+    }
+
+    #[test]
+    fn test_build_ffmpeg_command_codecs_and_profiles() {
+        let args_hevc = Args {
+            transcode: true,
+            codec: "hevc".to_string(),
+            ..Default::default()
+        };
+        let cmd_hevc = build_ffmpeg_command(&args_hevc, Path::new("D:\\"), Path::new("test.mp4"), 1);
+        let args_vec_hevc: Vec<String> = cmd_hevc.get_args().map(|s| s.to_string_lossy().to_string()).collect();
+        assert!(args_vec_hevc.contains(&"libx265".to_string()));
+
+        let args_av1 = Args {
+            transcode: true,
+            codec: "av1".to_string(),
+            ..Default::default()
+        };
+        let cmd_av1 = build_ffmpeg_command(&args_av1, Path::new("D:\\"), Path::new("test.mp4"), 1);
+        let args_vec_av1: Vec<String> = cmd_av1.get_args().map(|s| s.to_string_lossy().to_string()).collect();
+        assert!(args_vec_av1.contains(&"libsvtav1".to_string()));
+
+        let args_archival = Args {
+            profile: "archival".to_string(),
+            ..Default::default()
+        };
+        let cmd_archival = build_ffmpeg_command(&args_archival, Path::new("D:\\"), Path::new("test.mkv"), 1);
+        let args_vec_archival: Vec<String> = cmd_archival.get_args().map(|s| s.to_string_lossy().to_string()).collect();
+        assert!(args_vec_archival.contains(&"matroska".to_string()));
+        assert!(args_vec_archival.contains(&"copy".to_string()));
     }
 }

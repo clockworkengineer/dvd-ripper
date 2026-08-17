@@ -53,6 +53,10 @@ pub struct DvdRipperApp {
     webhook_url: String,
     no_overwrite: bool,
 
+    // Codec & Profile settings
+    codec: String,
+    profile: String,
+
     // Search Modal Popup state
     show_search_modal: bool,
     search_candidates: Vec<crate::imdb::SearchResultItem>,
@@ -102,6 +106,9 @@ impl Default for DvdRipperApp {
             sub_lang: String::new(),
             webhook_url: String::new(),
             no_overwrite: false,
+
+            codec: "h264".to_string(),
+            profile: "standard".to_string(),
 
             plot: String::new(),
             genre: String::new(),
@@ -316,6 +323,8 @@ impl DvdRipperApp {
         let transcode = self.transcode;
         let mkv = self.mkv;
         let preset = self.preset.clone();
+        let codec = self.codec.clone();
+        let profile = self.profile.clone();
         let ffmpeg_path = self.ffmpeg_path.clone();
         let expected_runtime = self.expected_runtime_secs;
         let tx = self.event_tx.clone();
@@ -429,6 +438,8 @@ impl DvdRipperApp {
                 );
                 args.all_audio = all_audio;
                 args.mkv = mkv;
+                args.codec = codec.clone();
+                args.profile = profile.clone();
                 args.audio_lang = audio_lang.clone();
                 args.subtitles = subtitles;
                 args.sub_lang = sub_lang.clone();
@@ -467,6 +478,8 @@ impl DvdRipperApp {
                 );
                 args.all_audio = all_audio;
                 args.mkv = mkv;
+                args.codec = codec.clone();
+                args.profile = profile.clone();
                 args.audio_lang = audio_lang.clone();
                 args.subtitles = subtitles;
                 args.sub_lang = sub_lang.clone();
@@ -830,8 +843,29 @@ impl eframe::App for DvdRipperApp {
 
                     ui.horizontal(|ui| {
                         ui.checkbox(&mut self.mkv, "📦 MKV Container (.mkv)");
-                        ui.checkbox(&mut self.transcode, "Re-encode (H.264 / AAC)");
-                        if self.transcode {
+                        ui.checkbox(&mut self.transcode, "Re-encode Video");
+                        
+                        ui.label("Profile:");
+                        egui::ComboBox::from_id_salt("profile_combo")
+                            .selected_text(&self.profile)
+                            .show_ui(ui, |ui| {
+                                ui.selectable_value(&mut self.profile, "standard".to_string(), "Standard");
+                                ui.selectable_value(&mut self.profile, "archival".to_string(), "Archival Lossless MKV");
+                                ui.selectable_value(&mut self.profile, "plex".to_string(), "Plex Direct Play");
+                                ui.selectable_value(&mut self.profile, "mobile".to_string(), "Mobile 720p");
+                            });
+
+                        ui.label("Codec:");
+                        egui::ComboBox::from_id_salt("codec_combo")
+                            .selected_text(&self.codec)
+                            .show_ui(ui, |ui| {
+                                ui.selectable_value(&mut self.codec, "h264".to_string(), "H.264 (AVC)");
+                                ui.selectable_value(&mut self.codec, "hevc".to_string(), "HEVC (H.265)");
+                                ui.selectable_value(&mut self.codec, "av1".to_string(), "AV1 (SVT-AV1)");
+                                ui.selectable_value(&mut self.codec, "copy".to_string(), "Copy (Stream Copy)");
+                            });
+
+                        if self.transcode || self.profile == "plex" {
                             ui.label("Preset:");
                             egui::ComboBox::from_id_salt("preset_combo")
                                 .selected_text(&self.preset)
@@ -842,8 +876,6 @@ impl eframe::App for DvdRipperApp {
                                     ui.selectable_value(&mut self.preset, "fast".to_string(), "fast");
                                     ui.selectable_value(&mut self.preset, "medium".to_string(), "medium");
                                 });
-                        } else {
-                            ui.label(egui::RichText::new("(Fast Lossless Stream Copy)").weak());
                         }
                     });
 

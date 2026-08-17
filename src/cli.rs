@@ -37,6 +37,14 @@ pub struct Args {
     #[arg(long)]
     pub mkv: bool,
 
+    /// Video codec for transcoding (e.g. h264, hevc, av1, copy)
+    #[arg(long, default_value = "h264")]
+    pub codec: String,
+
+    /// Transcoding preset profile (e.g. standard, archival, plex, mobile)
+    #[arg(long, default_value = "standard")]
+    pub profile: String,
+
     /// FFmpeg preset for H.264 encoding (e.g. veryfast, superfast, ultrafast, fast, medium)
     #[arg(long, default_value = "veryfast")]
     pub preset: String,
@@ -123,6 +131,8 @@ impl Default for Args {
             title: 0,
             transcode: false,
             mkv: false,
+            codec: "h264".to_string(),
+            profile: "standard".to_string(),
             preset: "veryfast".to_string(),
             ffmpeg: "ffmpeg".to_string(),
             hwaccel: "copy".to_string(),

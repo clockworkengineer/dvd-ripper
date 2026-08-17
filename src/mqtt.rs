@@ -1,6 +1,6 @@
 /**
  * @file mqtt.rs
- * @brief MQTT Home Assistant telemetry and status broadcasting engine for embedded appliances.
+ * @brief Binary MQTT 3.1.1 Home Assistant telemetry and multi-service webhook notification engine.
  */
 
 use std::io::Write;
@@ -8,7 +8,7 @@ use std::net::TcpStream;
 use std::time::Duration;
 use anyhow::{anyhow, Result};
 
-/// Formats and publishes an MQTT status telemetry payload to an MQTT broker.
+/// Formats and resolves broker address with default port 1883.
 fn format_broker_address(broker: &str) -> String {
     if broker.contains(':') {
         broker.to_string()
@@ -17,7 +17,82 @@ fn format_broker_address(broker: &str) -> String {
     }
 }
 
-/// Formats and publishes an MQTT status telemetry payload to an MQTT broker.
+/// Encodes a string into MQTT 3.1.1 length-prefixed UTF-8 byte array.
+pub fn encode_mqtt_string(s: &str) -> Vec<u8> {
+    let bytes = s.as_bytes();
+    let len = bytes.len() as u16;
+    let mut buf = Vec::with_capacity(2 + bytes.len());
+    buf.push((len >> 8) as u8);
+    buf.push((len & 0xFF) as u8);
+    buf.extend_from_slice(bytes);
+    buf
+}
+
+/// Encodes MQTT variable remaining length bytes.
+pub fn encode_mqtt_remaining_length(mut len: usize) -> Vec<u8> {
+    let mut buf = Vec::new();
+    loop {
+        let mut byte = (len % 128) as u8;
+        len /= 128;
+        if len > 0 {
+            byte |= 0x80;
+        }
+        buf.push(byte);
+        if len == 0 {
+            break;
+        }
+    }
+    buf
+}
+
+/// Builds a binary MQTT 3.1.1 CONNECT control frame.
+pub fn build_mqtt_connect_packet(client_id: &str) -> Vec<u8> {
+    let mut var_header_payload = Vec::new();
+    // Protocol Name ("MQTT")
+    var_header_payload.extend_from_slice(&encode_mqtt_string("MQTT"));
+    // Protocol Level (4 = v3.1.1)
+    var_header_payload.push(0x04);
+    // Connect Flags (0x02 = Clean Session)
+    var_header_payload.push(0x02);
+    // Keep Alive (60 seconds)
+    var_header_payload.extend_from_slice(&[0x00, 0x3C]);
+    // Client Identifier
+    var_header_payload.extend_from_slice(&encode_mqtt_string(client_id));
+
+    let mut frame = Vec::new();
+    frame.push(0x10); // CONNECT packet type
+    frame.extend_from_slice(&encode_mqtt_remaining_length(var_header_payload.len()));
+    frame.extend_from_slice(&var_header_payload);
+    frame
+}
+
+/// Builds a binary MQTT 3.1.1 PUBLISH control frame (QoS 0).
+pub fn build_mqtt_publish_packet(topic: &str, payload: &str) -> Vec<u8> {
+    let mut var_header_payload = Vec::new();
+    var_header_payload.extend_from_slice(&encode_mqtt_string(topic));
+    var_header_payload.extend_from_slice(payload.as_bytes());
+
+    let mut frame = Vec::new();
+    frame.push(0x30); // PUBLISH packet type (QoS 0)
+    frame.extend_from_slice(&encode_mqtt_remaining_length(var_header_payload.len()));
+    frame.extend_from_slice(&var_header_payload);
+    frame
+}
+
+/// Sends Home Assistant MQTT Auto-Discovery configuration payloads.
+pub fn publish_ha_discovery(socket: &mut TcpStream) -> Result<()> {
+    let status_config = r#"{"name":"DVD Ripper Status","unique_id":"dvd_ripper_status","state_topic":"dvd_ripper/state","value_template":"{{ value_json.status }}"}"#;
+    let progress_config = r#"{"name":"DVD Ripper Progress","unique_id":"dvd_ripper_progress","state_topic":"dvd_ripper/progress","unit_of_measurement":"%","value_template":"{{ value_json.progress }}"}"#;
+
+    let status_packet = build_mqtt_publish_packet("homeassistant/sensor/dvd_ripper_status/config", status_config);
+    let progress_packet = build_mqtt_publish_packet("homeassistant/sensor/dvd_ripper_progress/config", progress_config);
+
+    socket.write_all(&status_packet)?;
+    socket.write_all(&progress_packet)?;
+    Ok(())
+}
+
+/// Formats and publishes binary MQTT status telemetry and Home Assistant discovery payloads.
 pub fn publish_mqtt_status(
     broker: &str,
     disc_name: &str,
@@ -31,7 +106,7 @@ pub fn publish_mqtt_status(
         Duration::from_secs(3),
     );
 
-    let payload = format!(
+    let state_payload = format!(
         "{{\"appliance\":\"dvd-ripper\",\"status\":\"{}\",\"disc\":\"{}\",\"progress\":{:.1},\"timestamp\":\"{}\"}}",
         status,
         disc_name,
@@ -39,34 +114,43 @@ pub fn publish_mqtt_status(
         chrono::Local::now().format("%Y-%m-%d %H:%M:%S")
     );
 
+    let progress_payload = format!("{{\"progress\":{:.1}}}", progress);
+
     if let Ok(mut socket) = stream {
-        // Send a minimal HTTP/TCP webhook post payload if server supports HTTP listener or basic packet
-        let request = format!(
-            "POST /api/mqtt HTTP/1.1\r\nHost: {}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
-            host_port, payload.len(), payload
-        );
-        let _ = socket.write_all(request.as_bytes());
+        // Send MQTT CONNECT packet
+        let connect_pkt = build_mqtt_connect_packet("dvd-ripper-appliance");
+        let _ = socket.write_all(&connect_pkt);
+
+        // Send Home Assistant Auto-Discovery configs
+        let _ = publish_ha_discovery(&mut socket);
+
+        // Send State and Progress PUBLISH packets
+        let state_pkt = build_mqtt_publish_packet("dvd_ripper/state", &state_payload);
+        let progress_pkt = build_mqtt_publish_packet("dvd_ripper/progress", &progress_payload);
+
+        let _ = socket.write_all(&state_pkt);
+        let _ = socket.write_all(&progress_pkt);
     }
 
-    println!("[MQTT Telemetry] Broadcasted payload to {}: {}", broker, payload);
+    println!("[MQTT Telemetry] Broadcasted payload to {}: {}", broker, state_payload);
     Ok(())
 }
 
-/// Sends an HTTP POST JSON Webhook notification (Discord / Slack / Ntfy / Telegram compatible).
+/// Sends a multi-service HTTP POST JSON Webhook notification (Discord / Slack / Ntfy / Telegram / Gotify).
 pub fn send_webhook_notification(
     webhook_url: &str,
     disc_name: &str,
     status: &str,
     message: &str,
 ) -> Result<()> {
+    let text_message = format!("📀 DVD Ripper [{}] - {}: {}", disc_name, status, message);
     let payload = format!(
-        "{{\"appliance\":\"dvd-ripper\",\"status\":\"{}\",\"disc\":\"{}\",\"message\":\"{}\",\"content\":\"📀 DVD Ripper [{}] - {}: {}\",\"timestamp\":\"{}\"}}",
+        "{{\"appliance\":\"dvd-ripper\",\"status\":\"{}\",\"disc\":\"{}\",\"message\":\"{}\",\"content\":\"{}\",\"text\":\"{}\",\"title\":\"DVD Ripper Alert\",\"timestamp\":\"{}\"}}",
         status,
         disc_name,
         message,
-        disc_name,
-        status,
-        message,
+        text_message,
+        text_message,
         chrono::Local::now().format("%Y-%m-%d %H:%M:%S")
     );
 
@@ -93,5 +177,25 @@ mod tests {
         assert_eq!(format_broker_address("192.168.1.50"), "192.168.1.50:1883");
         assert_eq!(format_broker_address("192.168.1.50:18833"), "192.168.1.50:18833");
         assert_eq!(format_broker_address("mqtt.local:8883"), "mqtt.local:8883");
+    }
+
+    #[test]
+    fn test_encode_mqtt_string() {
+        let encoded = encode_mqtt_string("MQTT");
+        assert_eq!(encoded, vec![0x00, 0x04, b'M', b'Q', b'T', b'T']);
+    }
+
+    #[test]
+    fn test_build_mqtt_connect_packet() {
+        let pkt = build_mqtt_connect_packet("test-client");
+        assert_eq!(pkt[0], 0x10); // CONNECT packet type
+        assert!(pkt.len() > 10);
+    }
+
+    #[test]
+    fn test_build_mqtt_publish_packet() {
+        let pkt = build_mqtt_publish_packet("dvd_ripper/state", "{\"status\":\"Idle\"}");
+        assert_eq!(pkt[0], 0x30); // PUBLISH packet type
+        assert!(pkt.len() > 15);
     }
 }
