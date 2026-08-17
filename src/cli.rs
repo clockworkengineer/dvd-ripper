@@ -13,8 +13,8 @@ use clap::Parser;
     about = "Rips a DVD title using FFmpeg's dvdvideo demuxer and creates an MPEG/MPEG-4 file"
 )]
 pub struct Args {
-    /// DVD drive letter or root path (e.g., D: or D:\)
-    #[arg(default_value = "D:\\")]
+    /// DVD drive letter, device path, or 'auto' for automatic cross-platform optical drive detection (e.g., auto, D:, /dev/sr0)
+    #[arg(default_value = "auto")]
     pub input: String,
 
     /// Output file path. Defaults to output.mp4 (or output.mpg for copy). Overridden if film details are auto-detected.

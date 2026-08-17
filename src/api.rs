@@ -41,7 +41,7 @@ pub fn get_appliance_status_handle() -> Arc<Mutex<ApplianceStatusInfo>> {
         .get_or_init(|| {
             Arc::new(Mutex::new(ApplianceStatusInfo {
                 status: "Idle".to_string(),
-                drive: "D:\\".to_string(),
+                drive: "auto".to_string(),
                 disc: "".to_string(),
                 current_title: "".to_string(),
                 progress: 0.0,
@@ -307,6 +307,13 @@ pub fn start_embedded_api_server(port: u16, drive_path: String) -> Result<()> {
     let addr = format!("0.0.0.0:{}", port);
     let listener = TcpListener::bind(&addr)?;
     println!("[Embedded Web API] Server listening on http://{}", addr);
+
+    let handle = get_appliance_status_handle();
+    if let Ok(mut state) = handle.lock() {
+        if state.drive == "auto" || state.drive == "D:\\" {
+            state.drive = crate::dvd::auto_detect_dvd_drive();
+        }
+    }
 
     thread::spawn(move || {
         for stream in listener.incoming().flatten() {

@@ -78,7 +78,7 @@ impl Default for DvdRipperApp {
     fn default() -> Self {
         let (event_tx, event_rx) = channel();
         Self {
-            input_drive: "D:\\".to_string(),
+            input_drive: "auto".to_string(),
             film_name: String::new(),
             film_year: String::new(),
             out_dir: "Films".to_string(),
@@ -582,6 +582,8 @@ impl DvdRipperApp {
                     let media_type = if self.is_tv_mode { "TV Series" } else { "Movie" };
                     let _ = record_rip_event(&title, media_type, &path.to_string_lossy(), "Success");
                     self.history = load_history(None);
+
+                    let _ = crate::dvd::eject_disc(&self.input_drive);
                 }
                 ProgressEvent::Error(msg) => {
                     self.is_ripping = false;
@@ -678,6 +680,17 @@ impl eframe::App for DvdRipperApp {
                     ui.horizontal(|ui| {
                         ui.label("Drive Path:");
                         ui.text_edit_singleline(&mut self.input_drive);
+
+                        let detected_drives = crate::dvd::detect_dvd_drives();
+                        egui::ComboBox::from_id_salt("gui_drive_select_combo")
+                            .selected_text(if self.input_drive.is_empty() { "auto" } else { &self.input_drive })
+                            .show_ui(ui, |ui| {
+                                ui.selectable_value(&mut self.input_drive, "auto".to_string(), "⚡ Auto-Detect");
+                                for drv in detected_drives {
+                                    ui.selectable_value(&mut self.input_drive, drv.clone(), format!("💿 {}", drv));
+                                }
+                            });
+
                         if ui.button("🔍 Detect DVD").clicked() {
                             self.trigger_detection();
                         }

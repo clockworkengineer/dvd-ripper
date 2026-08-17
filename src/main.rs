@@ -317,5 +317,8 @@ fn main() -> Result<()> {
         )?;
     }
 
+    println!("\nEjecting DVD disc from drive...");
+    let _ = dvd::eject_disc(&dvd_path.to_string_lossy());
+
     Ok(())
 }
