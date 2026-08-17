@@ -227,13 +227,13 @@ src/
 ├── api.rs          - Embedded HTTP REST API & HTML5 Web UI appliance dashboard server with cancellation & search handlers
 ├── cli.rs          - Command-line argument schema (clap) with search flags, audio/subtitle/webhook options
 ├── daemon.rs       - Headless auto-rip watcher loop for optical disc insertion, metadata resolution, & auto-eject
-├── dvd.rs          - Drive path normalization, Win32 & ISO-9660 volume label queries, & optical tray eject API
-├── ffmpeg.rs       - Title probing, stream mapping, collision protection, progress streaming, & execution engine
-├── gui.rs          - Native desktop GUI implementation (eframe/egui) with stream controls & history view
+├── dvd.rs          - Cross-platform drive detection, Win32 & ISO-9660 volume label queries, & optical tray eject API
+├── ffmpeg.rs       - Fast single-pass title probing, MKV/MP4 stream mapping, collision protection, progress streaming
+├── gui.rs          - Native desktop GUI implementation (eframe/egui) with stream controls, MKV toggle & history view
 ├── history.rs      - Persistent JSON ripping history database log (load, save, clear, record)
-├── imdb.rs         - OMDb / IMDb API client, candidate search, runtime & plot parsing models
+├── imdb.rs         - TMDB / OMDb / IMDb API metadata client, candidate search, runtime & plot parsing models
 ├── mqtt.rs         - MQTT smart home telemetry & HTTP Webhook notification engine
-├── utils.rs        - Duration parsing, filename sanitization, season/disc label extraction, & DRY string helpers
+├── utils.rs        - Cover artwork saving, duration parsing, filename sanitization, season/disc label extraction
 └── bin/
     └── installer.rs - Portable multi-OS installer binary (dvd-ripper-installer)
 ```
@@ -242,7 +242,7 @@ src/
 
 ## 🧪 Testing
 
-Run the full test suite (31 unit tests):
+Run the full test suite (36 unit tests):
 ```bash
 cargo test
 ```

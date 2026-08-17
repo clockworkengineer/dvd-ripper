@@ -15,6 +15,7 @@ mod imdb;
 mod mqtt;
 mod utils;
 
+use std::path::PathBuf;
 use anyhow::{anyhow, Result};
 use clap::Parser;
 
@@ -27,7 +28,7 @@ use ffmpeg::{
 use imdb::{fetch_search_candidates, lookup_film_details, lookup_omdb_by_id};
 use utils::sanitize_filename;
 
-fn resolve_cli_metadata(args: &mut Args, volume_label: Option<&str>) -> (Option<String>, Option<u32>, Option<f64>) {
+fn resolve_cli_metadata(args: &mut Args, volume_label: Option<&str>) -> (Option<String>, Option<u32>, Option<f64>, Option<Vec<u8>>) {
     // 1. Direct IMDb ID selection
     if let Some(ref imdb_id) = args.imdb_id {
         println!("Looking up exact IMDb ID: {}", imdb_id);
@@ -42,7 +43,7 @@ fn resolve_cli_metadata(args: &mut Args, volume_label: Option<&str>) -> (Option<
                 println!("Media identified as TV Series.");
                 args.tv = true;
             }
-            return (Some(clean_name), meta.year, meta.runtime_secs);
+            return (Some(clean_name), meta.year, meta.runtime_secs, meta.poster_bytes);
         } else {
             println!("Warning: Could not fetch details for IMDb ID '{}'.", imdb_id);
         }
@@ -131,7 +132,7 @@ fn resolve_cli_metadata(args: &mut Args, volume_label: Option<&str>) -> (Option<
                     println!("Media identified as TV Series.");
                     args.tv = true;
                 }
-                return (Some(clean_name), meta.year, meta.runtime_secs);
+                return (Some(clean_name), meta.year, meta.runtime_secs, meta.poster_bytes);
             }
         }
 
@@ -148,7 +149,7 @@ fn resolve_cli_metadata(args: &mut Args, volume_label: Option<&str>) -> (Option<
                     println!("Media identified as TV Series.");
                     args.tv = true;
                 }
-                return (Some(clean_name), meta.year, meta.runtime_secs);
+                return (Some(clean_name), meta.year, meta.runtime_secs, meta.poster_bytes);
             }
             Err(e) => {
                 println!("Warning: Failed to look up metadata details for '{}': {}", query, e);
@@ -158,7 +159,7 @@ fn resolve_cli_metadata(args: &mut Args, volume_label: Option<&str>) -> (Option<
         println!("Warning: Could not detect DVD volume label and no search query provided.");
     }
 
-    (None, None, None)
+    (None, None, None, None)
 }
 
 fn main() -> Result<()> {
@@ -208,7 +209,7 @@ fn main() -> Result<()> {
 
     // 2. Resolve metadata via IMDb search, ID selection, or volume label auto-detection
     let volume_label = get_volume_label(&dvd_path.to_string_lossy());
-    let (title_name, title_year, film_runtime) =
+    let (title_name, title_year, film_runtime, poster_bytes) =
         resolve_cli_metadata(&mut args, volume_label.as_deref());
 
     if title_name.is_none() {
@@ -216,6 +217,8 @@ fn main() -> Result<()> {
             "Ripping disabled: No movie searched and selected. Please specify --search <QUERY> or --imdb-id <ID> to select a movie."
         ));
     }
+
+    let mut last_output_file: Option<PathBuf> = None;
 
     // 3. Execution path for TV series vs Movie
     if args.tv {
@@ -274,6 +277,7 @@ fn main() -> Result<()> {
                     &ep.formatted_name,
                     Some(ep.duration_secs),
                 )?;
+                last_output_file = Some(ep_output);
             }
 
             println!("\nSuccessfully completed batch rip of all episodes!");
@@ -300,6 +304,7 @@ fn main() -> Result<()> {
                 &ep_name,
                 film_runtime,
             )?;
+            last_output_file = Some(ep_output);
         }
     } else {
         // Standard Movie execution path
@@ -315,6 +320,11 @@ fn main() -> Result<()> {
             display_title,
             film_runtime,
         )?;
+        last_output_file = Some(absolute_output);
+    }
+
+    if let (Some(bytes), Some(out_file)) = (poster_bytes.as_ref(), last_output_file.as_ref()) {
+        let _ = utils::save_cover_artworks(out_file, bytes);
     }
 
     println!("\nEjecting DVD disc from drive...");

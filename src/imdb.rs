@@ -54,6 +54,27 @@ pub struct OmdbResponse {
     pub response: Option<String>,
 }
 
+/// Represents a single movie or TV show item returned from TMDB REST API.
+#[derive(Deserialize, Debug)]
+pub struct TmdbSearchResultItem {
+    #[allow(dead_code)]
+    pub id: Option<u64>,
+    pub title: Option<String>,
+    pub name: Option<String>,
+    pub release_date: Option<String>,
+    pub first_air_date: Option<String>,
+    pub overview: Option<String>,
+    pub poster_path: Option<String>,
+    pub vote_average: Option<f64>,
+    pub media_type: Option<String>,
+}
+
+/// Represents the container object from TMDB search endpoints.
+#[derive(Deserialize, Debug)]
+pub struct TmdbSearchContainer {
+    pub results: Option<Vec<TmdbSearchResultItem>>,
+}
+
 /// Represents a single movie search result from the IMDb suggestion database.
 #[derive(Deserialize, Debug)]
 pub struct ImdbEntry {
@@ -423,9 +444,16 @@ pub fn lookup_film_details(query: &str) -> Result<FilmMetadata> {
     }
 
     for cand in &candidates {
+        if let Some(tmdb_res) = lookup_tmdb_details(cand) {
+            return Ok(tmdb_res);
+        }
         if let Some(omdb_res) = lookup_omdb_details(cand) {
             return Ok(omdb_res);
         }
+    }
+
+    if let Some(tmdb_res) = lookup_tmdb_details(query) {
+        return Ok(tmdb_res);
     }
 
     if let Some(omdb_res) = lookup_omdb_details(query) {
@@ -472,6 +500,102 @@ pub fn lookup_film_details(query: &str) -> Result<FilmMetadata> {
         year: best_match.y,
         ..Default::default()
     })
+}
+
+/// Queries TMDB API for movie / TV show metadata details.
+pub fn lookup_tmdb_details(query: &str) -> Option<FilmMetadata> {
+    let client = get_http_client();
+    let api_key = "3aec63790d50f3b9fc2efb4c15a8cf99";
+    let url = reqwest::Url::parse_with_params(
+        "https://api.themoviedb.org/3/search/multi",
+        &[("api_key", api_key), ("query", query)],
+    ).ok()?;
+
+    let text = client.get(url).send().ok()?.text().ok()?;
+    let resp: TmdbSearchContainer = serde_json::from_str(&text).ok()?;
+    let item = resp.results?.into_iter().next()?;
+
+    let title = item.title.or(item.name)?;
+    let year = item
+        .release_date
+        .as_deref()
+        .or(item.first_air_date.as_deref())
+        .and_then(|d| d.split('-').next())
+        .and_then(|y| y.parse::<u32>().ok());
+    let plot = item.overview.filter(|p| !p.is_empty());
+    let rating = item.vote_average.map(|v| format!("{:.1}", v));
+    let is_series = item.media_type.as_deref() == Some("tv");
+
+    let mut poster_bytes = None;
+    let mut poster_url = None;
+    if let Some(path) = item.poster_path {
+        let full_url = format!("https://image.tmdb.org/t/p/w500{}", path);
+        poster_url = Some(full_url.clone());
+        if let Ok(p_resp) = client.get(&full_url).send() {
+            if let Ok(bytes) = p_resp.bytes() {
+                poster_bytes = Some(bytes.to_vec());
+            }
+        }
+    }
+
+    Some(FilmMetadata {
+        title,
+        year,
+        runtime_secs: None,
+        poster_url,
+        plot,
+        genre: None,
+        director: None,
+        actors: None,
+        rating,
+        is_series,
+        total_seasons: None,
+        poster_bytes,
+    })
+}
+
+/// Queries TMDB/OMDb to fetch specific TV show episode titles (e.g. S01E01 - Pilot).
+#[allow(dead_code)]
+pub fn fetch_tv_episode_title(show_name: &str, season: u32, episode_num: u32) -> String {
+    let clean_show = crate::utils::sanitize_filename(show_name);
+    let default_name = crate::utils::format_episode_name(&clean_show, season, episode_num);
+
+    let client = get_http_client();
+    let api_key = "3aec63790d50f3b9fc2efb4c15a8cf99";
+    if let Ok(url) = reqwest::Url::parse_with_params(
+        "https://api.themoviedb.org/3/search/tv",
+        &[("api_key", api_key), ("query", &clean_show)],
+    ) {
+        if let Ok(resp) = client.get(url).send() {
+            if let Ok(text) = resp.text() {
+                if let Ok(data) = serde_json::from_str::<TmdbSearchContainer>(&text) {
+                    if let Some(show) = data.results.and_then(|r| r.into_iter().next()) {
+                        if let Some(show_id) = show.id {
+                            let ep_url = format!(
+                                "https://api.themoviedb.org/3/tv/{}/season/{}/episode/{}",
+                                show_id, season, episode_num
+                            );
+                            if let Ok(ep_url_parsed) = reqwest::Url::parse_with_params(&ep_url, &[("api_key", api_key)]) {
+                                if let Ok(ep_resp) = client.get(ep_url_parsed).send() {
+                                    if let Ok(ep_text) = ep_resp.text() {
+                                        if let Ok(ep_json) = serde_json::from_str::<serde_json::Value>(&ep_text) {
+                                            if let Some(ep_name) = ep_json.get("name").and_then(|n| n.as_str()) {
+                                                if !ep_name.is_empty() {
+                                                    return format!("{} - S{:02}E{:02} - {}", clean_show, season, episode_num, crate::utils::sanitize_filename(ep_name));
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    default_name
 }
 
 #[cfg(test)]

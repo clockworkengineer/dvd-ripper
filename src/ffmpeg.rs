@@ -58,7 +58,13 @@ pub fn resolve_output_path(
     film_name: Option<&str>,
     film_year: Option<u32>,
 ) -> Result<PathBuf> {
-    let extension = if args.transcode { "mp4" } else { "mpg" };
+    let extension = if args.mkv {
+        "mkv"
+    } else if args.transcode {
+        "mp4"
+    } else {
+        "mpg"
+    };
     let rel_or_abs_file = if let Some(name) = film_name {
         let segment = format_title_folder_name(name, film_year);
         PathBuf::from(format!("{}/{}.{}", segment, segment, extension))
@@ -79,7 +85,13 @@ pub fn resolve_tv_output_path(
     season: u32,
     episode_num: u32,
 ) -> Result<PathBuf> {
-    let extension = if args.transcode { "mp4" } else { "mpg" };
+    let extension = if args.mkv {
+        "mkv"
+    } else if args.transcode {
+        "mp4"
+    } else {
+        "mpg"
+    };
     let name = show_name.unwrap_or("Unknown Show");
     let show_folder = format_title_folder_name(name, show_year);
     let season_folder = format!("Season {:02}", season);
@@ -115,12 +127,67 @@ pub struct DvdTitleInfo {
     pub duration_secs: f64,
 }
 
-/// Probes all titles on the DVD drive (up to title 99, stopping after 3 consecutive failures).
+/// Attempts single-pass fast probing of all DVD title tracks on disc in one process call.
+pub fn probe_dvd_titles_fast(
+    ffmpeg_path: &str,
+    dvd_path: &Path,
+) -> Vec<DvdTitleInfo> {
+    let mut titles = Vec::new();
+    let output = Command::new(ffmpeg_path)
+        .stdin(std::process::Stdio::null())
+        .arg("-analyzeduration")
+        .arg("500000")
+        .arg("-probesize")
+        .arg("500000")
+        .arg("-f")
+        .arg("dvdvideo")
+        .arg("-i")
+        .arg(dvd_path)
+        .output();
+
+    if let Ok(out) = output {
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        let mut current_title_num: Option<u32> = None;
+
+        for line in stderr.lines() {
+            let line_trimmed = line.trim();
+            if line_trimmed.starts_with("Program ") || line_trimmed.starts_with("title ") || line_trimmed.starts_with("Title ") {
+                if let Some(num_str) = line_trimmed.split_whitespace().nth(1) {
+                    let clean_num = num_str.trim_matches(':').trim_matches('#');
+                    if let Ok(n) = clean_num.parse::<u32>() {
+                        current_title_num = Some(n);
+                    }
+                }
+            }
+
+            if let Some(duration_str) = extract_kv_field(line, "Duration: ") {
+                let clean_duration = duration_str.trim_end_matches(',');
+                if let Some(secs) = parse_duration(clean_duration) {
+                    let t_num = current_title_num.unwrap_or(titles.len() as u32 + 1);
+                    titles.push(DvdTitleInfo {
+                        title_num: t_num,
+                        duration_secs: secs,
+                    });
+                    current_title_num = None;
+                }
+            }
+        }
+    }
+
+    titles
+}
+
+/// Probes all titles on the DVD drive, using fast single-pass probing with fallback to sequential probing.
 pub fn probe_dvd_titles(
     ffmpeg_path: &str,
     dvd_path: &Path,
     cancel_flag: Option<&std::sync::atomic::AtomicBool>,
 ) -> Vec<DvdTitleInfo> {
+    let fast_results = probe_dvd_titles_fast(ffmpeg_path, dvd_path);
+    if !fast_results.is_empty() {
+        return fast_results;
+    }
+
     let mut titles = Vec::new();
     let mut consecutive_failures = 0;
 
@@ -300,6 +367,11 @@ pub fn build_ffmpeg_command(
         cmd.arg("-c:s").arg("dvdsub");
     }
 
+    let is_mkv = args.mkv
+        || absolute_output
+            .extension()
+            .map_or(false, |ext| ext.eq_ignore_ascii_case("mkv"));
+
     if args.transcode {
         match args.hwaccel.to_lowercase().as_str() {
             "v4l2" | "v4l2m2m" => {
@@ -335,9 +407,16 @@ pub fn build_ffmpeg_command(
                 cmd.arg("-b:a").arg("128k");
             }
         }
+        if is_mkv {
+            cmd.arg("-f").arg("matroska");
+        }
     } else {
         cmd.arg("-c").arg("copy");
-        cmd.arg("-f").arg("dvd");
+        if is_mkv {
+            cmd.arg("-f").arg("matroska");
+        } else {
+            cmd.arg("-f").arg("dvd");
+        }
     }
 
     cmd.arg("-y");
@@ -718,5 +797,38 @@ mod tests {
         let cmd_qsv = build_ffmpeg_command(&args_qsv, Path::new("D:\\"), &output_path, 1);
         let cmd_args_qsv: Vec<String> = cmd_qsv.get_args().map(|s| s.to_string_lossy().to_string()).collect();
         assert!(cmd_args_qsv.contains(&"h264_qsv".to_string()));
+    }
+
+    #[test]
+    fn test_resolve_output_path_mkv() {
+        let temp = TestTempDir::new("mkv_out_dir");
+        let out_dir_str = temp.0.to_string_lossy().to_string();
+
+        let args = Args {
+            out_dir: out_dir_str,
+            mkv: true,
+            ..Default::default()
+        };
+
+        let path = resolve_output_path(&args, Some("Aliens"), Some(1986)).unwrap();
+        assert!(path.to_string_lossy().contains("Aliens (1986).mkv"));
+    }
+
+    #[test]
+    fn test_build_ffmpeg_command_mkv_subtitles() {
+        let args = Args {
+            mkv: true,
+            subtitles: true,
+            sub_lang: Some("eng".to_string()),
+            ..Default::default()
+        };
+
+        let output_path = PathBuf::from("Films/Test/Test.mkv");
+        let cmd = build_ffmpeg_command(&args, Path::new("D:\\"), &output_path, 1);
+        let cmd_args: Vec<String> = cmd.get_args().map(|s| s.to_string_lossy().to_string()).collect();
+
+        assert!(cmd_args.contains(&"-f".to_string()));
+        assert!(cmd_args.contains(&"matroska".to_string()));
+        assert!(cmd_args.contains(&"dvdsub".to_string()));
     }
 }

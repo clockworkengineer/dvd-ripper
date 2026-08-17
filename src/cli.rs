@@ -33,6 +33,10 @@ pub struct Args {
     #[arg(long)]
     pub transcode: bool,
 
+    /// Output container in Matroska (.mkv) format to preserve raw DVD bitmap subtitles losslessly
+    #[arg(long)]
+    pub mkv: bool,
+
     /// FFmpeg preset for H.264 encoding (e.g. veryfast, superfast, ultrafast, fast, medium)
     #[arg(long, default_value = "veryfast")]
     pub preset: String,
@@ -118,6 +122,7 @@ impl Default for Args {
             out_dir: "Films".to_string(),
             title: 0,
             transcode: false,
+            mkv: false,
             preset: "veryfast".to_string(),
             ffmpeg: "ffmpeg".to_string(),
             hwaccel: "copy".to_string(),

@@ -66,6 +66,25 @@ pub fn format_episode_name(show_name: &str, season: u32, ep_num: u32) -> String 
     format!("{} - S{:02}E{:02}", clean_name, season, ep_num)
 }
 
+/// Saves poster artwork bytes to `cover.jpg` and `folder.jpg` in the parent directory of the ripped video file.
+pub fn save_cover_artworks(output_file: &std::path::Path, poster_bytes: &[u8]) -> anyhow::Result<()> {
+    if poster_bytes.is_empty() {
+        return Ok(());
+    }
+    if let Some(parent) = output_file.parent() {
+        std::fs::create_dir_all(parent)?;
+        let cover_path = parent.join("cover.jpg");
+        let folder_path = parent.join("folder.jpg");
+        if !cover_path.exists() {
+            std::fs::write(&cover_path, poster_bytes)?;
+        }
+        if !folder_path.exists() {
+            std::fs::write(&folder_path, poster_bytes)?;
+        }
+    }
+    Ok(())
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct ParsedLabelInfo {
     pub clean_title: String,
@@ -215,5 +234,18 @@ mod tests {
         assert_eq!(res2.clean_title, "doctor who");
         assert_eq!(res2.season, Some(1));
         assert_eq!(res2.disc, Some(3));
+    }
+
+    #[test]
+    fn test_save_cover_artworks() {
+        let temp_dir = std::env::temp_dir().join("cover_art_test_dir");
+        let video_file = temp_dir.join("movie.mp4");
+        let dummy_poster = b"JPEG_DATA";
+
+        let _ = save_cover_artworks(&video_file, dummy_poster);
+        assert!(temp_dir.join("cover.jpg").exists());
+        assert!(temp_dir.join("folder.jpg").exists());
+
+        let _ = std::fs::remove_dir_all(temp_dir);
     }
 }

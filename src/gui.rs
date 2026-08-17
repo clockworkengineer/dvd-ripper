@@ -25,6 +25,7 @@ pub struct DvdRipperApp {
     out_dir: String,
     title_number: u32,
     transcode: bool,
+    mkv: bool,
     preset: String,
     ffmpeg_path: String,
     expected_runtime_secs: Option<f64>,
@@ -84,6 +85,7 @@ impl Default for DvdRipperApp {
             out_dir: "Films".to_string(),
             title_number: 0,
             transcode: false,
+            mkv: false,
             preset: "veryfast".to_string(),
             ffmpeg_path: "ffmpeg".to_string(),
             expected_runtime_secs: None,
@@ -312,6 +314,7 @@ impl DvdRipperApp {
         let title_num = self.title_number;
         let out_dir = self.out_dir.clone();
         let transcode = self.transcode;
+        let mkv = self.mkv;
         let preset = self.preset.clone();
         let ffmpeg_path = self.ffmpeg_path.clone();
         let expected_runtime = self.expected_runtime_secs;
@@ -364,6 +367,7 @@ impl DvdRipperApp {
                         ffmpeg_path.clone(),
                     );
                     args.all_audio = all_audio;
+                    args.mkv = mkv;
                     args.audio_lang = audio_lang.clone();
                     args.subtitles = subtitles;
                     args.sub_lang = sub_lang.clone();
@@ -424,6 +428,7 @@ impl DvdRipperApp {
                     ffmpeg_path.clone(),
                 );
                 args.all_audio = all_audio;
+                args.mkv = mkv;
                 args.audio_lang = audio_lang.clone();
                 args.subtitles = subtitles;
                 args.sub_lang = sub_lang.clone();
@@ -461,6 +466,7 @@ impl DvdRipperApp {
                     ffmpeg_path.clone(),
                 );
                 args.all_audio = all_audio;
+                args.mkv = mkv;
                 args.audio_lang = audio_lang.clone();
                 args.subtitles = subtitles;
                 args.sub_lang = sub_lang.clone();
@@ -582,6 +588,10 @@ impl DvdRipperApp {
                     let media_type = if self.is_tv_mode { "TV Series" } else { "Movie" };
                     let _ = record_rip_event(&title, media_type, &path.to_string_lossy(), "Success");
                     self.history = load_history(None);
+
+                    if let Some(ref bytes) = self.raw_poster_bytes {
+                        let _ = crate::utils::save_cover_artworks(&path, bytes);
+                    }
 
                     let _ = crate::dvd::eject_disc(&self.input_drive);
                 }
@@ -819,6 +829,7 @@ impl eframe::App for DvdRipperApp {
                     });
 
                     ui.horizontal(|ui| {
+                        ui.checkbox(&mut self.mkv, "📦 MKV Container (.mkv)");
                         ui.checkbox(&mut self.transcode, "Re-encode (H.264 / AAC)");
                         if self.transcode {
                             ui.label("Preset:");
