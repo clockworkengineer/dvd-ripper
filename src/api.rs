@@ -375,6 +375,138 @@ pub fn extract_body(req_bytes: &[u8]) -> Option<&str> {
     }
 }
 
+static CONFIGURED_API_KEY: OnceLock<Arc<Mutex<Option<String>>>> = OnceLock::new();
+
+fn get_configured_api_key_handle() -> &'static Arc<Mutex<Option<String>>> {
+    CONFIGURED_API_KEY.get_or_init(|| Arc::new(Mutex::new(None)))
+}
+
+pub fn set_api_key(key: String) {
+    let handle = get_configured_api_key_handle();
+    if let Ok(mut lock) = handle.lock() {
+        *lock = Some(key);
+    }
+}
+
+pub fn validate_api_key_header(req_bytes: &[u8], path_str: &str) -> bool {
+    let handle = get_configured_api_key_handle();
+    let expected_key = match handle.lock() {
+        Ok(lock) => match lock.clone() {
+            Some(k) if !k.trim().is_empty() => k,
+            _ => return true,
+        },
+        Err(_) => return true,
+    };
+
+    if let Some(param_key) = parse_query_param(path_str, "api_key") {
+        if param_key == expected_key {
+            return true;
+        }
+    }
+
+    let req_text = String::from_utf8_lossy(req_bytes);
+    for line in req_text.lines() {
+        if line.to_lowercase().starts_with("authorization:") {
+            if let Some(bearer) = line.splitn(2, ':').nth(1) {
+                let token = bearer.trim();
+                if token.to_lowercase().starts_with("bearer ") {
+                    let key = token[7..].trim();
+                    if key == expected_key {
+                        return true;
+                    }
+                }
+            }
+        }
+    }
+
+    false
+}
+
+pub const OPENAPI_V3_JSON: &str = r#"{
+  "openapi": "3.0.0",
+  "info": {
+    "title": "DVD Ripper Appliance REST API",
+    "version": "1.0.0",
+    "description": "High-performance automated DVD ripping appliance REST API for Home Assistant & media server integration."
+  },
+  "paths": {
+    "/api/status": {
+      "get": {
+        "summary": "Get current DVD appliance status",
+        "responses": { "200": { "description": "Appliance status JSON" } }
+      }
+    },
+    "/api/events": {
+      "get": {
+        "summary": "Server-Sent Events (SSE) live status stream",
+        "responses": { "200": { "description": "text/event-stream" } }
+      }
+    },
+    "/api/openapi.json": {
+      "get": {
+        "summary": "OpenAPI v3 JSON specification",
+        "responses": { "200": { "description": "OpenAPI 3.0 specification JSON" } }
+      }
+    },
+    "/api/history": {
+      "get": {
+        "summary": "Get ripping history log",
+        "responses": { "200": { "description": "History records array" } }
+      }
+    },
+    "/api/search": {
+      "get": {
+        "summary": "Search IMDb/OMDb metadata candidates",
+        "parameters": [{ "name": "q", "in": "query", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Search candidates array" } }
+      }
+    },
+    "/api/select": {
+      "post": {
+        "summary": "Select IMDb candidate by ID",
+        "parameters": [{ "name": "imdb_id", "in": "query", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Selection status" } }
+      }
+    },
+    "/api/rip": {
+      "post": {
+        "summary": "Trigger DVD ripping process",
+        "responses": { "200": { "description": "Job trigger response" } }
+      }
+    },
+    "/api/cancel": {
+      "post": {
+        "summary": "Cancel active DVD ripping process",
+        "responses": { "200": { "description": "Cancellation response" } }
+      }
+    },
+    "/api/eject": {
+      "post": {
+        "summary": "Eject DVD optical tray",
+        "responses": { "200": { "description": "Tray ejection response" } }
+      }
+    },
+    "/api/queue/list": {
+      "get": {
+        "summary": "List queued ripping jobs",
+        "responses": { "200": { "description": "Queued jobs array" } }
+      }
+    },
+    "/api/queue/add": {
+      "post": {
+        "summary": "Enqueue a new ripping job",
+        "responses": { "200": { "description": "Enqueue response" } }
+      }
+    },
+    "/api/queue/remove": {
+      "post": {
+        "summary": "Remove job from queue",
+        "responses": { "200": { "description": "Removal status" } }
+      }
+    }
+  }
+}"#;
+
 fn handle_client(mut stream: TcpStream, drive_path: &str) -> Result<()> {
     let mut buffer = [0u8; 4096];
     let bytes_read = stream.read(&mut buffer)?;
@@ -387,6 +519,19 @@ fn handle_client(mut stream: TcpStream, drive_path: &str) -> Result<()> {
 
     let path_str = String::from_utf8_lossy(path);
     let method_str = String::from_utf8_lossy(method);
+
+    if path_str == "/api/openapi.json" {
+        send_http_response(&mut stream, "200 OK", "application/json", OPENAPI_V3_JSON)?;
+        return Ok(());
+    }
+
+    if path_str.starts_with("/api/") && path_str != "/api/status" {
+        if !validate_api_key_header(req_bytes, &path_str) {
+            let body = "{\"success\":false,\"message\":\"Unauthorized: Invalid or missing API key header (Authorization: Bearer <KEY>)\"}";
+            send_http_response(&mut stream, "401 Unauthorized", "application/json", body)?;
+            return Ok(());
+        }
+    }
 
     if method_str == "GET" && (path_str == "/" || path_str == "/index.html") {
         send_http_response(&mut stream, "200 OK", "text/html; charset=utf-8", EMBEDDED_DASHBOARD_HTML)?;
@@ -696,5 +841,22 @@ mod tests {
     fn test_parse_sse_events_route() {
         let req = b"GET /api/events HTTP/1.1\r\nHost: localhost\r\nAccept: text/event-stream\r\n\r\n";
         assert_eq!(parse_http_route(req), (b"GET" as &[u8], b"/api/events" as &[u8]));
+    }
+
+    #[test]
+    fn test_api_key_validation() {
+        set_api_key("secret123".to_string());
+        let req_valid = b"POST /api/rip HTTP/1.1\r\nAuthorization: Bearer secret123\r\n\r\n";
+        assert!(validate_api_key_header(req_valid, "/api/rip"));
+
+        let req_invalid = b"POST /api/rip HTTP/1.1\r\nAuthorization: Bearer wrong\r\n\r\n";
+        assert!(!validate_api_key_header(req_invalid, "/api/rip"));
+    }
+
+    #[test]
+    fn test_openapi_spec_route() {
+        let req = b"GET /api/openapi.json HTTP/1.1\r\nHost: localhost\r\n\r\n";
+        assert_eq!(parse_http_route(req), (b"GET" as &[u8], b"/api/openapi.json" as &[u8]));
+        assert!(OPENAPI_V3_JSON.contains("DVD Ripper Appliance REST API"));
     }
 }

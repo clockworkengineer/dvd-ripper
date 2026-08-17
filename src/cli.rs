@@ -121,6 +121,10 @@ pub struct Args {
     #[arg(long = "post-script")]
     pub post_script: Option<String>,
 
+    /// Optional API key parameter to secure REST API endpoints with Bearer token authentication
+    #[arg(long = "api-key")]
+    pub api_key: Option<String>,
+
     /// Search query term to query IMDb/OMDb metadata candidates
     #[arg(short = 's', long = "search")]
     pub search: Option<String>,
@@ -164,6 +168,7 @@ impl Default for Args {
             webhook_url: None,
             no_overwrite: false,
             post_script: None,
+            api_key: None,
             search: None,
             imdb_id: None,
             select_index: None,
