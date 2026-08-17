@@ -1,0 +1,40 @@
+# DVD Ripper (dvd-ripper) Configuration Example
+# Save this file to dvd-ripper.toml in the working directory or ~/.dvd-ripper/config.toml
+
+# Base destination directory for movie backups (default: "Films")
+out_dir = "Films"
+
+# Preferred video codec: "h264", "hevc" (H.265), "av1" (SVT-AV1), or "copy" (Stream Copy)
+codec = "h264"
+
+# Encoding profile preset: "standard", "archival", "plex", or "mobile"
+profile = "standard"
+
+# FFmpeg CPU encoding speed preset: "ultrafast", "superfast", "veryfast", "fast", "medium"
+preset = "veryfast"
+
+# Optional MQTT Broker address for Home Assistant smart home telemetry (e.g., "192.168.1.50:1883")
+# mqtt_broker = "192.168.1.50:1883"
+
+# Optional HTTP Webhook URL for Discord, Slack, Ntfy, Telegram, or Gotify notifications
+# webhook_url = "https://discord.com/api/webhooks/YOUR_WEBHOOK_ID/YOUR_WEBHOOK_TOKEN"
+
+# Optional REST API Bearer Token key to secure HTTP endpoints against unauthorized access
+# api_key = "your_secret_api_key_here"
+
+# Direct Media Server Library Scan Triggers
+# Plex Media Server integration
+# plex_url = "http://192.168.1.100:32400"
+# plex_token = "your_plex_token_here"
+
+# Jellyfin Media Server integration
+# jellyfin_url = "http://192.168.1.100:8096"
+# jellyfin_key = "your_jellyfin_api_key_here"
+
+# Emby Media Server integration
+# emby_url = "http://192.168.1.100:8096"
+# emby_key = "your_emby_api_key_here"
+
+# Optional post-processing script executable path to run upon rip completion
+# Environment variables set: DVD_OUTPUT_PATH, DVD_TITLE, DVD_MEDIA_TYPE, DVD_YEAR
+# post_script = "/usr/local/bin/post_rip_handler.sh"

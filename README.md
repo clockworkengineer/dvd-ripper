@@ -219,6 +219,16 @@ dvd-ripper.exe --cli D: --tv --season 1 --all-episodes --transcode --hwaccel nve
 
 ---
 
+## 📚 Documentation & Technical References
+
+For detailed guides and technical specifications, refer to:
+- 🏗️ **[System Architecture Guide](docs/ARCHITECTURE.md)**: Deep-dive into Rust module architecture, thread safety, daemon watcher loop, and ISO-9660 disc fingerprinting.
+- 📡 **[REST API Reference](docs/API_REFERENCE.md)**: OpenAPI 3.0 schemas, HTTP endpoints, SSE live progress streaming, Bearer authentication, and Prometheus `/metrics`.
+- ⚙️ **[Configuration Reference](docs/CONFIGURATION.md)**: Complete CLI flags, environment variables, TOML config parameters, post-processing script environment variables, and media server triggers.
+- 📄 **[Sample Configuration File](dvd-ripper.toml.example)**: Annotated template for `dvd-ripper.toml` or `~/.dvd-ripper/config.toml`.
+
+---
+
 ## 🏗️ Project Architecture
 
 ```
