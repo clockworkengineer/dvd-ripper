@@ -101,6 +101,10 @@ pub struct Args {
     #[arg(long = "audio-lang")]
     pub audio_lang: Option<String>,
 
+    /// Comma-separated ranked audio language preference list (e.g. eng,fre,spa)
+    #[arg(long = "auto-audio-pref")]
+    pub auto_audio_pref: Option<String>,
+
     /// Extract subtitle tracks from DVD title into output container
     #[arg(long)]
     pub subtitles: bool,
@@ -203,6 +207,7 @@ impl Default for Args {
             normalize_audio: false,
             dual_audio: false,
             audio_lang: None,
+            auto_audio_pref: None,
             subtitles: false,
             sub_lang: None,
             sub_format: None,

@@ -376,6 +376,14 @@ pub fn build_ffmpeg_command(
         if args.normalize_audio {
             cmd.arg("-filter:a").arg("loudnorm=I=-16:TP=-1.5:LRA=11");
         }
+    } else if let Some(ref pref) = args.auto_audio_pref {
+        let langs = parse_ranked_audio_languages(pref);
+        for lang in langs {
+            cmd.arg("-map").arg(format!("0:a:m:language:{}?", lang));
+        }
+        if args.normalize_audio {
+            cmd.arg("-filter:a").arg("loudnorm=I=-16:TP=-1.5:LRA=11");
+        }
     } else {
         cmd.arg("-map").arg("0:a?");
         if args.normalize_audio {
@@ -487,6 +495,14 @@ pub fn build_ffmpeg_command(
     cmd.arg(absolute_output);
 
     cmd
+}
+
+pub fn parse_ranked_audio_languages(pref_str: &str) -> Vec<String> {
+    pref_str
+        .split(',')
+        .map(|s| s.trim().to_lowercase())
+        .filter(|s| !s.is_empty())
+        .collect()
 }
 
 /// Event emitted during FFmpeg ripping process or async GUI metadata lookup.
@@ -922,6 +938,27 @@ mod tests {
         let cmd_args: Vec<String> = cmd.get_args().map(|s| s.to_string_lossy().to_string()).collect();
 
         assert!(cmd_args.contains(&"-map_chapters".to_string()));
+    }
+
+    #[test]
+    fn test_parse_ranked_audio_languages() {
+        let langs = parse_ranked_audio_languages("eng, fre, spa ");
+        assert_eq!(langs, vec!["eng", "fre", "spa"]);
+    }
+
+    #[test]
+    fn test_build_ffmpeg_command_ranked_audio() {
+        let args = Args {
+            auto_audio_pref: Some("eng,fre,spa".to_string()),
+            ..Default::default()
+        };
+
+        let cmd = build_ffmpeg_command(&args, Path::new("D:\\"), Path::new("test.mp4"), 1);
+        let cmd_args: Vec<String> = cmd.get_args().map(|s| s.to_string_lossy().to_string()).collect();
+
+        assert!(cmd_args.contains(&"0:a:m:language:eng?".to_string()));
+        assert!(cmd_args.contains(&"0:a:m:language:fre?".to_string()));
+        assert!(cmd_args.contains(&"0:a:m:language:spa?".to_string()));
     }
 
     #[test]
