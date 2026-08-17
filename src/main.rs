@@ -5,6 +5,7 @@
 
 mod api;
 mod cli;
+mod config;
 mod daemon;
 mod dvd;
 mod ffmpeg;
@@ -210,6 +211,8 @@ fn main() -> Result<()> {
 
     // CLI mode execution path
     let mut args = Args::parse();
+    let cfg = config::load_config(args.config.as_deref());
+    config::apply_config_defaults(&mut args, &cfg);
 
     if args.daemon {
         return run_daemon(args, 10);

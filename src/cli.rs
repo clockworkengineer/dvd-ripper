@@ -129,6 +129,10 @@ pub struct Args {
     #[arg(long = "api-key")]
     pub api_key: Option<String>,
 
+    /// Optional path to custom TOML configuration file (e.g. dvd-ripper.toml)
+    #[arg(short = 'c', long = "config")]
+    pub config: Option<String>,
+
     /// Optional Plex server base URL (e.g. http://192.168.1.100:32400) for library scan triggers
     #[arg(long = "plex-url")]
     pub plex_url: Option<String>,
@@ -198,6 +202,7 @@ impl Default for Args {
             no_overwrite: false,
             post_script: None,
             api_key: None,
+            config: None,
             plex_url: None,
             plex_token: None,
             jellyfin_url: None,
