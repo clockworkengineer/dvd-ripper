@@ -47,6 +47,8 @@ pub struct DvdRipperApp {
     poster_texture: Option<egui::TextureHandle>,
     // Stream & Notification options
     all_audio: bool,
+    normalize_audio: bool,
+    dual_audio: bool,
     audio_lang: String,
     subtitles: bool,
     sub_lang: String,
@@ -101,6 +103,8 @@ impl Default for DvdRipperApp {
             detected_episodes: Vec::new(),
 
             all_audio: false,
+            normalize_audio: false,
+            dual_audio: false,
             audio_lang: String::new(),
             subtitles: false,
             sub_lang: String::new(),
@@ -330,6 +334,8 @@ impl DvdRipperApp {
         let tx = self.event_tx.clone();
 
         let all_audio = self.all_audio;
+        let normalize_audio = self.normalize_audio;
+        let dual_audio = self.dual_audio;
         let audio_lang = if self.audio_lang.trim().is_empty() { None } else { Some(self.audio_lang.trim().to_string()) };
         let subtitles = self.subtitles;
         let sub_lang = if self.sub_lang.trim().is_empty() { None } else { Some(self.sub_lang.trim().to_string()) };
@@ -437,6 +443,8 @@ impl DvdRipperApp {
                     ffmpeg_path.clone(),
                 );
                 args.all_audio = all_audio;
+                args.normalize_audio = normalize_audio;
+                args.dual_audio = dual_audio;
                 args.mkv = mkv;
                 args.codec = codec.clone();
                 args.profile = profile.clone();
@@ -477,6 +485,8 @@ impl DvdRipperApp {
                     ffmpeg_path.clone(),
                 );
                 args.all_audio = all_audio;
+                args.normalize_audio = normalize_audio;
+                args.dual_audio = dual_audio;
                 args.mkv = mkv;
                 args.codec = codec.clone();
                 args.profile = profile.clone();
@@ -880,13 +890,14 @@ impl eframe::App for DvdRipperApp {
                     });
 
                     ui.horizontal(|ui| {
-                        ui.checkbox(&mut self.all_audio, "All Audio Tracks");
+                        ui.checkbox(&mut self.all_audio, "All Audio");
+                        ui.checkbox(&mut self.normalize_audio, "🔊 Normalize Loudness (EBU R128)");
+                        ui.checkbox(&mut self.dual_audio, "📻 Dual Audio (Stereo + Passthrough)");
                         ui.label("Audio Lang:");
                         ui.add(egui::TextEdit::singleline(&mut self.audio_lang).hint_text("eng").desired_width(40.0));
                         ui.checkbox(&mut self.subtitles, "Subtitles");
                         ui.label("Sub Lang:");
                         ui.add(egui::TextEdit::singleline(&mut self.sub_lang).hint_text("eng").desired_width(40.0));
-                        ui.checkbox(&mut self.no_overwrite, "No Overwrite Protection");
                     });
 
                     ui.horizontal(|ui| {

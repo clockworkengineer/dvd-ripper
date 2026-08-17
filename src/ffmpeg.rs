@@ -349,12 +349,34 @@ pub fn build_ffmpeg_command(
     cmd.arg("-map").arg("0:v");
 
     // Audio stream mapping
-    if args.all_audio {
+    if args.dual_audio {
+        cmd.arg("-map").arg("0:a:0?");
+        cmd.arg("-c:a:0").arg("aac");
+        cmd.arg("-b:a:0").arg("192k");
+        cmd.arg("-ac:a:0").arg("2");
+        if args.normalize_audio {
+            cmd.arg("-filter:a:0").arg("loudnorm=I=-16:TP=-1.5:LRA=11");
+        }
+        cmd.arg("-metadata:s:a:0").arg("title=Stereo AAC (Normalized)");
+
+        cmd.arg("-map").arg("0:a:0?");
+        cmd.arg("-c:a:1").arg("copy");
+        cmd.arg("-metadata:s:a:1").arg("title=5.1 Surround Passthrough");
+    } else if args.all_audio {
         cmd.arg("-map").arg("0:a");
+        if args.normalize_audio {
+            cmd.arg("-filter:a").arg("loudnorm=I=-16:TP=-1.5:LRA=11");
+        }
     } else if let Some(ref lang) = args.audio_lang {
         cmd.arg("-map").arg(format!("0:a:m:language:{}", lang));
+        if args.normalize_audio {
+            cmd.arg("-filter:a").arg("loudnorm=I=-16:TP=-1.5:LRA=11");
+        }
     } else {
         cmd.arg("-map").arg("0:a?");
+        if args.normalize_audio {
+            cmd.arg("-filter:a").arg("loudnorm=I=-16:TP=-1.5:LRA=11");
+        }
     }
 
     // Subtitle stream mapping
@@ -894,5 +916,26 @@ mod tests {
         let args_vec_archival: Vec<String> = cmd_archival.get_args().map(|s| s.to_string_lossy().to_string()).collect();
         assert!(args_vec_archival.contains(&"matroska".to_string()));
         assert!(args_vec_archival.contains(&"copy".to_string()));
+    }
+
+    #[test]
+    fn test_build_ffmpeg_command_audio_normalization_and_dual_audio() {
+        let args_norm = Args {
+            normalize_audio: true,
+            ..Default::default()
+        };
+        let cmd_norm = build_ffmpeg_command(&args_norm, Path::new("D:\\"), Path::new("test.mp4"), 1);
+        let vec_norm: Vec<String> = cmd_norm.get_args().map(|s| s.to_string_lossy().to_string()).collect();
+        assert!(vec_norm.contains(&"loudnorm=I=-16:TP=-1.5:LRA=11".to_string()));
+
+        let args_dual = Args {
+            dual_audio: true,
+            normalize_audio: true,
+            ..Default::default()
+        };
+        let cmd_dual = build_ffmpeg_command(&args_dual, Path::new("D:\\"), Path::new("test.mp4"), 1);
+        let vec_dual: Vec<String> = cmd_dual.get_args().map(|s| s.to_string_lossy().to_string()).collect();
+        assert!(vec_dual.contains(&"title=Stereo AAC (Normalized)".to_string()));
+        assert!(vec_dual.contains(&"title=5.1 Surround Passthrough".to_string()));
     }
 }

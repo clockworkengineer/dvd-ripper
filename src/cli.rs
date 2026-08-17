@@ -89,6 +89,14 @@ pub struct Args {
     #[arg(long = "all-audio")]
     pub all_audio: bool,
 
+    /// Normalize audio loudness across streams using EBU R128 (-filter:a loudnorm)
+    #[arg(long = "normalize-audio")]
+    pub normalize_audio: bool,
+
+    /// Generate dual audio streams (Track 1: Stereo AAC normalized, Track 2: 5.1 Surround Passthrough)
+    #[arg(long = "dual-audio")]
+    pub dual_audio: bool,
+
     /// Preferred audio track language code (e.g. eng, fre, spa)
     #[arg(long = "audio-lang")]
     pub audio_lang: Option<String>,
@@ -144,6 +152,8 @@ impl Default for Args {
             start_episode: 1,
             all_episodes: false,
             all_audio: false,
+            normalize_audio: false,
+            dual_audio: false,
             audio_lang: None,
             subtitles: false,
             sub_lang: None,
