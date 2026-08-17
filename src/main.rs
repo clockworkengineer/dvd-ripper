@@ -228,6 +228,15 @@ fn main() -> Result<()> {
     }
     println!("Target DVD path: {}", dvd_path.display());
 
+    if args.check_protection {
+        println!("\n--- [Disc Copy Protection Diagnostic Report] ---");
+        let report = dvd::inspect_disc_copy_protection(&dvd_path);
+        for note in &report.diagnostic_notes {
+            println!("  • {}", note);
+        }
+        println!("------------------------------------------------\n");
+    }
+
     // 2. Resolve metadata via IMDb search, ID selection, or volume label auto-detection
     let volume_label = get_volume_label(&dvd_path.to_string_lossy());
     let (title_name, title_year, film_runtime, poster_bytes) =

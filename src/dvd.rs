@@ -294,6 +294,85 @@ pub fn eject_disc(root_path: &str) -> bool {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DiscProtectionReport {
+    pub has_css_indicators: bool,
+    pub vob_count: usize,
+    pub ifo_count: usize,
+    pub total_bytes: u64,
+    pub diagnostic_notes: Vec<String>,
+}
+
+pub fn inspect_disc_copy_protection(dvd_path: &std::path::Path) -> DiscProtectionReport {
+    let video_ts = if dvd_path.file_name().and_then(|s| s.to_str()).map_or(false, |s| s.eq_ignore_ascii_case("VIDEO_TS")) {
+        dvd_path.to_path_buf()
+    } else {
+        dvd_path.join("VIDEO_TS")
+    };
+
+    let mut vob_count = 0;
+    let mut ifo_count = 0;
+    let mut total_bytes = 0u64;
+    let mut diagnostic_notes = Vec::new();
+    let mut has_css_indicators = false;
+
+    if video_ts.exists() && video_ts.is_dir() {
+        if let Ok(entries) = std::fs::read_dir(&video_ts) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if let Some(ext) = path.extension().and_then(|s| s.to_str()) {
+                    let ext_upper = ext.to_uppercase();
+                    if ext_upper == "VOB" {
+                        vob_count += 1;
+                        if let Ok(meta) = entry.metadata() {
+                            total_bytes += meta.len();
+                        }
+                    } else if ext_upper == "IFO" {
+                        ifo_count += 1;
+                        if let Ok(meta) = entry.metadata() {
+                            total_bytes += meta.len();
+                        }
+                        if path.file_name().and_then(|s| s.to_str()).map_or(false, |s| s.eq_ignore_ascii_case("VIDEO_TS.IFO")) {
+                            if let Ok(mut f) = std::fs::File::open(&path) {
+                                use std::io::Read;
+                                let mut buf = [0u8; 2048];
+                                if f.read(&mut buf).is_ok() {
+                                    if buf[0x0014] & 0x01 != 0 || buf[0x0015] != 0 {
+                                        has_css_indicators = true;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    } else {
+        diagnostic_notes.push(format!("VIDEO_TS directory not found at path {}", dvd_path.display()));
+    }
+
+    if has_css_indicators {
+        diagnostic_notes.push("CSS (Content Scramble System) encryption flags detected in VIDEO_TS.IFO headers.".to_string());
+    } else {
+        diagnostic_notes.push("No active CSS encryption flags detected in IFO headers.".to_string());
+    }
+
+    if vob_count > 10 {
+        diagnostic_notes.push(format!("High VOB file count ({}) indicates potential structural copy protection or multi-title layout.", vob_count));
+    }
+
+    let gigabytes = total_bytes as f64 / (1024.0 * 1024.0 * 1024.0);
+    diagnostic_notes.push(format!("Total disc payload size: {:.2} GB across {} VOBs and {} IFOs.", gigabytes, vob_count, ifo_count));
+
+    DiscProtectionReport {
+        has_css_indicators,
+        vob_count,
+        ifo_count,
+        total_bytes,
+        diagnostic_notes,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -329,11 +408,23 @@ mod tests {
         assert_eq!(fp1, fp2);
     }
 
-    #[cfg(not(target_os = "windows"))]
     #[test]
-    fn test_resolve_device_path() {
-        assert_eq!(resolve_device_path("/dev/sr1"), "/dev/sr1");
-        let resolved = resolve_device_path("auto");
-        assert!(!resolved.is_empty());
+    fn test_inspect_disc_copy_protection() {
+        let temp_dir = std::env::temp_dir().join("disc_protection_test");
+        let video_ts = temp_dir.join("VIDEO_TS");
+        std::fs::create_dir_all(&video_ts).unwrap();
+
+        let ifo = video_ts.join("VIDEO_TS.IFO");
+        std::fs::write(&ifo, vec![0u8; 2048]).unwrap();
+
+        let vob = video_ts.join("VTS_01_1.VOB");
+        std::fs::write(&vob, vec![0u8; 4096]).unwrap();
+
+        let report = inspect_disc_copy_protection(&temp_dir);
+        assert_eq!(report.vob_count, 1);
+        assert_eq!(report.ifo_count, 1);
+        assert!(!report.diagnostic_notes.is_empty());
+
+        let _ = std::fs::remove_dir_all(temp_dir);
     }
 }

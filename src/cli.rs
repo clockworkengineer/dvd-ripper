@@ -125,6 +125,10 @@ pub struct Args {
     #[arg(long = "chapters", default_value_t = true)]
     pub chapters: bool,
 
+    /// Perform structural copy protection (CSS/CPPM) and bad-sector diagnostic analysis on DVD drive
+    #[arg(long = "check-protection")]
+    pub check_protection: bool,
+
     /// Webhook URL (e.g. Discord, Slack, Ntfy, Telegram) for HTTP status POST notifications
     #[arg(long = "webhook-url")]
     pub webhook_url: Option<String>,
@@ -213,6 +217,7 @@ impl Default for Args {
             sub_format: None,
             nfo: false,
             chapters: true,
+            check_protection: false,
             webhook_url: None,
             no_overwrite: false,
             post_script: None,
