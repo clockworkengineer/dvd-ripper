@@ -348,6 +348,14 @@ fn main() -> Result<()> {
         let _ = utils::save_cover_artworks(out_file, bytes);
     }
 
+    if args.nfo {
+        if let Some(ref out_file) = last_output_file {
+            let media_type = if args.tv { "TV Series" } else { "Movie" };
+            let title = title_name.as_deref().unwrap_or("DVD Rip");
+            let _ = utils::generate_nfo_file(out_file, title, title_year, None, None, None, media_type);
+        }
+    }
+
     if let (Some(script), Some(out_file)) = (args.post_script.as_deref(), last_output_file.as_ref()) {
         let media_type = if args.tv { "TV Series" } else { "Movie" };
         let title = title_name.as_deref().unwrap_or("DVD Rip");

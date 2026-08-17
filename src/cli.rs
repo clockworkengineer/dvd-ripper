@@ -113,6 +113,10 @@ pub struct Args {
     #[arg(long = "sub-format")]
     pub sub_format: Option<String>,
 
+    /// Generate Kodi / Plex / Jellyfin standard .nfo XML metadata sidecar files
+    #[arg(long = "nfo")]
+    pub nfo: bool,
+
     /// Webhook URL (e.g. Discord, Slack, Ntfy, Telegram) for HTTP status POST notifications
     #[arg(long = "webhook-url")]
     pub webhook_url: Option<String>,
@@ -198,6 +202,7 @@ impl Default for Args {
             subtitles: false,
             sub_lang: None,
             sub_format: None,
+            nfo: false,
             webhook_url: None,
             no_overwrite: false,
             post_script: None,

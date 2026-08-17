@@ -170,6 +170,54 @@ pub fn trigger_media_server_scans(args: &crate::cli::Args) {
     }
 }
 
+pub fn generate_nfo_file(
+    output_file: &std::path::Path,
+    title: &str,
+    year: Option<u32>,
+    plot: Option<&str>,
+    rating: Option<&str>,
+    director: Option<&str>,
+    media_type: &str,
+) -> anyhow::Result<()> {
+    if let Some(parent) = output_file.parent() {
+        std::fs::create_dir_all(parent)?;
+        let stem = output_file.file_stem().and_then(|s| s.to_str()).unwrap_or("movie");
+        let nfo_path = parent.join(format!("{}.nfo", stem));
+
+        let tag = if media_type.to_lowercase().contains("tv") { "tvshow" } else { "movie" };
+        let year_str = year.map(|y| format!("  <year>{}</year>\n", y)).unwrap_or_default();
+        let plot_str = plot.map(|p| format!("  <plot>{}</plot>\n", quick_xml_escape(p))).unwrap_or_default();
+        let rating_str = rating.map(|r| format!("  <rating>{}</rating>\n", quick_xml_escape(r))).unwrap_or_default();
+        let director_str = director.map(|d| format!("  <director>{}</director>\n", quick_xml_escape(d))).unwrap_or_default();
+
+        let content = format!(
+            "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n\
+             <{tag}>\n\
+             \x20\x20<title>{}</title>\n\
+             {}{}{}{}\
+             </{tag}>\n",
+            quick_xml_escape(title),
+            year_str,
+            plot_str,
+            rating_str,
+            director_str,
+            tag = tag
+        );
+
+        std::fs::write(&nfo_path, content)?;
+        println!("[NFO Metadata] Generated sidecar XML: {}", nfo_path.display());
+    }
+    Ok(())
+}
+
+fn quick_xml_escape(input: &str) -> String {
+    input.replace('&', "&amp;")
+         .replace('<', "&lt;")
+         .replace('>', "&gt;")
+         .replace('"', "&quot;")
+         .replace('\'', "&apos;")
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct ParsedLabelInfo {
     pub clean_title: String,
@@ -350,5 +398,32 @@ mod tests {
 
         let emby = build_emby_refresh_url("http://192.168.1.100:8096", "key789");
         assert_eq!(emby, "http://192.168.1.100:8096/Library/Refresh?api_key=key789");
+    }
+
+    #[test]
+    fn test_generate_nfo_file() {
+        let temp_dir = std::env::temp_dir().join("nfo_test_dir");
+        let video_file = temp_dir.join("Aliens.mp4");
+
+        let res = generate_nfo_file(
+            &video_file,
+            "Aliens",
+            Some(1986),
+            Some("Awesome sci-fi movie"),
+            Some("8.4"),
+            Some("James Cameron"),
+            "Movie",
+        );
+
+        assert!(res.is_ok());
+        let nfo_file = temp_dir.join("Aliens.nfo");
+        assert!(nfo_file.exists());
+
+        let content = std::fs::read_to_string(nfo_file).unwrap();
+        assert!(content.contains("<title>Aliens</title>"));
+        assert!(content.contains("<year>1986</year>"));
+        assert!(content.contains("<director>James Cameron</director>"));
+
+        let _ = std::fs::remove_dir_all(temp_dir);
     }
 }
