@@ -348,6 +348,10 @@ pub fn build_ffmpeg_command(
     cmd.arg("-i").arg(dvd_path);
     cmd.arg("-map").arg("0:v");
 
+    if args.chapters {
+        cmd.arg("-map_chapters").arg("0");
+    }
+
     // Audio stream mapping
     if args.dual_audio {
         cmd.arg("-map").arg("0:a:0?");
@@ -905,6 +909,19 @@ mod tests {
         let cmd_args: Vec<String> = cmd.get_args().map(|s| s.to_string_lossy().to_string()).collect();
 
         assert!(cmd_args.contains(&"subrip".to_string()));
+    }
+
+    #[test]
+    fn test_build_ffmpeg_command_chapters_mapping() {
+        let args = Args {
+            chapters: true,
+            ..Default::default()
+        };
+
+        let cmd = build_ffmpeg_command(&args, Path::new("D:\\"), Path::new("test.mp4"), 1);
+        let cmd_args: Vec<String> = cmd.get_args().map(|s| s.to_string_lossy().to_string()).collect();
+
+        assert!(cmd_args.contains(&"-map_chapters".to_string()));
     }
 
     #[test]

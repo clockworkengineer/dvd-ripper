@@ -117,6 +117,10 @@ pub struct Args {
     #[arg(long = "nfo")]
     pub nfo: bool,
 
+    /// Extract and preserve DVD chapter timestamp markers into output container metadata
+    #[arg(long = "chapters", default_value_t = true)]
+    pub chapters: bool,
+
     /// Webhook URL (e.g. Discord, Slack, Ntfy, Telegram) for HTTP status POST notifications
     #[arg(long = "webhook-url")]
     pub webhook_url: Option<String>,
@@ -203,6 +207,7 @@ impl Default for Args {
             sub_lang: None,
             sub_format: None,
             nfo: false,
+            chapters: true,
             webhook_url: None,
             no_overwrite: false,
             post_script: None,
