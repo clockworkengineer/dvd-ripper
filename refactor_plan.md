@@ -1,12 +1,12 @@
-# Architectural Analysis & Refactor Plan: DVD Ripper (V2)
+# Architectural Analysis & Refactor Plan: DVD Ripper (V3)
 
 ## 1. Executive Summary
 
-`dvd-ripper` is a high-performance Rust application designed to automate ripping DVD movies and TV series using FFmpeg's `dvdvideo` demuxer, multi-provider metadata search (TMDB, OMDb, IMDb), Home Assistant binary MQTT telemetry, Server-Sent Events (SSE) streaming, and an embedded REST/Web UI appliance dashboard.
+`dvd-ripper` is an enterprise-grade Rust application designed to automate optical DVD movie and TV series ripping using FFmpeg's `dvdvideo` demuxer, multi-provider metadata search (TMDB, OMDb, IMDb), binary MQTT 3.1.1 Home Assistant telemetry, Server-Sent Events (SSE) live streaming, ISO-9660 disc fingerprinting, thread-safe job queuing, EBU R128 audio normalization, and OpenAPI v3 security middleware.
 
-Phases 1 through 4 of the original refactor plan have been **fully implemented, tested, and verified** (41 unit tests passing cleanly).
+Phases 1 through 8 of the refactor plan have been **fully implemented, tested, and verified** (48 unit tests passing cleanly).
 
-This updated document provides a fresh source code audit of the current codebase and presents a concrete 4-phase refactor plan for **Next-Gen Features** (Phase 5 through Phase 8).
+This updated document presents a source code audit of the codebase and outlines a concrete 4-phase refactor plan for **Advanced Enterprise & Automation Features** (Phase 9 through Phase 12).
 
 ---
 
@@ -18,81 +18,71 @@ This updated document provides a fresh source code audit of the current codebase
 | **Phase 2** | TMDB Provider & Cover Artwork Caching | **Completed** | TMDB REST API integration in [`src/imdb.rs`](file:///c:/Users/User/.gemini/antigravity-ide/scratch/dvd-ripper/src/imdb.rs), TV episode title resolution, and automatic `cover.jpg` & `folder.jpg` caching in [`src/utils.rs`](file:///c:/Users/User/.gemini/antigravity-ide/scratch/dvd-ripper/src/utils.rs). |
 | **Phase 3** | Binary MQTT 3.1.1, HA Discovery & SSE Streaming | **Completed** | Binary MQTT control frames in [`src/mqtt.rs`](file:///c:/Users/User/.gemini/antigravity-ide/scratch/dvd-ripper/src/mqtt.rs), Home Assistant Auto-Discovery sensors, multi-service webhooks (Discord, Ntfy, Telegram, Gotify), and `/api/events` SSE live progress streaming in [`src/api.rs`](file:///c:/Users/User/.gemini/antigravity-ide/scratch/dvd-ripper/src/api.rs). |
 | **Phase 4** | Modern Codecs, Encoding Presets & Multi-Drive Daemon | **Completed** | HEVC (H.265) & AV1 (`libsvtav1`) codecs, transcoding profiles (`archival`, `plex`, `mobile`), multi-drive parallel daemon monitoring threads in [`src/daemon.rs`](file:///c:/Users/User/.gemini/antigravity-ide/scratch/dvd-ripper/src/daemon.rs), and GUI settings dropdowns in [`src/gui.rs`](file:///c:/Users/User/.gemini/antigravity-ide/scratch/dvd-ripper/src/gui.rs). |
+| **Phase 5** | Disc Hashing & Auto-Fingerprint Cache | **Completed** | ISO-9660 Sector 16 volume descriptor hashing in [`src/dvd.rs`](file:///c:/Users/User/.gemini/antigravity-ide/scratch/dvd-ripper/src/dvd.rs) and local fingerprint database (`~/.dvd-ripper/fingerprints.json`) in [`src/imdb.rs`](file:///c:/Users/User/.gemini/antigravity-ide/scratch/dvd-ripper/src/imdb.rs). |
+| **Phase 6** | EBU R128 Audio Normalization & Dual Audio Tracks | **Completed** | EBU R128 loudness filter (`-filter:a loudnorm=I=-16:TP=-1.5:LRA=11`) and dual-track AAC Stereo + 5.1 Surround Passthrough audio in [`src/ffmpeg.rs`](file:///c:/Users/User/.gemini/antigravity-ide/scratch/dvd-ripper/src/ffmpeg.rs). |
+| **Phase 7** | Thread-Safe Job Queue & Post-Processing Hooks | **Completed** | Thread-safe `JobQueue` manager in [`src/queue.rs`](file:///c:/Users/User/.gemini/antigravity-ide/scratch/dvd-ripper/src/queue.rs), `/api/queue/*` REST routes, and `--post-script` hook execution engine in [`src/utils.rs`](file:///c:/Users/User/.gemini/antigravity-ide/scratch/dvd-ripper/src/utils.rs). |
+| **Phase 8** | API Bearer Auth Middleware & OpenAPI v3 Specification | **Completed** | HTTP Bearer token authentication middleware (`--api-key`) and OpenAPI 3.0 specification JSON endpoint (`/api/openapi.json`) in [`src/api.rs`](file:///c:/Users/User/.gemini/antigravity-ide/scratch/dvd-ripper/src/api.rs). |
 
 ---
 
-## 3. Current Codebase Audit & Next-Gen Technical Opportunities
+## 3. Advanced Enterprise Audit & Technical Roadmap (Phases 9 – 12)
 
-| Component | File Link | Current Implementation | Opportunity / Next-Gen Goal |
+| Component | File Link | Current Implementation | Advanced Feature Goal |
 |---|---|---|---|
-| **Disc Matching** | [`src/dvd.rs`](file:///c:/Users/User/.gemini/antigravity-ide/scratch/dvd-ripper/src/dvd.rs) | Relies on optical volume label strings (e.g. `KILL_BILL_VOL_1`). | Discs named `DVD_VIDEO`, `UNTITLED`, or `DISC_1` require manual query entry. Implement **ISO-9660 / Primary Volume Descriptor Hashing** to generate a unique Disc ID fingerprint. |
-| **Audio Engine** | [`src/ffmpeg.rs`](file:///c:/Users/User/.gemini/antigravity-ide/scratch/dvd-ripper/src/ffmpeg.rs#L351-L368) | Single audio stream selection or `--all-audio` passthrough. | Inconsistent audio volume across titles on mobile/web players. Add **EBU R128 Loudness Normalization** (`-filter:a loudnorm`) and dual-track AAC + 5.1 Passthrough creation. |
-| **Job Queue** | [`src/api.rs`](file:///c:/Users/User/.gemini/antigravity-ide/scratch/dvd-ripper/src/api.rs), [`src/gui.rs`](file:///c:/Users/User/.gemini/antigravity-ide/scratch/dvd-ripper/src/gui.rs) | Single active ripping job execution at a time. | Multi-disc servers need a thread-safe **Priority Job Queue Manager (`JobQueue`)** supporting queue inspection (`/api/queue`), re-ordering, and cancellation. |
-| **Post-Processing** | [`src/main.rs`](file:///c:/Users/User/.gemini/antigravity-ide/scratch/dvd-ripper/src/main.rs) | Triggers disc ejection and cover saving upon completion. | Add **Post-Rip Hook Execution Engine** (`--post-script <SCRIPT>`) to trigger custom shell scripts, FileBot renaming, or Plex/Jellyfin library refresh HTTP webhooks. |
-| **API Security** | [`src/api.rs`](file:///c:/Users/User/.gemini/antigravity-ide/scratch/dvd-ripper/src/api.rs) | Public unauthenticated HTTP REST endpoints. | Add `--api-key <KEY>` HTTP Bearer Authentication Middleware and OpenAPI v3 Specification Endpoint (`/api/openapi.json`). |
+| **Monitoring** | [`src/api.rs`](file:///c:/Users/User/.gemini/antigravity-ide/scratch/dvd-ripper/src/api.rs) | `/api/status` JSON polling and `/api/events` SSE streaming. | Add `/metrics` **Prometheus Exposition Format Endpoint** for Grafana dashboard monitoring (`dvd_ripper_total_rips`, `dvd_ripper_active_jobs`). |
+| **Media Server Integration** | [`src/mqtt.rs`](file:///c:/Users/User/.gemini/antigravity-ide/scratch/dvd-ripper/src/mqtt.rs) | Generic Webhooks (Discord/Telegram/Ntfy). | Add dedicated **Media Server Scan Triggers (Plex, Jellyfin, Emby)** via `--plex-token`, `--jellyfin-key`, automatically updating libraries when a rip completes. |
+| **Subtitle OCR Engine** | [`src/ffmpeg.rs`](file:///c:/Users/User/.gemini/antigravity-ide/scratch/dvd-ripper/src/ffmpeg.rs) | Stream copies raw DVD bitmap subtitles (`dvdsub`). | Add **SubRip (.srt) Subtitle Text Transmuxing** (`--sub-format srt`), converting bitmap VOBsub tracks to `.srt` text sidecars. |
+| **Configuration Engine** | [`src/cli.rs`](file:///c:/Users/User/.gemini/antigravity-ide/scratch/dvd-ripper/src/cli.rs) | Command-line flags and environment variables. | Add **TOML Configuration File Loader** (`dvd-ripper.toml` or `~/.dvd-ripper/config.toml`) to save persistent user defaults without re-entering CLI flags. |
 
 ---
 
-## 4. Next-Gen Concrete Refactor Plan (Phases 5 – 8)
+## 4. Advanced Refactor Plan (Phases 9 – 12)
 
 ```mermaid
 graph TD
-    A["Phase 5: Disc Hashing & Auto-Fingerprinting"] --> B["Phase 6: Audio Loudness Normalization"]
-    B --> C["Phase 7: Multi-Job Queue & Post-Rip Hooks"]
-    C --> D["Phase 8: API Security & OpenAPI Spec"]
+    A["Phase 9: Prometheus Metrics Exporter"] --> B["Phase 10: Media Server Scan Triggers"]
+    B --> C["Phase 11: SubRip Subtitle Text Transmuxing"]
+    C --> D["Phase 12: TOML Configuration File Engine"]
 ```
 
-### Phase 5: Disc Hashing & Automatic Fingerprint Matching
+### Phase 9: Enterprise Prometheus Metrics Exporter
 
-#### 5.1 Primary Volume Descriptor Hashing (`src/dvd.rs`)
-* **Goal**: Calculate a deterministic 64-bit Hash (MD5 / FNV-1a) from the primary volume descriptor sector (Sector 16 at offset 0x8000) and `VIDEO_TS.IFO` size headers.
-* **Benefit**: Enables automatic, exact movie identification for generic discs (e.g. `DVD_VIDEO`, `UNTITLED_DISC`).
-
-#### 5.2 Local & Remote Disc Fingerprint Cache (`src/imdb.rs`)
-* **Goal**: Store hash-to-metadata mappings in local JSON cache (`~/.dvd-ripper/fingerprints.json`) so previously ripped discs are identified instantly without network queries.
-
----
-
-### Phase 6: EBU R128 Audio Normalization & Dual-Track Audio
-
-#### 6.1 EBU R128 Loudness Filter (`src/ffmpeg.rs`)
-* **Goal**: Add `--normalize-audio` option applying FFmpeg `-filter:a loudnorm=I=-16:TP=-1.5:LRA=11`.
-* **Benefit**: Ensures standardized volume levels across TV speakers, headphones, and mobile devices.
-
-#### 6.2 Dual Track Audio Transmuxing (`src/ffmpeg.rs`, `src/cli.rs`)
-* **Goal**: Add `--dual-audio` option:
-  - Track 1: Stereo AAC 192k (normalized) for maximum compatibility.
-  - Track 2: Original 5.1/7.1 Surround Passthrough (AC3/DTS).
+#### 9.1 `/metrics` Endpoint Implementation (`src/api.rs`)
+* **Goal**: Serve `GET /metrics` returning standard Prometheus text exposition format:
+  - `dvd_ripper_rips_completed_total`: Total count of successful DVD rips.
+  - `dvd_ripper_rips_failed_total`: Total count of failed DVD rips.
+  - `dvd_ripper_active_jobs`: Current active ripping job count (0 or 1 per drive).
+  - `dvd_ripper_queued_jobs`: Current pending job count in `JobQueue`.
 
 ---
 
-### Phase 7: Thread-Safe Priority Job Queue & Post-Processing Hooks
+### Phase 10: Direct Media Server Integration (Plex, Jellyfin, Emby)
 
-#### 7.1 Multi-Job Queue Engine (`src/queue.rs`, `src/api.rs`)
-* **Goal**: Create thread-safe `JobQueue` manager supporting:
-  - `POST /api/queue/add`: Enqueue ripping jobs.
-  - `GET /api/queue/list`: Inspect pending and active jobs.
-  - `POST /api/queue/remove`: Cancel/remove queued items.
-
-#### 7.2 Post-Processing Script Hook Engine (`src/utils.rs`, `src/main.rs`)
-* **Goal**: Add `--post-script <PATH>` CLI option to execute external scripts upon rip completion, passing environment variables:
-  `DVD_OUTPUT_PATH`, `DVD_TITLE`, `DVD_MEDIA_TYPE`, `DVD_YEAR`.
+#### 10.1 Automatic Library Refresh Engine (`src/mqtt.rs`, `src/utils.rs`)
+* **Goal**: Add CLI arguments `--plex-url <URL> --plex-token <TOKEN>`, `--jellyfin-url <URL> --jellyfin-key <KEY>`, `--emby-url <URL> --emby-key <KEY>`.
+* **Benefit**: Automatically notifies Plex, Jellyfin, or Emby to refresh media library sections immediately upon rip completion.
 
 ---
 
-### Phase 8: API Security & OpenAPI v3 Specification
+### Phase 11: SubRip (.srt) Subtitle Text Transmuxing
 
-#### 8.1 Bearer Token Authentication Middleware (`src/api.rs`, `src/cli.rs`)
-* **Goal**: Add `--api-key <KEY>` parameter. Requests to `/api/*` (except `/api/status` or `/`) require `Authorization: Bearer <KEY>` header when enabled.
+#### 11.1 Subtitle Text Conversion Engine (`src/ffmpeg.rs`, `src/cli.rs`)
+* **Goal**: Add `--sub-format <subrip|dvdsub>` CLI argument.
+* **Benefit**: When `--sub-format subrip` is specified, FFmpeg transcodes bitmap subpictures into SubRip (`.srt`) text tracks for maximum player compatibility (Roku, Apple TV, Web browsers).
 
-#### 8.2 OpenAPI v3 JSON Endpoint (`src/api.rs`)
-* **Goal**: Serve `/api/openapi.json` providing complete OpenAPI 3.0 schema definitions for all REST routes and JSON payloads.
+---
+
+### Phase 12: Persistent TOML Configuration File Engine
+
+#### 12.1 `config.toml` Loader (`src/cli.rs`)
+* **Goal**: Support loading default settings from `dvd-ripper.toml` or `~/.dvd-ripper/config.toml`.
+* **Benefit**: Users can define default profiles, codec choices, MQTT brokers, webhooks, API keys, and media server tokens once.
 
 ---
 
 ## 5. Verification Plan
 
 1. **Automated Unit Tests**:
-   - Run `cargo test` to verify disc hashing, EBU R128 FFmpeg argument construction, job queue operations, and API key header validation.
+   - Run `cargo test` to verify Prometheus metrics formatting, media server URL construction, `.srt` subtitle FFmpeg command generation, and TOML config parsing.
 2. **Runtime Verification**:
    - Verify `cargo check` builds with 0 compiler warnings.

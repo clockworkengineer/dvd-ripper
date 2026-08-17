@@ -1,6 +1,6 @@
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{channel, Sender};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::thread;
@@ -54,6 +54,51 @@ pub fn get_appliance_status_handle() -> Arc<Mutex<ApplianceStatusInfo>> {
             }))
         })
         .clone()
+}
+
+static COMPLETED_RIPS_COUNTER: AtomicU64 = AtomicU64::new(0);
+static FAILED_RIPS_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+pub fn increment_completed_rips() {
+    COMPLETED_RIPS_COUNTER.fetch_add(1, Ordering::SeqCst);
+}
+
+pub fn increment_failed_rips() {
+    FAILED_RIPS_COUNTER.fetch_add(1, Ordering::SeqCst);
+}
+
+pub fn render_prometheus_metrics() -> String {
+    let completed = COMPLETED_RIPS_COUNTER.load(Ordering::SeqCst);
+    let failed = FAILED_RIPS_COUNTER.load(Ordering::SeqCst);
+
+    let handle = get_appliance_status_handle();
+    let (is_active, progress) = if let Ok(state) = handle.lock() {
+        let active = if state.status.to_lowercase().contains("ripping") || state.status.to_lowercase().contains("active") { 1 } else { 0 };
+        (active, state.progress)
+    } else {
+        (0, 0.0)
+    };
+
+    let queued_jobs = crate::queue::list_jobs().len();
+
+    format!(
+        "# HELP dvd_ripper_completed_rips_total Total number of successful DVD ripping jobs\n\
+         # TYPE dvd_ripper_completed_rips_total counter\n\
+         dvd_ripper_completed_rips_total {}\n\n\
+         # HELP dvd_ripper_failed_rips_total Total number of failed DVD ripping jobs\n\
+         # TYPE dvd_ripper_failed_rips_total counter\n\
+         dvd_ripper_failed_rips_total {}\n\n\
+         # HELP dvd_ripper_active_jobs Current number of active DVD ripping processes\n\
+         # TYPE dvd_ripper_active_jobs gauge\n\
+         dvd_ripper_active_jobs {}\n\n\
+         # HELP dvd_ripper_queued_jobs Current number of pending ripping jobs in queue\n\
+         # TYPE dvd_ripper_queued_jobs gauge\n\
+         dvd_ripper_queued_jobs {}\n\n\
+         # HELP dvd_ripper_progress_percent Current ripping job progress percentage\n\
+         # TYPE dvd_ripper_progress_percent gauge\n\
+         dvd_ripper_progress_percent {:.1}\n",
+        completed, failed, is_active, queued_jobs, progress
+    )
 }
 
 pub fn set_disc_detected(disc_label: &str) {
@@ -533,6 +578,12 @@ fn handle_client(mut stream: TcpStream, drive_path: &str) -> Result<()> {
         }
     }
 
+    if method_str == "GET" && path_str == "/metrics" {
+        let metrics = render_prometheus_metrics();
+        send_http_response(&mut stream, "200 OK", "text/plain; version=0.0.4; charset=utf-8", &metrics)?;
+        return Ok(());
+    }
+
     if method_str == "GET" && (path_str == "/" || path_str == "/index.html") {
         send_http_response(&mut stream, "200 OK", "text/html; charset=utf-8", EMBEDDED_DASHBOARD_HTML)?;
     } else if method_str == "GET" && path_str == "/api/events" {
@@ -858,5 +909,23 @@ mod tests {
         let req = b"GET /api/openapi.json HTTP/1.1\r\nHost: localhost\r\n\r\n";
         assert_eq!(parse_http_route(req), (b"GET" as &[u8], b"/api/openapi.json" as &[u8]));
         assert!(OPENAPI_V3_JSON.contains("DVD Ripper Appliance REST API"));
+    }
+
+    #[test]
+    fn test_prometheus_metrics_render() {
+        increment_completed_rips();
+        increment_failed_rips();
+
+        let output = render_prometheus_metrics();
+        assert!(output.contains("dvd_ripper_completed_rips_total"));
+        assert!(output.contains("dvd_ripper_failed_rips_total"));
+        assert!(output.contains("dvd_ripper_active_jobs"));
+        assert!(output.contains("dvd_ripper_queued_jobs"));
+    }
+
+    #[test]
+    fn test_prometheus_metrics_route() {
+        let req = b"GET /metrics HTTP/1.1\r\nHost: localhost\r\n\r\n";
+        assert_eq!(parse_http_route(req), (b"GET" as &[u8], b"/metrics" as &[u8]));
     }
 }
