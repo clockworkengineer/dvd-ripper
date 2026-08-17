@@ -85,6 +85,37 @@ pub fn save_cover_artworks(output_file: &std::path::Path, poster_bytes: &[u8]) -
     Ok(())
 }
 
+/// Executes an external post-processing script hook upon rip completion, setting environment variables.
+pub fn run_post_processing_hook(
+    script_path: &str,
+    output_path: &std::path::Path,
+    title: &str,
+    media_type: &str,
+    year: Option<u32>,
+) -> anyhow::Result<()> {
+    if script_path.trim().is_empty() {
+        return Ok(());
+    }
+
+    println!("[Post-Script Hook] Invoking external script '{}'...", script_path);
+
+    let year_str = year.map(|y| y.to_string()).unwrap_or_default();
+    let mut cmd = std::process::Command::new(script_path);
+    cmd.env("DVD_OUTPUT_PATH", output_path.to_string_lossy().to_string())
+       .env("DVD_TITLE", title)
+       .env("DVD_MEDIA_TYPE", media_type)
+       .env("DVD_YEAR", year_str);
+
+    let status = cmd.status()?;
+    if status.success() {
+        println!("[Post-Script Hook] Script completed successfully.");
+    } else {
+        println!("[Post-Script Hook] Script exited with code: {:?}", status.code());
+    }
+
+    Ok(())
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct ParsedLabelInfo {
     pub clean_title: String,
@@ -247,5 +278,11 @@ mod tests {
         assert!(temp_dir.join("folder.jpg").exists());
 
         let _ = std::fs::remove_dir_all(temp_dir);
+    }
+
+    #[test]
+    fn test_run_post_processing_hook_empty() {
+        let res = run_post_processing_hook("", std::path::Path::new("dummy.mp4"), "Title", "Movie", Some(2026));
+        assert!(res.is_ok());
     }
 }

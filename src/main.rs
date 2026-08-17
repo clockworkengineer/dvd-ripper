@@ -13,6 +13,7 @@ mod gui;
 mod history;
 mod imdb;
 mod mqtt;
+mod queue;
 mod utils;
 
 use std::path::PathBuf;
@@ -342,6 +343,12 @@ fn main() -> Result<()> {
 
     if let (Some(bytes), Some(out_file)) = (poster_bytes.as_ref(), last_output_file.as_ref()) {
         let _ = utils::save_cover_artworks(out_file, bytes);
+    }
+
+    if let (Some(ref script), Some(ref out_file)) = (args.post_script, last_output_file) {
+        let media_type = if args.tv { "TV Series" } else { "Movie" };
+        let title = title_name.as_deref().unwrap_or("DVD Rip");
+        let _ = utils::run_post_processing_hook(script, out_file, title, media_type, title_year);
     }
 
     println!("\nEjecting DVD disc from drive...");

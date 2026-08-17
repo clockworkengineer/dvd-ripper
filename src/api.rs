@@ -423,6 +423,21 @@ fn handle_client(mut stream: TcpStream, drive_path: &str) -> Result<()> {
         let history = load_history(None);
         let json_body = serde_json::to_string(&history).unwrap_or_else(|_| "[]".to_string());
         send_http_response(&mut stream, "200 OK", "application/json", &json_body)?;
+    } else if method_str == "GET" && path_str == "/api/queue/list" {
+        let jobs = crate::queue::list_jobs();
+        let json_body = serde_json::to_string(&jobs).unwrap_or_else(|_| "[]".to_string());
+        send_http_response(&mut stream, "200 OK", "application/json", &json_body)?;
+    } else if method_str == "POST" && path_str.starts_with("/api/queue/add") {
+        let title = parse_query_param(&path_str, "title").unwrap_or_else(|| "Unknown".to_string());
+        let media_type = parse_query_param(&path_str, "type").unwrap_or_else(|| "Movie".to_string());
+        let id = crate::queue::add_job(&title, &media_type, drive_path);
+        let json_body = format!("{{\"success\":true,\"job_id\":\"{}\"}}", id);
+        send_http_response(&mut stream, "200 OK", "application/json", &json_body)?;
+    } else if method_str == "POST" && path_str.starts_with("/api/queue/remove") {
+        let id = parse_query_param(&path_str, "id").unwrap_or_default();
+        let ok = crate::queue::remove_job(&id);
+        let json_body = format!("{{\"success\":{}}}", ok);
+        send_http_response(&mut stream, "200 OK", "application/json", &json_body)?;
     } else if method_str == "GET" && path_str.starts_with("/api/search") {
         let query = parse_query_param(&path_str, "q").unwrap_or_default();
         let candidates = if !query.trim().is_empty() {

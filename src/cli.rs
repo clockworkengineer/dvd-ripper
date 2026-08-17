@@ -117,6 +117,10 @@ pub struct Args {
     #[arg(long = "no-overwrite")]
     pub no_overwrite: bool,
 
+    /// Optional post-processing script executable path to run upon rip completion
+    #[arg(long = "post-script")]
+    pub post_script: Option<String>,
+
     /// Search query term to query IMDb/OMDb metadata candidates
     #[arg(short = 's', long = "search")]
     pub search: Option<String>,
@@ -159,6 +163,7 @@ impl Default for Args {
             sub_lang: None,
             webhook_url: None,
             no_overwrite: false,
+            post_script: None,
             search: None,
             imdb_id: None,
             select_index: None,
