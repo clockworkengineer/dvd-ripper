@@ -4,10 +4,11 @@
  */
 
 use anyhow::{anyhow, Context, Result};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
 
 /// Represents full metadata details for a movie or TV show.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct FilmMetadata {
     pub title: String,
     pub year: Option<u32>,
@@ -403,6 +404,12 @@ pub fn normalize_search_title(title: &str) -> String {
 
 /// Queries OMDb or IMDb APIs to resolve a raw DVD volume label or show title to full metadata.
 pub fn lookup_film_details(query: &str) -> Result<FilmMetadata> {
+    if query.starts_with("disc_") {
+        if let Some(cached) = lookup_fingerprint_cache(query) {
+            return Ok(cached);
+        }
+    }
+
     let parsed_info = crate::utils::parse_season_disc_from_label(query);
     let mut candidates = Vec::new();
 
@@ -598,6 +605,48 @@ pub fn fetch_tv_episode_title(show_name: &str, season: u32, episode_num: u32) ->
     default_name
 }
 
+fn resolve_fingerprint_cache_path() -> PathBuf {
+    let home_str = std::env::var("USERPROFILE")
+        .or_else(|_| std::env::var("HOME"))
+        .unwrap_or_else(|_| ".".to_string());
+    let mut base = PathBuf::from(home_str);
+    base.push(".dvd-ripper");
+    let _ = std::fs::create_dir_all(&base);
+    base.push("fingerprints.json");
+    base
+}
+
+/// Looks up cached metadata by disc fingerprint hash string.
+pub fn lookup_fingerprint_cache(hash: &str) -> Option<FilmMetadata> {
+    let path = resolve_fingerprint_cache_path();
+    if !path.exists() {
+        return None;
+    }
+    if let Ok(content) = std::fs::read_to_string(&path) {
+        if let Ok(map) = serde_json::from_str::<std::collections::HashMap<String, FilmMetadata>>(&content) {
+            return map.get(hash).cloned();
+        }
+    }
+    None
+}
+
+/// Saves disc fingerprint metadata mapping to local JSON cache.
+pub fn save_fingerprint_cache(hash: &str, meta: &FilmMetadata) {
+    let path = resolve_fingerprint_cache_path();
+    let mut map: std::collections::HashMap<String, FilmMetadata> = if path.exists() {
+        std::fs::read_to_string(&path)
+            .ok()
+            .and_then(|c| serde_json::from_str(&c).ok())
+            .unwrap_or_default()
+    } else {
+        std::collections::HashMap::new()
+    };
+    map.insert(hash.to_string(), meta.clone());
+    if let Ok(json) = serde_json::to_string_pretty(&map) {
+        let _ = std::fs::write(path, json);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -647,5 +696,19 @@ mod tests {
         let candidates = fetch_search_candidates("Kill Bill");
         assert!(!candidates.is_empty());
         assert!(candidates.iter().any(|c| c.title.contains("Kill Bill")));
+    }
+
+    #[test]
+    fn test_fingerprint_cache_persistence() {
+        let dummy_hash = "disc_test12345";
+        let meta = FilmMetadata {
+            title: "Test Cached Movie".to_string(),
+            year: Some(2026),
+            ..Default::default()
+        };
+        save_fingerprint_cache(dummy_hash, &meta);
+        let cached = lookup_fingerprint_cache(dummy_hash);
+        assert!(cached.is_some());
+        assert_eq!(cached.unwrap().title, "Test Cached Movie");
     }
 }

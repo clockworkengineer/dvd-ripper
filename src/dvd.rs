@@ -216,6 +216,59 @@ pub fn get_volume_label(root_path: &str) -> Option<String> {
     None
 }
 
+/// Computes a deterministic disc fingerprint hash based on volume descriptors or VTS header metadata.
+pub fn compute_disc_fingerprint(root_path: &str) -> String {
+    let resolved = normalize_dvd_path(root_path);
+    let mut hasher_data = Vec::new();
+
+    // 1. Try reading Sector 16 Primary Volume Descriptor (if raw device or ISO)
+    if let Ok(mut f) = std::fs::File::open(&resolved) {
+        use std::io::{Read, Seek, SeekFrom};
+        let _ = f.seek(SeekFrom::Start(0x8000));
+        let mut sector_buf = [0u8; 2048];
+        if f.read_exact(&mut sector_buf).is_ok() {
+            hasher_data.extend_from_slice(&sector_buf);
+        }
+    }
+
+    // 2. Try inspecting VIDEO_TS/VTS_01_0.IFO if mounted directory
+    let video_ts = if resolved.join("VIDEO_TS").exists() {
+        resolved.join("VIDEO_TS")
+    } else if resolved.join("video_ts").exists() {
+        resolved.join("video_ts")
+    } else {
+        resolved.clone()
+    };
+
+    if let Ok(entries) = std::fs::read_dir(&video_ts) {
+        let mut ifo_files: Vec<_> = entries
+            .flatten()
+            .map(|e| e.path())
+            .filter(|p| p.extension().map_or(false, |ext| ext.eq_ignore_ascii_case("ifo")))
+            .collect();
+        ifo_files.sort();
+        for ifo in ifo_files {
+            if let Ok(metadata) = std::fs::metadata(&ifo) {
+                hasher_data.extend_from_slice(&metadata.len().to_le_bytes());
+            }
+        }
+    }
+
+    if hasher_data.is_empty() {
+        let label = get_volume_label(root_path).unwrap_or_else(|| "UNKNOWN".to_string());
+        hasher_data.extend_from_slice(label.as_bytes());
+    }
+
+    // Simple FNV-1a 64-bit hash
+    let mut hash: u64 = 0xcbf29ce484222325;
+    for byte in hasher_data {
+        hash ^= byte as u64;
+        hash = hash.wrapping_mul(0x100000001b3);
+    }
+
+    format!("disc_{:016x}", hash)
+}
+
 /// Ejects the optical drive tray using platform-native calls or system utilities.
 pub fn eject_disc(root_path: &str) -> bool {
     #[cfg(target_os = "windows")]
@@ -265,6 +318,15 @@ mod tests {
         assert_eq!(normalize_dvd_path("E:"), PathBuf::from("E:\\"));
         let auto_path = normalize_dvd_path("auto");
         assert!(!auto_path.to_string_lossy().is_empty());
+    }
+
+    #[test]
+    fn test_compute_disc_fingerprint() {
+        let fp1 = compute_disc_fingerprint("D:\\");
+        assert!(fp1.starts_with("disc_"));
+
+        let fp2 = compute_disc_fingerprint("D:\\");
+        assert_eq!(fp1, fp2);
     }
 
     #[cfg(not(target_os = "windows"))]

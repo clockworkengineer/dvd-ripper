@@ -29,6 +29,21 @@ use imdb::{fetch_search_candidates, lookup_film_details, lookup_omdb_by_id};
 use utils::sanitize_filename;
 
 fn resolve_cli_metadata(args: &mut Args, volume_label: Option<&str>) -> (Option<String>, Option<u32>, Option<f64>, Option<Vec<u8>>) {
+    // 0. Disc Fingerprint Cache Auto-Match
+    let fp_hash = dvd::compute_disc_fingerprint(&args.input);
+    if let Some(cached_meta) = imdb::lookup_fingerprint_cache(&fp_hash) {
+        let clean_name = sanitize_filename(&cached_meta.title);
+        let runtime_desc = cached_meta
+            .runtime_secs
+            .map(|r| format!(", {:.0} mins", r / 60.0))
+            .unwrap_or_default();
+        println!("[Fingerprint Auto-Match] Found cached disc ID '{}': {} ({:?}{})", fp_hash, clean_name, cached_meta.year, runtime_desc);
+        if cached_meta.is_series {
+            args.tv = true;
+        }
+        return (Some(clean_name), cached_meta.year, cached_meta.runtime_secs, cached_meta.poster_bytes);
+    }
+
     // 1. Direct IMDb ID selection
     if let Some(ref imdb_id) = args.imdb_id {
         println!("Looking up exact IMDb ID: {}", imdb_id);
@@ -132,6 +147,7 @@ fn resolve_cli_metadata(args: &mut Args, volume_label: Option<&str>) -> (Option<
                     println!("Media identified as TV Series.");
                     args.tv = true;
                 }
+                imdb::save_fingerprint_cache(&fp_hash, &meta);
                 return (Some(clean_name), meta.year, meta.runtime_secs, meta.poster_bytes);
             }
         }
@@ -149,6 +165,7 @@ fn resolve_cli_metadata(args: &mut Args, volume_label: Option<&str>) -> (Option<
                     println!("Media identified as TV Series.");
                     args.tv = true;
                 }
+                imdb::save_fingerprint_cache(&fp_hash, &meta);
                 return (Some(clean_name), meta.year, meta.runtime_secs, meta.poster_bytes);
             }
             Err(e) => {

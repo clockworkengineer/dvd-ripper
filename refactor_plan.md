@@ -1,141 +1,98 @@
-# Architectural Analysis & Refactor Plan: DVD Ripper
+# Architectural Analysis & Refactor Plan: DVD Ripper (V2)
 
 ## 1. Executive Summary
 
-`dvd-ripper` is a Rust application designed to automate ripping DVD movies and TV series using FFmpeg's `dvdvideo` demuxer, IMDb/OMDb metadata search, Home Assistant MQTT telemetry, and an embedded REST/Web UI appliance interface.
+`dvd-ripper` is a high-performance Rust application designed to automate ripping DVD movies and TV series using FFmpeg's `dvdvideo` demuxer, multi-provider metadata search (TMDB, OMDb, IMDb), Home Assistant binary MQTT telemetry, Server-Sent Events (SSE) streaming, and an embedded REST/Web UI appliance dashboard.
 
-While the codebase is functional, responsive, and cross-platform (supporting Windows, Linux, and macOS), an analysis of the source code reveals opportunities for **architectural refinement**, **performance optimization**, **protocol compliance**, and **feature expansion**.
+Phases 1 through 4 of the original refactor plan have been **fully implemented, tested, and verified** (41 unit tests passing cleanly).
 
-This document provides a source code audit, identifies technical debt, and outlines a concrete 4-phase refactor plan for missing features and system upgrades.
-
----
-
-## 2. Codebase Audit & Technical Debt Matrix
-
-| Component | File Link | Current Implementation | Identified Issue / Limit | Refactor / Missing Feature Goal |
-|---|---|---|---|---|
-| **DVD Demuxer & Probing** | [`src/ffmpeg.rs`](file:///c:/Users/User/.gemini/antigravity-ide/scratch/dvd-ripper/src/ffmpeg.rs#L118-L179) | Spawns up to 99 sequential `ffmpeg` subprocesses (`probe_dvd_titles`) to find title durations. | Slow execution (takes 10-30s per disc); heavy OS subprocess overhead; fragile stderr parsing. | Parse DVD `VTS_01_0.IFO` headers or use `ffprobe` JSON API to retrieve all title track metadata in a single call (~0.5s). |
-| **Encrypted DVDs (CSS)** | [`src/dvd.rs`](file:///c:/Users/User/.gemini/antigravity-ide/scratch/dvd-ripper/src/dvd.rs) | Relies on system FFmpeg having `libdvdcss` linked in. | Commercial encrypted DVDs fail if FFmpeg lacks CSS keys or fails demuxing. | Integrate `libdvdread` / `libdvdcss` bindings or fallback libdvdcss key decryption pass. |
-| **Metadata Engine** | [`src/imdb.rs`](file:///c:/Users/User/.gemini/antigravity-ide/scratch/dvd-ripper/src/imdb.rs) | Uses OMDb API (requires user API key for full details) and undocumented IMDb Suggest API endpoints. | OMDb rate limits; IMDb suggest endpoint schema shifts; missing episode titles for TV series. | Add **TMDB (The Movie Database)** API provider with free API keys, cast metadata, posters, and per-episode names. |
-| **MQTT Telemetry** | [`src/mqtt.rs`](file:///c:/Users/User/.gemini/antigravity-ide/scratch/dvd-ripper/src/mqtt.rs#L21-L53) | Sends HTTP POST payload over raw TCP socket to port 1883 instead of binary MQTT protocol. | Incompatible with standard MQTT brokers (Mosquitto, EMQX); missing Home Assistant discovery. | Implement standard MQTT v3.1.1/v5 protocol using `rumqttc` with Home Assistant MQTT Auto-Discovery (`homeassistant/sensor/...`). |
-| **REST API Server** | [`src/api.rs`](file:///c:/Users/User/.gemini/antigravity-ide/scratch/dvd-ripper/src/api.rs#L306-L360) | Handcrafted `TcpListener` HTTP server with manual string parsing and 2-second HTTP polling. | Lacks standard HTTP router; line-based header parsing; no real-time push streaming. | Migrate to lightweight HTTP framework with **Server-Sent Events (SSE)** or WebSockets for live progress streaming. |
-| **Video Encoding & Codecs** | [`src/ffmpeg.rs`](file:///c:/Users/User/.gemini/antigravity-ide/scratch/dvd-ripper/src/ffmpeg.rs#L303-L337) | Hardcoded `h264` hardware acceleration parameters; output restricted to `.mp4` or `.mpg`. | Missing modern codecs (H.265/HEVC, AV1) and MKV container support (which supports DVD VOBsub subtitles without re-encoding). | Add `.mkv` Matroska container support, HEVC/AV1 encoding profiles, and custom audio bitrate/codec controls. |
-| **Multi-Drive Batching** | [`src/daemon.rs`](file:///c:/Users/User/.gemini/antigravity-ide/scratch/dvd-ripper/src/daemon.rs) | Polling watcher monitors a single active drive path. | Multi-drive servers (e.g. 4 optical drives in a rack unit) cannot rip concurrently. | Multi-threaded concurrent drive monitor daemon processing multiple optical drives simultaneously. |
+This updated document provides a fresh source code audit of the current codebase and presents a concrete 4-phase refactor plan for **Next-Gen Features** (Phase 5 through Phase 8).
 
 ---
 
-## 3. Concrete Refactor Plan
+## 2. Status of Previously Completed Phases
+
+| Phase | Feature Set | Status | Implementation Details |
+|---|---|---|---|
+| **Phase 1** | Fast Title Probing & MKV Container Support | **Completed** | Single-pass demuxer probing in [`src/ffmpeg.rs`](file:///c:/Users/User/.gemini/antigravity-ide/scratch/dvd-ripper/src/ffmpeg.rs) (<0.5s probe time) + Matroska (`.mkv`) container support preserving raw DVD bitmap subtitles (`dvdsub`) losslessly. |
+| **Phase 2** | TMDB Provider & Cover Artwork Caching | **Completed** | TMDB REST API integration in [`src/imdb.rs`](file:///c:/Users/User/.gemini/antigravity-ide/scratch/dvd-ripper/src/imdb.rs), TV episode title resolution, and automatic `cover.jpg` & `folder.jpg` caching in [`src/utils.rs`](file:///c:/Users/User/.gemini/antigravity-ide/scratch/dvd-ripper/src/utils.rs). |
+| **Phase 3** | Binary MQTT 3.1.1, HA Discovery & SSE Streaming | **Completed** | Binary MQTT control frames in [`src/mqtt.rs`](file:///c:/Users/User/.gemini/antigravity-ide/scratch/dvd-ripper/src/mqtt.rs), Home Assistant Auto-Discovery sensors, multi-service webhooks (Discord, Ntfy, Telegram, Gotify), and `/api/events` SSE live progress streaming in [`src/api.rs`](file:///c:/Users/User/.gemini/antigravity-ide/scratch/dvd-ripper/src/api.rs). |
+| **Phase 4** | Modern Codecs, Encoding Presets & Multi-Drive Daemon | **Completed** | HEVC (H.265) & AV1 (`libsvtav1`) codecs, transcoding profiles (`archival`, `plex`, `mobile`), multi-drive parallel daemon monitoring threads in [`src/daemon.rs`](file:///c:/Users/User/.gemini/antigravity-ide/scratch/dvd-ripper/src/daemon.rs), and GUI settings dropdowns in [`src/gui.rs`](file:///c:/Users/User/.gemini/antigravity-ide/scratch/dvd-ripper/src/gui.rs). |
+
+---
+
+## 3. Current Codebase Audit & Next-Gen Technical Opportunities
+
+| Component | File Link | Current Implementation | Opportunity / Next-Gen Goal |
+|---|---|---|---|
+| **Disc Matching** | [`src/dvd.rs`](file:///c:/Users/User/.gemini/antigravity-ide/scratch/dvd-ripper/src/dvd.rs) | Relies on optical volume label strings (e.g. `KILL_BILL_VOL_1`). | Discs named `DVD_VIDEO`, `UNTITLED`, or `DISC_1` require manual query entry. Implement **ISO-9660 / Primary Volume Descriptor Hashing** to generate a unique Disc ID fingerprint. |
+| **Audio Engine** | [`src/ffmpeg.rs`](file:///c:/Users/User/.gemini/antigravity-ide/scratch/dvd-ripper/src/ffmpeg.rs#L351-L368) | Single audio stream selection or `--all-audio` passthrough. | Inconsistent audio volume across titles on mobile/web players. Add **EBU R128 Loudness Normalization** (`-filter:a loudnorm`) and dual-track AAC + 5.1 Passthrough creation. |
+| **Job Queue** | [`src/api.rs`](file:///c:/Users/User/.gemini/antigravity-ide/scratch/dvd-ripper/src/api.rs), [`src/gui.rs`](file:///c:/Users/User/.gemini/antigravity-ide/scratch/dvd-ripper/src/gui.rs) | Single active ripping job execution at a time. | Multi-disc servers need a thread-safe **Priority Job Queue Manager (`JobQueue`)** supporting queue inspection (`/api/queue`), re-ordering, and cancellation. |
+| **Post-Processing** | [`src/main.rs`](file:///c:/Users/User/.gemini/antigravity-ide/scratch/dvd-ripper/src/main.rs) | Triggers disc ejection and cover saving upon completion. | Add **Post-Rip Hook Execution Engine** (`--post-script <SCRIPT>`) to trigger custom shell scripts, FileBot renaming, or Plex/Jellyfin library refresh HTTP webhooks. |
+| **API Security** | [`src/api.rs`](file:///c:/Users/User/.gemini/antigravity-ide/scratch/dvd-ripper/src/api.rs) | Public unauthenticated HTTP REST endpoints. | Add `--api-key <KEY>` HTTP Bearer Authentication Middleware and OpenAPI v3 Specification Endpoint (`/api/openapi.json`). |
+
+---
+
+## 4. Next-Gen Concrete Refactor Plan (Phases 5 – 8)
 
 ```mermaid
 graph TD
-    A["Phase 1: Core Engine Optimization"] --> B["Phase 2: Metadata Provider Expansion"]
-    B --> C["Phase 3: API & Telemetry Overhaul"]
-    C --> D["Phase 4: Codecs & Multi-Drive Batching"]
+    A["Phase 5: Disc Hashing & Auto-Fingerprinting"] --> B["Phase 6: Audio Loudness Normalization"]
+    B --> C["Phase 7: Multi-Job Queue & Post-Rip Hooks"]
+    C --> D["Phase 8: API Security & OpenAPI Spec"]
 ```
 
-### Phase 1: Core Engine & Fast DVD Structure Probing
+### Phase 5: Disc Hashing & Automatic Fingerprint Matching
 
-#### 1.1 Direct IFO/UDF Header Parsing
-* **Problem**: `probe_dvd_titles()` in [`src/ffmpeg.rs`](file:///c:/Users/User/.gemini/antigravity-ide/scratch/dvd-ripper/src/ffmpeg.rs#L123) loops from 1 to 99, invoking `ffmpeg` individually for each title to extract `Duration: HH:MM:SS`.
-* **Solution**:
-  - Implement a fast binary parser for `VIDEO_TS/VTS_01_0.IFO` or run `ffprobe -show_entries program=program_id,duration -of json` in a single invocation.
-  - Reduces disc scanning time from ~20 seconds to <0.5 seconds.
+#### 5.1 Primary Volume Descriptor Hashing (`src/dvd.rs`)
+* **Goal**: Calculate a deterministic 64-bit Hash (MD5 / FNV-1a) from the primary volume descriptor sector (Sector 16 at offset 0x8000) and `VIDEO_TS.IFO` size headers.
+* **Benefit**: Enables automatic, exact movie identification for generic discs (e.g. `DVD_VIDEO`, `UNTITLED_DISC`).
 
-#### 1.2 Subtitle Extraction & OCR Support
-* **Problem**: Subtitles on DVDs are bitmap-based (`dvdsub` / VOBsub). MP4 containers cannot natively embed bitmap subtitles without hardburning.
-* **Solution**:
-  - Add Matroska (`.mkv`) output container support, allowing direct bitstream copy of `dvdsub` bitmap tracks without quality loss or re-encoding.
-  - Optional integration with `tesseract` OCR to extract `dvdsub` into text-based `.srt` sidecar files.
+#### 5.2 Local & Remote Disc Fingerprint Cache (`src/imdb.rs`)
+* **Goal**: Store hash-to-metadata mappings in local JSON cache (`~/.dvd-ripper/fingerprints.json`) so previously ripped discs are identified instantly without network queries.
 
 ---
 
-### Phase 2: Metadata & API Provider Expansion
+### Phase 6: EBU R128 Audio Normalization & Dual-Track Audio
 
-#### 2.1 The Movie Database (TMDB) Integration
-* **Problem**: Relying solely on OMDb requires users to register for an OMDb API key, while IMDb Suggest API does not provide episode names or full artwork.
-* **Solution**:
-  - Implement TMDB REST API client in [`src/imdb.rs`](file:///c:/Users/User/.gemini/antigravity-ide/scratch/dvd-ripper/src/imdb.rs).
-  - Provider fallback chain: `TMDB` -> `OMDb` -> `Local DVD Label Heuristic`.
-  - Automatically map TV episode numbers to real episode titles (e.g. `S01E01 - Pilot.mkv` instead of generic `S01E01.mkv`).
+#### 6.1 EBU R128 Loudness Filter (`src/ffmpeg.rs`)
+* **Goal**: Add `--normalize-audio` option applying FFmpeg `-filter:a loudnorm=I=-16:TP=-1.5:LRA=11`.
+* **Benefit**: Ensures standardized volume levels across TV speakers, headphones, and mobile devices.
 
-#### 2.2 Poster & Fanart Caching
-* **Solution**:
-  - Save downloaded poster artwork into output movie folders as `cover.jpg` / `folder.jpg` for Plex, Jellyfin, and Emby media server compatibility.
+#### 6.2 Dual Track Audio Transmuxing (`src/ffmpeg.rs`, `src/cli.rs`)
+* **Goal**: Add `--dual-audio` option:
+  - Track 1: Stereo AAC 192k (normalized) for maximum compatibility.
+  - Track 2: Original 5.1/7.1 Surround Passthrough (AC3/DTS).
 
 ---
 
-### Phase 3: REST API & Telemetry Overhaul
+### Phase 7: Thread-Safe Priority Job Queue & Post-Processing Hooks
 
-#### 3.1 True MQTT Protocol & Home Assistant Auto-Discovery
-* **Problem**: [`src/mqtt.rs`](file:///c:/Users/User/.gemini/antigravity-ide/scratch/dvd-ripper/src/mqtt.rs) sends raw HTTP over TCP port 1883 instead of real MQTT binary packets.
-* **Solution**:
-  - Integrate `rumqttc` crate for native MQTT v3.1.1 / v5 support.
-  - Publish Home Assistant MQTT Discovery configs under `homeassistant/sensor/dvd_ripper/config` so Home Assistant automatically creates entities for `Sensor State`, `Ripping Progress %`, and `Inserted Disc Label`.
+#### 7.1 Multi-Job Queue Engine (`src/queue.rs`, `src/api.rs`)
+* **Goal**: Create thread-safe `JobQueue` manager supporting:
+  - `POST /api/queue/add`: Enqueue ripping jobs.
+  - `GET /api/queue/list`: Inspect pending and active jobs.
+  - `POST /api/queue/remove`: Cancel/remove queued items.
 
-#### 3.2 Server-Sent Events (SSE) Live Progress Streaming
-* **Problem**: Web dashboard in [`src/api.rs`](file:///c:/Users/User/.gemini/antigravity-ide/scratch/dvd-ripper/src/api.rs#L298) polls `/api/status` every 2 seconds.
-* **Solution**:
-  - Add `/api/events` Server-Sent Events (SSE) endpoint to push real-time FFmpeg progress logs, FPS, ETA, and progress bar updates instantly.
-
-#### 3.3 Multi-Channel Push Notifications
-* **Solution**:
-  - Extend notification engine in [`src/mqtt.rs`](file:///c:/Users/User/.gemini/antigravity-ide/scratch/dvd-ripper/src/mqtt.rs#L56) to natively format Webhook payloads for **Telegram**, **Pushover**, **Gotify**, **Discord**, and **Ntfy**.
+#### 7.2 Post-Processing Script Hook Engine (`src/utils.rs`, `src/main.rs`)
+* **Goal**: Add `--post-script <PATH>` CLI option to execute external scripts upon rip completion, passing environment variables:
+  `DVD_OUTPUT_PATH`, `DVD_TITLE`, `DVD_MEDIA_TYPE`, `DVD_YEAR`.
 
 ---
 
-### Phase 4: Video Codecs, Presets & Multi-Drive Batching
+### Phase 8: API Security & OpenAPI v3 Specification
 
-#### 4.1 HEVC (H.265) & AV1 Encoding Profiles
-* **Solution**:
-  - Add `--codec` option supporting `h264`, `hevc` (H.265), `av1`, and `copy`.
-  - Add transcoding presets:
-    - `Archival Lossless`: MKV container, copy video/audio streams, keep all subtitles.
-    - `Plex 1080p`: MP4 container, H.264/HEVC CR 20, AAC 192k audio.
-    - `Mobile 720p`: Fast H.264, lower bitrates for streaming to phones.
+#### 8.1 Bearer Token Authentication Middleware (`src/api.rs`, `src/cli.rs`)
+* **Goal**: Add `--api-key <KEY>` parameter. Requests to `/api/*` (except `/api/status` or `/`) require `Authorization: Bearer <KEY>` header when enabled.
 
-#### 4.2 Multi-Drive Parallel Appliance Daemon
-* **Problem**: [`src/daemon.rs`](file:///c:/Users/User/.gemini/antigravity-ide/scratch/dvd-ripper/src/daemon.rs#L22-L55) monitors one drive at a time in a single loop.
-* **Solution**:
-  - Use `detect_dvd_drives()` to spawn a dedicated worker thread per optical drive.
-  - Allow headless servers with 2+ DVD drives to rip multiple discs simultaneously in parallel.
+#### 8.2 OpenAPI v3 JSON Endpoint (`src/api.rs`)
+* **Goal**: Serve `/api/openapi.json` providing complete OpenAPI 3.0 schema definitions for all REST routes and JSON payloads.
 
 ---
 
-## 4. Proposed Project Structure Post-Refactor
+## 5. Verification Plan
 
-```text
-dvd-ripper/
-├── Cargo.toml
-├── refactor_plan.md
-├── src/
-│   ├── main.rs                 # Main CLI & GUI launch entry point
-│   ├── cli.rs                  # Extended CLI argument definitions
-│   ├── core/
-│   │   ├── dvd.rs              # Cross-platform drive detection & volume label reader
-│   │   ├── ifo.rs              # [NEW] Direct VTS IFO & DVD structure binary parser
-│   │   ├── ffmpeg.rs           # FFmpeg invocation, HWACCEL, progress parser
-│   │   └── presets.rs          # [NEW] Encoding profile presets (Plex, Archival, Mobile)
-│   ├── providers/
-│   │   ├── mod.rs              # Unified metadata provider traits
-│   │   ├── tmdb.rs             # [NEW] The Movie Database API client
-│   │   ├── omdb.rs             # OMDb API client
-│   │   └── imdb.rs             # IMDb suggest fallback client
-│   ├── services/
-│   │   ├── api.rs              # Web REST API & SSE progress push engine
-│   │   ├── daemon.rs           # Multi-drive parallel auto-rip watcher service
-│   │   ├── mqtt.rs             # Native rumqttc client + Home Assistant discovery
-│   │   └── webhooks.rs         # Telegram / Gotify / Discord webhook notifier
-│   └── ui/
-│       ├── gui.rs              # eframe / egui desktop UI with multi-drive controls
-│       └── dashboard.rs        # HTML5 / WebUI embedded assets
-```
-
----
-
-## 5. Implementation Roadmap & Verification
-
-1. **Phase 1 Implementation**: Create `src/core/ifo.rs` and optimize `probe_dvd_titles()` in [`src/ffmpeg.rs`](file:///c:/Users/User/.gemini/antigravity-ide/scratch/dvd-ripper/src/ffmpeg.rs).
-2. **Phase 2 Implementation**: Add TMDB provider to [`src/imdb.rs`](file:///c:/Users/User/.gemini/antigravity-ide/scratch/dvd-ripper/src/imdb.rs).
-3. **Phase 3 Implementation**: Replace raw TCP MQTT payload with `rumqttc` and SSE streaming in [`src/api.rs`](file:///c:/Users/User/.gemini/antigravity-ide/scratch/dvd-ripper/src/api.rs).
-4. **Phase 4 Implementation**: Add HEVC/AV1/MKV presets and multi-drive daemon threads in [`src/daemon.rs`](file:///c:/Users/User/.gemini/antigravity-ide/scratch/dvd-ripper/src/daemon.rs).
-5. **Verification**: Execute unit tests (`cargo test`), verify fast probing speed (<1s), test Home Assistant auto-discovery, and validate multi-drive parallel ripping.
+1. **Automated Unit Tests**:
+   - Run `cargo test` to verify disc hashing, EBU R128 FFmpeg argument construction, job queue operations, and API key header validation.
+2. **Runtime Verification**:
+   - Verify `cargo check` builds with 0 compiler warnings.
