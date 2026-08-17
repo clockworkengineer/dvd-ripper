@@ -385,10 +385,15 @@ impl DvdRipperApp {
                         ffmpeg_path.clone(),
                     );
                     args.all_audio = all_audio;
+                    args.normalize_audio = normalize_audio;
+                    args.dual_audio = dual_audio;
                     args.mkv = mkv;
+                    args.codec = codec.clone();
+                    args.profile = profile.clone();
                     args.audio_lang = audio_lang.clone();
                     args.subtitles = subtitles;
                     args.sub_lang = sub_lang.clone();
+                    args.sub_format = sub_format.clone();
                     args.webhook_url = webhook_url.clone();
                     args.no_overwrite = no_overwrite;
 

@@ -52,6 +52,25 @@ fn ensure_absolute_parent_dir(base_dir: &str, path: PathBuf, no_overwrite: bool)
     Ok(absolute_output)
 }
 
+/// Helper: Determines whether transcoding (video/audio re-encoding & compression) is enabled.
+pub fn is_transcode_enabled(args: &Args) -> bool {
+    let profile = args.profile.to_lowercase();
+    let codec = args.codec.to_lowercase();
+
+    if profile == "archival" || codec == "copy" {
+        false
+    } else {
+        args.transcode
+            || profile == "standard"
+            || profile == "plex"
+            || profile == "mobile"
+            || codec == "h264"
+            || codec == "hevc"
+            || codec == "h265"
+            || codec == "av1"
+    }
+}
+
 /// Resolves the absolute output file path based on detected film metadata, configured output directory, or user CLI args.
 pub fn resolve_output_path(
     args: &Args,
@@ -60,7 +79,7 @@ pub fn resolve_output_path(
 ) -> Result<PathBuf> {
     let extension = if args.mkv {
         "mkv"
-    } else if args.transcode {
+    } else if is_transcode_enabled(args) {
         "mp4"
     } else {
         "mpg"
@@ -87,7 +106,7 @@ pub fn resolve_tv_output_path(
 ) -> Result<PathBuf> {
     let extension = if args.mkv {
         "mkv"
-    } else if args.transcode {
+    } else if is_transcode_enabled(args) {
         "mp4"
     } else {
         "mpg"
@@ -413,10 +432,14 @@ pub fn build_ffmpeg_command(
             .extension()
             .map_or(false, |ext| ext.eq_ignore_ascii_case("mkv"));
 
-    if profile == "archival" {
+    if profile == "archival" || codec == "copy" {
         cmd.arg("-c").arg("copy");
-        cmd.arg("-f").arg("matroska");
-    } else if args.transcode || profile == "plex" || profile == "mobile" {
+        if is_mkv {
+            cmd.arg("-f").arg("matroska");
+        } else {
+            cmd.arg("-f").arg("dvd");
+        }
+    } else if is_transcode_enabled(args) {
         if profile == "mobile" {
             cmd.arg("-vf").arg("scale=-2:720");
             cmd.arg("-c:v").arg("libx264");
@@ -778,7 +801,7 @@ mod tests {
         let path_str = path.to_string_lossy();
         assert!(path_str.contains("The Office (2005)"));
         assert!(path_str.contains("Season 01"));
-        assert!(path_str.contains("The Office - S01E03.mpg"));
+        assert!(path_str.contains("The Office - S01E03.mp4"));
     }
 
     #[test]
@@ -801,7 +824,7 @@ mod tests {
     fn test_build_ffmpeg_command_title_argument() {
         let args = Args::default();
 
-        let output_path = PathBuf::from("Films/Test/Test.mpg");
+        let output_path = PathBuf::from("Films/Test/Test.mp4");
         let cmd = build_ffmpeg_command(&args, Path::new("D:\\"), &output_path, 3);
         let cmd_args: Vec<String> = cmd.get_args().map(|s| s.to_string_lossy().to_string()).collect();
 
@@ -819,7 +842,7 @@ mod tests {
             ..Default::default()
         };
 
-        let output_path = PathBuf::from("Films/Test/Test.mpg");
+        let output_path = PathBuf::from("Films/Test/Test.mp4");
         let cmd = build_ffmpeg_command(&args, Path::new("D:\\"), &output_path, 1);
         let cmd_args: Vec<String> = cmd.get_args().map(|s| s.to_string_lossy().to_string()).collect();
 
@@ -833,7 +856,7 @@ mod tests {
         let temp = TestTempDir::new("no_overwrite_test");
         let out_dir_str = temp.0.to_string_lossy().to_string();
 
-        let dummy_file = temp.0.join("output.mpg");
+        let dummy_file = temp.0.join("output.mp4");
         std::fs::write(&dummy_file, b"existing").unwrap();
 
         let args = Args {
@@ -843,7 +866,7 @@ mod tests {
         };
 
         let path = resolve_output_path(&args, None, None).unwrap();
-        assert!(path.to_string_lossy().contains("output_1.mpg"));
+        assert!(path.to_string_lossy().contains("output_1.mp4"));
     }
 
     #[test]
@@ -1010,5 +1033,30 @@ mod tests {
         let vec_dual: Vec<String> = cmd_dual.get_args().map(|s| s.to_string_lossy().to_string()).collect();
         assert!(vec_dual.contains(&"title=Stereo AAC (Normalized)".to_string()));
         assert!(vec_dual.contains(&"title=5.1 Surround Passthrough".to_string()));
+    }
+
+    #[test]
+    fn test_is_transcode_enabled() {
+        let default_args = Args::default();
+        assert!(is_transcode_enabled(&default_args));
+
+        let copy_args = Args {
+            codec: "copy".to_string(),
+            ..Default::default()
+        };
+        assert!(!is_transcode_enabled(&copy_args));
+
+        let archival_args = Args {
+            profile: "archival".to_string(),
+            ..Default::default()
+        };
+        assert!(!is_transcode_enabled(&archival_args));
+
+        let explicit_transcode_args = Args {
+            transcode: true,
+            codec: "hevc".to_string(),
+            ..Default::default()
+        };
+        assert!(is_transcode_enabled(&explicit_transcode_args));
     }
 }

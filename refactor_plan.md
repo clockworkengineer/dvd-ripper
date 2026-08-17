@@ -1,12 +1,12 @@
-# Architectural Analysis & Refactor Plan: DVD Ripper (V3)
+# Architectural Analysis & Refactor Plan: DVD Ripper (V4)
 
 ## 1. Executive Summary
 
-`dvd-ripper` is an enterprise-grade Rust application designed to automate optical DVD movie and TV series ripping using FFmpeg's `dvdvideo` demuxer, multi-provider metadata search (TMDB, OMDb, IMDb), binary MQTT 3.1.1 Home Assistant telemetry, Server-Sent Events (SSE) live streaming, ISO-9660 disc fingerprinting, thread-safe job queuing, EBU R128 audio normalization, OpenAPI v3 security middleware, Prometheus metrics exporter, media server scan triggers, SubRip text subtitle transmuxing, and persistent TOML configuration files.
+`dvd-ripper` is an enterprise-grade Rust application designed to automate optical DVD movie and TV series ripping using FFmpeg's `dvdvideo` demuxer, multi-provider metadata search (TMDB, OMDb, IMDb), binary MQTT 3.1.1 Home Assistant telemetry, Server-Sent Events (SSE) live streaming, ISO-9660 disc fingerprinting, thread-safe job queuing, EBU R128 audio normalization, OpenAPI v3 security middleware, Prometheus metrics exporter, media server scan triggers, SubRip text subtitle transmuxing, persistent TOML configuration files, Kodi NFO XML sidecar generation, DVD chapter marker preservation, ranked audio language selection, and CSS copy protection diagnostics.
 
-Phases 1 through 12 of the refactor plan have been **fully implemented, tested, and verified** (54 unit tests passing cleanly).
+Phases 1 through 16 of the refactor plan have been **fully implemented, tested, and verified** (59 unit tests passing cleanly).
 
-This updated document presents a source code audit of the codebase and outlines a concrete 4-phase refactor plan for **Next-Gen Automation & Metadata Features** (Phases 13 through 16).
+This updated document presents a source code audit of the codebase and outlines a concrete 4-phase refactor plan for **Next-Gen Automation, Filtering & Storage Safeguards** (Phases 17 through 20).
 
 ---
 
@@ -26,64 +26,68 @@ This updated document presents a source code audit of the codebase and outlines 
 | **Phase 10** | Direct Media Server Integration (Plex, Jellyfin, Emby) | **Completed** | Automatic HTTP library refresh scan triggers (`--plex-url`, `--jellyfin-url`, `--emby-url`) in [`src/utils.rs`](file:///c:/Users/User/.gemini/antigravity-ide/scratch/dvd-ripper/src/utils.rs). |
 | **Phase 11** | SubRip (.srt) Subtitle Text Transmuxing | **Completed** | Subtitle stream format selector (`--sub-format subrip|dvdsub`) in [`src/ffmpeg.rs`](file:///c:/Users/User/.gemini/antigravity-ide/scratch/dvd-ripper/src/ffmpeg.rs). |
 | **Phase 12** | Persistent TOML Configuration Engine | **Completed** | TOML configuration file loader (`dvd-ripper.toml` or `~/.dvd-ripper/config.toml`) in [`src/config.rs`](file:///c:/Users/User/.gemini/antigravity-ide/scratch/dvd-ripper/src/config.rs). |
+| **Phase 13** | NFO XML Metadata Sidecar Generator | **Completed** | Kodi/Plex standard XML `.nfo` metadata sidecar generator (`generate_nfo_file()`, `--nfo`) in [`src/utils.rs`](file:///c:/Users/User/.gemini/antigravity-ide/scratch/dvd-ripper/src/utils.rs). |
+| **Phase 14** | DVD Chapter Marker Preservation | **Completed** | Optical DVD chapter timestamp mapping (`-map_chapters 0`, `--chapters`) in [`src/ffmpeg.rs`](file:///c:/Users/User/.gemini/antigravity-ide/scratch/dvd-ripper/src/ffmpeg.rs). |
+| **Phase 15** | Ranked Multi-Language Audio Selection Engine | **Completed** | Priority multi-language audio stream selector (`parse_ranked_audio_languages()`, `--auto-audio-pref eng,fre,spa`) in [`src/ffmpeg.rs`](file:///c:/Users/User/.gemini/antigravity-ide/scratch/dvd-ripper/src/ffmpeg.rs). |
+| **Phase 16** | CSS Copy Protection Diagnostic Analyzer | **Completed** | Structural copy protection and IFO/VOB payload diagnostic engine (`inspect_disc_copy_protection()`, `--check-protection`) in [`src/dvd.rs`](file:///c:/Users/User/.gemini/antigravity-ide/scratch/dvd-ripper/src/dvd.rs). |
 
 ---
 
-## 3. Next-Gen Feature Audit & Technical Roadmap (Phases 13 – 16)
+## 3. Next-Gen Feature Audit & Technical Roadmap (Phases 17 – 20)
 
 | Component | File Link | Current Implementation | Next-Gen Feature Goal |
 |---|---|---|---|
-| **NFO Sidecar Generator** | [`src/utils.rs`](file:///c:/Users/User/.gemini/antigravity-ide/scratch/dvd-ripper/src/utils.rs) | Cover artwork caching (`cover.jpg`/`folder.jpg`). | Add **Kodi / Plex NFO Metadata Sidecar Generator** (`--nfo`), generating standard XML `.nfo` files for offline media scrapers. |
-| **Chapter Preservation** | [`src/ffmpeg.rs`](file:///c:/Users/User/.gemini/antigravity-ide/scratch/dvd-ripper/src/ffmpeg.rs) | Rips full video streams. | Add **Optical DVD Chapter Marker Extraction & Metadata Mapping** (`--chapters`), preserving chapter points into `.mkv`/`.mp4` container headers. |
-| **Audio Auto-Selection** | [`src/ffmpeg.rs`](file:///c:/Users/User/.gemini/antigravity-ide/scratch/dvd-ripper/src/ffmpeg.rs) | Audio language matching flag (`--audio-lang`). | Add **Ranked Multi-Language Audio Selection Engine** (`--auto-audio-pref eng,fre,spa`), automatically picking primary/secondary audio streams by priority. |
-| **Copy Protection Diagnostic** | [`src/dvd.rs`](file:///c:/Users/User/.gemini/antigravity-ide/scratch/dvd-ripper/src/dvd.rs) | Optical volume label and Sector 16 descriptor reader. | Add **CSS Copy Protection & Bad-Sector Diagnostic Analyzer** (`--check-protection`), detecting structural protection anomalies and logging actionable advice. |
+| **Box Set Auto-Stitching** | [`src/queue.rs`](file:///c:/Users/User/.gemini/antigravity-ide/scratch/dvd-ripper/src/queue.rs) | Single-disc episode detection. | Add **Multi-Disc TV Series Box Set Auto-Stitching & Batch Manager** (`--auto-boxset`), maintaining cumulative episode indexing across sequential disc insertions. |
+| **Video Quality Filters** | [`src/ffmpeg.rs`](file:///c:/Users/User/.gemini/antigravity-ide/scratch/dvd-ripper/src/ffmpeg.rs) | Codec and hardware acceleration flags. | Add **Video Deinterlacing & Post-Processing Filter Suite** (`--deinterlace`, `--denoise`), applying `bwdif`/`yadif` filters to telecined/interlaced streams. |
+| **Disk Space Guard** | [`src/utils.rs`](file:///c:/Users/User/.gemini/antigravity-ide/scratch/dvd-ripper/src/utils.rs) | Path resolution and filename sanitization. | Add **Enterprise Disk Space Guard & Threshold Safeguard** (`--min-free-gb 10`), pausing job queues and alerting via SSE/Webhooks before disk full errors occur. |
+| **Drive Benchmark Suite** | [`src/dvd.rs`](file:///c:/Users/User/.gemini/antigravity-ide/scratch/dvd-ripper/src/dvd.rs) | Optical drive detection and volume reading. | Add **Optical Drive Read Speed Benchmark Diagnostic** (`--benchmark`), measuring raw sector read throughput (MB/s) and demuxer performance. |
 
 ---
 
-## 4. Next-Gen Refactor Plan (Phases 13 – 16)
+## 4. Next-Gen Refactor Plan (Phases 17 – 20)
 
 ```mermaid
 graph TD
-    A["Phase 13: NFO XML Metadata Sidecar Generator"] --> B["Phase 14: DVD Chapter Marker Preservation"]
-    B --> C["Phase 15: Ranked Multi-Language Audio Engine"]
-    C --> D["Phase 16: CSS Copy Protection Diagnostic Analyzer"]
+    A["Phase 17: Multi-Disc TV Series Box Set Manager"] --> B["Phase 18: Video Deinterlacing & Quality Filters"]
+    B --> C["Phase 19: Enterprise Disk Space Guard Safeguard"]
+    C --> D["Phase 20: Optical Drive Benchmark Diagnostic Suite"]
 ```
 
-### Phase 13: Kodi / Plex NFO XML Metadata Sidecar Generator
+### Phase 17: Multi-Disc TV Series Box Set Auto-Stitching & Batch Manager
 
-#### 13.1 NFO Generator Engine (`src/utils.rs`)
-* **Goal**: Implement `generate_nfo_file(output_path: &Path, meta: &FilmMetadata) -> Result<()>`:
-  Generates a standard Kodi/Jellyfin XML `.nfo` sidecar file (`<movie>`, `<title>`, `<year>`, `<plot>`, `<rating>`, `<director>`, `<actor>`) alongside the video file (e.g. `movie.nfo`).
-
----
-
-### Phase 14: DVD Chapter Marker Preservation
-
-#### 14.1 Chapter Metadata Mapping (`src/ffmpeg.rs`)
-* **Goal**: Add `--chapters` flag (enabled by default).
-* **Benefit**: Preserves DVD chapter timestamp points (`CHAPTER01`, `CHAPTER02`, ...) in output container metadata so media players can skip chapters.
+#### 17.1 Box Set Episode Indexing (`src/queue.rs`, `src/utils.rs`)
+* **Goal**: Implement cumulative episode numbering tracking across multi-disc box sets (`--auto-boxset`).
+* **Benefit**: When ripping TV series season box sets (Disc 1, Disc 2, Disc 3), episode numbers increment seamlessly (`S01E01-E04`, `S01E05-E08`, `S01E09-E12`).
 
 ---
 
-### Phase 15: Ranked Multi-Language Audio Selection Engine
+### Phase 18: Video Deinterlacing & Post-Processing Quality Filter Suite
 
-#### 15.1 Multi-Language Audio Selector (`src/ffmpeg.rs`, `src/cli.rs`)
-* **Goal**: Add `--auto-audio-pref <LANG_LIST>` (e.g. `eng,fre,spa`).
-* **Benefit**: Automatically parses available audio streams and selects the best matching primary and secondary audio tracks according to user preference.
+#### 18.1 Deinterlacing Filter Pipeline (`src/ffmpeg.rs`, `src/cli.rs`)
+* **Goal**: Add `--deinterlace` (`bwdif`/`yadif`) and `--denoise` (`hqdn3d`) filter options.
+* **Benefit**: Eliminates interlacing comb artifacts on standard-definition DVD video streams.
 
 ---
 
-### Phase 16: CSS Copy Protection & Bad-Sector Diagnostic Analyzer
+### Phase 19: Enterprise Disk Space Guard & Threshold Safeguard
 
-#### 16.1 Protection Diagnostic (`src/dvd.rs`, `src/cli.rs`)
-* **Goal**: Add `--check-protection` flag / diagnostic check.
-* **Benefit**: Analyzes `VIDEO_TS` structure for CSS encryption key blocks and structural bad-sector protections, emitting helpful diagnostic alerts.
+#### 19.1 Disk Space Monitor (`src/utils.rs`, `src/daemon.rs`)
+* **Goal**: Implement `check_disk_space_guard(target_dir: &Path, min_free_gb: u64) -> Result<()>`.
+* **Benefit**: Prevents incomplete or corrupted video files by verifying free disk space before initiating ripping jobs.
+
+---
+
+### Phase 20: Optical Drive Read Speed Benchmark Diagnostic Suite
+
+#### 20.1 Drive Throughput Benchmark (`src/dvd.rs`, `src/cli.rs`)
+* **Goal**: Add `--benchmark` flag to measure raw optical sector read speed (MB/s) and FFmpeg demuxer throughput.
+* **Benefit**: Helps users diagnose slow optical drive read speeds, faulty SATA/USB cables, or degraded laser pickups.
 
 ---
 
 ## 5. Verification Plan
 
 1. **Automated Unit Tests**:
-   - Run `cargo test` to verify NFO XML generation, chapter metadata mapping, audio ranking logic, and diagnostic checks.
+   - Run `cargo test` to verify box set episode calculations, deinterlace filter arguments, disk space checks, and benchmark reports.
 2. **Runtime Verification**:
    - Verify `cargo check` builds with 0 compiler warnings.

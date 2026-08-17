@@ -715,6 +715,8 @@ fn handle_client(mut stream: TcpStream, drive_path: &str) -> Result<()> {
                     tv: is_series,
                     ..Default::default()
                 };
+                let config = crate::config::load_config(None);
+                crate::config::apply_config_defaults(&mut args, &config);
                 if is_series {
                     args.out_dir = "TV".to_string();
                 }
