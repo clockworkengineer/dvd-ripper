@@ -242,7 +242,7 @@ src/
 
 ## 🧪 Testing
 
-Run the full test suite (51 unit tests):
+Run the full test suite (52 unit tests):
 ```bash
 cargo test
 ```

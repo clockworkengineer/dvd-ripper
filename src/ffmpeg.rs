@@ -386,7 +386,11 @@ pub fn build_ffmpeg_command(
         } else {
             cmd.arg("-map").arg("0:s?");
         }
-        cmd.arg("-c:s").arg("dvdsub");
+        let sub_codec = match args.sub_format.as_deref().unwrap_or("dvdsub").to_lowercase().as_str() {
+            "subrip" | "srt" => "subrip",
+            _ => "dvdsub",
+        };
+        cmd.arg("-c:s").arg(sub_codec);
     }
 
     let profile = args.profile.to_lowercase();
@@ -886,6 +890,21 @@ mod tests {
         assert!(cmd_args.contains(&"-f".to_string()));
         assert!(cmd_args.contains(&"matroska".to_string()));
         assert!(cmd_args.contains(&"dvdsub".to_string()));
+    }
+
+    #[test]
+    fn test_build_ffmpeg_command_subrip_subtitles() {
+        let args = Args {
+            subtitles: true,
+            sub_format: Some("subrip".to_string()),
+            ..Default::default()
+        };
+
+        let output_path = PathBuf::from("Films/Test/Test.mkv");
+        let cmd = build_ffmpeg_command(&args, Path::new("D:\\"), &output_path, 1);
+        let cmd_args: Vec<String> = cmd.get_args().map(|s| s.to_string_lossy().to_string()).collect();
+
+        assert!(cmd_args.contains(&"subrip".to_string()));
     }
 
     #[test]

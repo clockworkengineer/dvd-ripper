@@ -109,6 +109,10 @@ pub struct Args {
     #[arg(long = "sub-lang")]
     pub sub_lang: Option<String>,
 
+    /// Subtitle codec format (dvdsub for raw bitmap, subrip/srt for plain text)
+    #[arg(long = "sub-format")]
+    pub sub_format: Option<String>,
+
     /// Webhook URL (e.g. Discord, Slack, Ntfy, Telegram) for HTTP status POST notifications
     #[arg(long = "webhook-url")]
     pub webhook_url: Option<String>,
@@ -189,6 +193,7 @@ impl Default for Args {
             audio_lang: None,
             subtitles: false,
             sub_lang: None,
+            sub_format: None,
             webhook_url: None,
             no_overwrite: false,
             post_script: None,

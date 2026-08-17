@@ -52,6 +52,7 @@ pub struct DvdRipperApp {
     audio_lang: String,
     subtitles: bool,
     sub_lang: String,
+    sub_format: String,
     webhook_url: String,
     no_overwrite: bool,
 
@@ -108,6 +109,7 @@ impl Default for DvdRipperApp {
             audio_lang: String::new(),
             subtitles: false,
             sub_lang: String::new(),
+            sub_format: "dvdsub".to_string(),
             webhook_url: String::new(),
             no_overwrite: false,
 
@@ -339,6 +341,7 @@ impl DvdRipperApp {
         let audio_lang = if self.audio_lang.trim().is_empty() { None } else { Some(self.audio_lang.trim().to_string()) };
         let subtitles = self.subtitles;
         let sub_lang = if self.sub_lang.trim().is_empty() { None } else { Some(self.sub_lang.trim().to_string()) };
+        let sub_format = Some(self.sub_format.clone());
         let webhook_url = if self.webhook_url.trim().is_empty() { None } else { Some(self.webhook_url.trim().to_string()) };
         let no_overwrite = self.no_overwrite;
 
@@ -451,6 +454,7 @@ impl DvdRipperApp {
                 args.audio_lang = audio_lang.clone();
                 args.subtitles = subtitles;
                 args.sub_lang = sub_lang.clone();
+                args.sub_format = sub_format.clone();
                 args.webhook_url = webhook_url.clone();
                 args.no_overwrite = no_overwrite;
 
@@ -493,6 +497,7 @@ impl DvdRipperApp {
                 args.audio_lang = audio_lang.clone();
                 args.subtitles = subtitles;
                 args.sub_lang = sub_lang.clone();
+                args.sub_format = sub_format.clone();
                 args.webhook_url = webhook_url.clone();
                 args.no_overwrite = no_overwrite;
 
@@ -898,6 +903,13 @@ impl eframe::App for DvdRipperApp {
                         ui.checkbox(&mut self.subtitles, "Subtitles");
                         ui.label("Sub Lang:");
                         ui.add(egui::TextEdit::singleline(&mut self.sub_lang).hint_text("eng").desired_width(40.0));
+                        ui.label("Sub Format:");
+                        egui::ComboBox::from_id_salt("sub_fmt_combo")
+                            .selected_text(if self.sub_format == "subrip" { "SubRip (.srt)" } else { "Bitmap (dvdsub)" })
+                            .show_ui(ui, |ui| {
+                                ui.selectable_value(&mut self.sub_format, "dvdsub".to_string(), "Bitmap (dvdsub)");
+                                ui.selectable_value(&mut self.sub_format, "subrip".to_string(), "SubRip (.srt)");
+                            });
                     });
 
                     ui.horizontal(|ui| {
