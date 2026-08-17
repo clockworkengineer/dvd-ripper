@@ -345,11 +345,13 @@ fn main() -> Result<()> {
         let _ = utils::save_cover_artworks(out_file, bytes);
     }
 
-    if let (Some(ref script), Some(ref out_file)) = (args.post_script, last_output_file) {
+    if let (Some(script), Some(out_file)) = (args.post_script.as_deref(), last_output_file.as_ref()) {
         let media_type = if args.tv { "TV Series" } else { "Movie" };
         let title = title_name.as_deref().unwrap_or("DVD Rip");
         let _ = utils::run_post_processing_hook(script, out_file, title, media_type, title_year);
     }
+
+    utils::trigger_media_server_scans(&args);
 
     println!("\nEjecting DVD disc from drive...");
     let _ = dvd::eject_disc(&dvd_path.to_string_lossy());

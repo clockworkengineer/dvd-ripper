@@ -125,6 +125,30 @@ pub struct Args {
     #[arg(long = "api-key")]
     pub api_key: Option<String>,
 
+    /// Optional Plex server base URL (e.g. http://192.168.1.100:32400) for library scan triggers
+    #[arg(long = "plex-url")]
+    pub plex_url: Option<String>,
+
+    /// Optional Plex authentication token (X-Plex-Token)
+    #[arg(long = "plex-token")]
+    pub plex_token: Option<String>,
+
+    /// Optional Jellyfin server base URL (e.g. http://192.168.1.100:8096) for library scan triggers
+    #[arg(long = "jellyfin-url")]
+    pub jellyfin_url: Option<String>,
+
+    /// Optional Jellyfin API key
+    #[arg(long = "jellyfin-key")]
+    pub jellyfin_key: Option<String>,
+
+    /// Optional Emby server base URL (e.g. http://192.168.1.100:8096) for library scan triggers
+    #[arg(long = "emby-url")]
+    pub emby_url: Option<String>,
+
+    /// Optional Emby API key
+    #[arg(long = "emby-key")]
+    pub emby_key: Option<String>,
+
     /// Search query term to query IMDb/OMDb metadata candidates
     #[arg(short = 's', long = "search")]
     pub search: Option<String>,
@@ -169,6 +193,12 @@ impl Default for Args {
             no_overwrite: false,
             post_script: None,
             api_key: None,
+            plex_url: None,
+            plex_token: None,
+            jellyfin_url: None,
+            jellyfin_key: None,
+            emby_url: None,
+            emby_key: None,
             search: None,
             imdb_id: None,
             select_index: None,

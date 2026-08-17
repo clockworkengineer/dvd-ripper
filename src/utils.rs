@@ -116,6 +116,60 @@ pub fn run_post_processing_hook(
     Ok(())
 }
 
+pub fn build_plex_refresh_url(base_url: &str, token: &str) -> String {
+    format!("{}/library/sections/all/refresh?X-Plex-Token={}", base_url.trim_end_matches('/'), token)
+}
+
+pub fn build_jellyfin_refresh_url(base_url: &str, api_key: &str) -> String {
+    format!("{}/Items/Root/Refresh?api_key={}", base_url.trim_end_matches('/'), api_key)
+}
+
+pub fn build_emby_refresh_url(base_url: &str, api_key: &str) -> String {
+    format!("{}/Library/Refresh?api_key={}", base_url.trim_end_matches('/'), api_key)
+}
+
+pub fn trigger_plex_library_scan(url: &str, token: &str) -> anyhow::Result<()> {
+    let endpoint = build_plex_refresh_url(url, token);
+    println!("[Media Server] Requesting Plex library refresh: {}", url);
+    let client = reqwest::blocking::Client::builder()
+        .timeout(std::time::Duration::from_secs(5))
+        .build()?;
+    let _ = client.post(&endpoint).send();
+    Ok(())
+}
+
+pub fn trigger_jellyfin_library_scan(url: &str, api_key: &str) -> anyhow::Result<()> {
+    let endpoint = build_jellyfin_refresh_url(url, api_key);
+    println!("[Media Server] Requesting Jellyfin library refresh: {}", url);
+    let client = reqwest::blocking::Client::builder()
+        .timeout(std::time::Duration::from_secs(5))
+        .build()?;
+    let _ = client.post(&endpoint).send();
+    Ok(())
+}
+
+pub fn trigger_emby_library_scan(url: &str, api_key: &str) -> anyhow::Result<()> {
+    let endpoint = build_emby_refresh_url(url, api_key);
+    println!("[Media Server] Requesting Emby library refresh: {}", url);
+    let client = reqwest::blocking::Client::builder()
+        .timeout(std::time::Duration::from_secs(5))
+        .build()?;
+    let _ = client.post(&endpoint).send();
+    Ok(())
+}
+
+pub fn trigger_media_server_scans(args: &crate::cli::Args) {
+    if let (Some(url), Some(token)) = (args.plex_url.as_deref(), args.plex_token.as_deref()) {
+        let _ = trigger_plex_library_scan(url, token);
+    }
+    if let (Some(url), Some(key)) = (args.jellyfin_url.as_deref(), args.jellyfin_key.as_deref()) {
+        let _ = trigger_jellyfin_library_scan(url, key);
+    }
+    if let (Some(url), Some(key)) = (args.emby_url.as_deref(), args.emby_key.as_deref()) {
+        let _ = trigger_emby_library_scan(url, key);
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct ParsedLabelInfo {
     pub clean_title: String,
@@ -284,5 +338,17 @@ mod tests {
     fn test_run_post_processing_hook_empty() {
         let res = run_post_processing_hook("", std::path::Path::new("dummy.mp4"), "Title", "Movie", Some(2026));
         assert!(res.is_ok());
+    }
+
+    #[test]
+    fn test_media_server_url_builders() {
+        let plex = build_plex_refresh_url("http://192.168.1.100:32400/", "token123");
+        assert_eq!(plex, "http://192.168.1.100:32400/library/sections/all/refresh?X-Plex-Token=token123");
+
+        let jellyfin = build_jellyfin_refresh_url("http://192.168.1.100:8096/", "key456");
+        assert_eq!(jellyfin, "http://192.168.1.100:8096/Items/Root/Refresh?api_key=key456");
+
+        let emby = build_emby_refresh_url("http://192.168.1.100:8096", "key789");
+        assert_eq!(emby, "http://192.168.1.100:8096/Library/Refresh?api_key=key789");
     }
 }
