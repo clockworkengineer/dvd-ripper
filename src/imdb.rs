@@ -179,6 +179,16 @@ pub fn format_imdb_rating(rating: Option<&str>) -> String {
     rating.map(|r| format!("IMDb: {}", r)).unwrap_or_else(|| "IMDb: N/A".to_string())
 }
 
+/// Normalizes and validates an IMDb ID string (e.g. " tt0090605 " -> Some("tt0090605")).
+pub fn normalize_imdb_id(raw_id: &str) -> Option<String> {
+    let trimmed = raw_id.trim();
+    if trimmed.starts_with("tt") && trimmed.len() >= 9 && trimmed[2..].chars().all(|c| c.is_ascii_digit()) {
+        Some(trimmed.to_string())
+    } else {
+        None
+    }
+}
+
 /// Represents a structured candidate search result item for UI popup selection.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
 pub struct SearchResultItem {
@@ -780,6 +790,12 @@ mod tests {
     fn test_format_imdb_rating() {
         assert_eq!(format_imdb_rating(Some("8.4")), "IMDb: 8.4");
         assert_eq!(format_imdb_rating(None), "IMDb: N/A");
+    }
+
+    #[test]
+    fn test_normalize_imdb_id() {
+        assert_eq!(normalize_imdb_id(" tt0090605 "), Some("tt0090605".to_string()));
+        assert_eq!(normalize_imdb_id("invalid"), None);
     }
 
     #[test]

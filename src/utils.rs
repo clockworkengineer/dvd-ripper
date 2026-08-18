@@ -104,6 +104,20 @@ pub fn format_duration_hhmmss(total_secs: f64) -> String {
     format!("{:02}:{:02}:{:02}", hours, mins, secs)
 }
 
+/// Formats floating-point duration seconds into rounded runtime minute text (e.g. 5400.0 -> "90 mins").
+pub fn format_duration_minutes(total_secs: f64) -> String {
+    let mins = (total_secs.max(0.0) / 60.0).round() as u64;
+    format!("{} mins", mins)
+}
+
+/// Formats a standardized low disk space alert warning message.
+pub fn format_disk_space_warning(free_gb: f64, min_gb: u64) -> String {
+    format!(
+        "Low Disk Space Warning: {:.2} GB available (minimum {} GB required)",
+        free_gb, min_gb
+    )
+}
+
 /// Formats a log line with a timestamp and prefix tag (e.g. "[2026-08-18 17:15:14] [Daemon] Message").
 pub fn format_timestamped_log(prefix: &str, msg: &str) -> String {
     let now = chrono::Local::now().format("%Y-%m-%d %H:%M:%S");
@@ -477,6 +491,19 @@ mod tests {
         assert_eq!(format_title_folder_name("Kill Bill: Vol. 1", Some(2003)), "Kill Bill Vol. 1 (2003)");
         assert_eq!(format_title_folder_name("The Office", None), "The Office");
         assert_eq!(format_episode_name("Doctor Who", 1, 3), "Doctor Who - S01E03");
+    }
+
+    #[test]
+    fn test_format_duration_minutes() {
+        assert_eq!(format_duration_minutes(5400.0), "90 mins");
+        assert_eq!(format_duration_minutes(7200.0), "120 mins");
+    }
+
+    #[test]
+    fn test_format_disk_space_warning() {
+        let warn = format_disk_space_warning(4.5, 10);
+        assert!(warn.contains("4.50 GB available"));
+        assert!(warn.contains("10 GB required"));
     }
 
     #[test]
