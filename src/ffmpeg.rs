@@ -389,6 +389,29 @@ pub fn build_video_filter_chain(args: &Args, profile: &str) -> Vec<String> {
     vf_filters
 }
 
+/// Configures hardware-accelerated video encoder command arguments for supported GPUs (NVENC, QSV, VAAPI, V4L2).
+pub fn apply_hwaccel_encoder(cmd: &mut Command, hwaccel: &str, preset: &str) {
+    match hwaccel.to_lowercase().as_str() {
+        "nvenc" => {
+            cmd.arg("-c:v").arg("h264_nvenc");
+            cmd.arg("-preset").arg(preset);
+        }
+        "qsv" => {
+            cmd.arg("-c:v").arg("h264_qsv");
+            cmd.arg("-preset").arg(preset);
+        }
+        "v4l2" | "v4l2m2m" => {
+            cmd.arg("-c:v").arg("h264_v4l2m2m");
+            cmd.arg("-b:v").arg("4M");
+        }
+        "vaapi" => {
+            cmd.arg("-vaapi_device").arg("/dev/dri/renderD128");
+            cmd.arg("-c:v").arg("h264_vaapi");
+        }
+        _ => {}
+    }
+}
+
 /// Probes all titles on the DVD drive, using fast single-pass probing with fallback to sequential probing.
 pub fn probe_dvd_titles(
     ffmpeg_path: &str,
@@ -1287,6 +1310,13 @@ mod tests {
         assert_eq!(resolve_video_codec_name("h265"), "libx265");
         assert_eq!(resolve_video_codec_name("av1"), "libsvtav1");
         assert_eq!(resolve_video_codec_name("h264"), "libx264");
+    }
+
+    #[test]
+    fn test_apply_hwaccel_encoder() {
+        let mut cmd = Command::new("ffmpeg");
+        apply_hwaccel_encoder(&mut cmd, "nvenc", "medium");
+        // Verify helper executes without panic
     }
 
     #[test]

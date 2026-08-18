@@ -32,6 +32,17 @@ impl RipRecord {
     }
 }
 
+/// Formats a clean user-facing media display title (e.g. "Aliens (1986)" or "The Office - S01E05").
+pub fn format_media_display_title(title: &str, year: Option<u32>, tv_info: Option<(u32, u32)>) -> String {
+    if let Some((season, episode)) = tv_info {
+        format!("{} - S{:02}E{:02}", title, season, episode)
+    } else if let Some(yr) = year {
+        format!("{} ({})", title, yr)
+    } else {
+        title.to_string()
+    }
+}
+
 fn resolve_history_path(path: Option<&Path>) -> PathBuf {
     path.map(PathBuf::from).unwrap_or_else(|| PathBuf::from(HISTORY_FILE))
 }
@@ -130,5 +141,12 @@ mod tests {
         assert_eq!(rec.output_path, "Films/The Matrix.mp4");
         assert_eq!(rec.status, "Success");
         assert!(!rec.timestamp.is_empty());
+    }
+
+    #[test]
+    fn test_format_media_display_title() {
+        assert_eq!(format_media_display_title("Aliens", Some(1986), None), "Aliens (1986)");
+        assert_eq!(format_media_display_title("The Office", None, Some((1, 5))), "The Office - S01E05");
+        assert_eq!(format_media_display_title("Unknown Movie", None, None), "Unknown Movie");
     }
 }

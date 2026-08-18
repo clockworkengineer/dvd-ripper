@@ -968,6 +968,11 @@ pub fn build_http_response_bytes(status: &str, content_type: &str, body: &[u8]) 
     bytes
 }
 
+/// Helper: Constructs a complete HTTP/1.1 JSON response byte buffer.
+pub fn build_http_json_response_bytes(status: &str, json_body: &str) -> Vec<u8> {
+    build_http_response_bytes(status, "application/json", json_body.as_bytes())
+}
+
 fn send_json_response(stream: &mut TcpStream, status: &str, body_json: &str) -> Result<()> {
     send_http_response(stream, status, "application/json", body_json)
 }
@@ -1132,6 +1137,13 @@ mod tests {
         assert!(resp_str.starts_with("HTTP/1.1 200 OK"));
         assert!(resp_str.contains("Content-Type: application/json"));
         assert!(resp_str.contains("{\"ok\":true}"));
+    }
+
+    #[test]
+    fn test_build_http_json_response_bytes() {
+        let bytes = build_http_json_response_bytes("200 OK", "{\"ok\":true}");
+        let resp_str = String::from_utf8_lossy(&bytes);
+        assert!(resp_str.contains("Content-Type: application/json"));
     }
 
     #[test]

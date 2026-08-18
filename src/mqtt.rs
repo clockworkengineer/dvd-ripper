@@ -17,6 +17,17 @@ fn format_broker_address(broker: &str) -> String {
     }
 }
 
+/// Formats a clean MQTT topic string (e.g. "dvd-ripper/appliance/status").
+pub fn format_mqtt_topic(prefix: &str, subtopic: &str) -> String {
+    let clean_prefix = prefix.trim_matches('/');
+    let clean_sub = subtopic.trim_matches('/');
+    if clean_prefix.is_empty() {
+        clean_sub.to_string()
+    } else {
+        format!("{}/{}", clean_prefix, clean_sub)
+    }
+}
+
 /// Encodes a string into MQTT 3.1.1 length-prefixed UTF-8 byte array.
 pub fn encode_mqtt_string(s: &str) -> Vec<u8> {
     let bytes = s.as_bytes();
@@ -209,5 +220,11 @@ mod tests {
         let payload = build_webhook_payload("ALIENS", "Success", "Completed rip");
         assert!(payload.contains("\"appliance\":\"dvd-ripper\""));
         assert!(payload.contains("\"disc\":\"ALIENS\""));
+    }
+
+    #[test]
+    fn test_format_mqtt_topic() {
+        assert_eq!(format_mqtt_topic("dvd-ripper", "status"), "dvd-ripper/status");
+        assert_eq!(format_mqtt_topic("/dvd-ripper/", "/status/"), "dvd-ripper/status");
     }
 }
