@@ -63,6 +63,7 @@ pub struct DvdRipperApp {
     deinterlace: bool,
     deinterlace_algo: String,
     denoise: bool,
+    min_free_gb: u64,
 
     // Search Modal Popup state
     show_search_modal: bool,
@@ -123,6 +124,7 @@ impl Default for DvdRipperApp {
             deinterlace: false,
             deinterlace_algo: "bwdif".to_string(),
             denoise: false,
+            min_free_gb: 10,
 
             plot: String::new(),
             genre: String::new(),
@@ -356,8 +358,14 @@ impl DvdRipperApp {
         let deinterlace = self.deinterlace;
         let deinterlace_algo = Some(self.deinterlace_algo.clone());
         let denoise = self.denoise;
+        let min_free_gb = self.min_free_gb;
 
         std::thread::spawn(move || {
+            if let Err(e) = crate::utils::check_disk_space_guard(std::path::Path::new(&out_dir), min_free_gb) {
+                let _ = tx.send(ProgressEvent::Error(format!("{}", e)));
+                return;
+            }
+
             if is_tv && all_eps {
                 let show_name = show_name_opt.as_deref().unwrap_or("TV Show");
                 let eps = detect_tv_episodes(&ffmpeg_path, &dvd_path, show_name, season, start_ep, Some(&cancel_flag));

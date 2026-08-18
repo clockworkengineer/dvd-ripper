@@ -732,6 +732,12 @@ fn handle_client(mut stream: TcpStream, drive_path: &str) -> Result<()> {
                     }
                 });
 
+                if let Err(e) = crate::utils::check_disk_space_guard(std::path::Path::new(&args.out_dir), args.min_free_gb) {
+                    update_appliance_status("Failed", "", "", 0.0, "0", "0x");
+                    let _ = crate::history::record_rip_event(&title, "Movie", &args.out_dir, &format!("Disk Space Error: {}", e));
+                    return;
+                }
+
                 let res = if is_series {
                     let episodes = crate::ffmpeg::detect_tv_episodes(
                         &args.ffmpeg,

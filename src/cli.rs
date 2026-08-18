@@ -108,6 +108,10 @@ pub struct Args {
     #[arg(long = "denoise")]
     pub denoise: bool,
 
+    /// Minimum required free disk space (GB) on output target partition before ripping (default: 10)
+    #[arg(long = "min-free-gb", default_value_t = 10)]
+    pub min_free_gb: u64,
+
     /// Generate dual audio streams (Track 1: Stereo AAC normalized, Track 2: 5.1 Surround Passthrough)
     #[arg(long = "dual-audio")]
     pub dual_audio: bool,
@@ -228,6 +232,7 @@ impl Default for Args {
             deinterlace: false,
             deinterlace_algo: None,
             denoise: false,
+            min_free_gb: 10,
             dual_audio: false,
             audio_lang: None,
             auto_audio_pref: None,

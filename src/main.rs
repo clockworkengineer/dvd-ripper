@@ -250,6 +250,9 @@ fn main() -> Result<()> {
 
     let mut last_output_file: Option<PathBuf> = None;
 
+    // Check disk space threshold guard
+    crate::utils::check_disk_space_guard(std::path::Path::new(&args.out_dir), args.min_free_gb)?;
+
     // 3. Execution path for TV series vs Movie
     if args.tv {
         let show_name = title_name.as_deref().unwrap_or("TV Show");

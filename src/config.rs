@@ -29,6 +29,7 @@ pub struct AppConfig {
     pub deinterlace: Option<bool>,
     pub deinterlace_algo: Option<String>,
     pub denoise: Option<bool>,
+    pub min_free_gb: Option<u64>,
 }
 
 /// Loads configuration from custom path, ./dvd-ripper.toml, or ~/.dvd-ripper/config.toml
@@ -144,6 +145,11 @@ pub fn apply_config_defaults(args: &mut Args, config: &AppConfig) {
     if let Some(val) = config.denoise {
         if !args.denoise {
             args.denoise = val;
+        }
+    }
+    if let Some(val) = config.min_free_gb {
+        if args.min_free_gb == 10 {
+            args.min_free_gb = val;
         }
     }
 }

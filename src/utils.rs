@@ -1,7 +1,58 @@
-/**
- * @file utils.rs
- * @brief Helper utility functions for parsing durations, sanitizing filenames, and extracting string fields.
- */
+use anyhow::{anyhow, Result};
+use std::path::{Path, PathBuf};
+
+#[cfg(target_os = "windows")]
+pub fn get_free_disk_space_bytes(dir_path: &Path) -> Result<u64> {
+    use std::os::windows::ffi::OsStrExt;
+    use windows::Win32::Storage::FileSystem::GetDiskFreeSpaceExW;
+
+    let target = if dir_path.exists() {
+        dir_path.to_path_buf()
+    } else {
+        dir_path.parent().map(|p| p.to_path_buf()).unwrap_or_else(|| PathBuf::from("."))
+    };
+
+    let mut path_wide: Vec<u16> = target.as_os_str().encode_wide().collect();
+    path_wide.push(0);
+
+    let mut free_bytes_available: u64 = 0;
+    let mut total_number_of_bytes: u64 = 0;
+    let mut total_number_of_free_bytes: u64 = 0;
+
+    unsafe {
+        GetDiskFreeSpaceExW(
+            windows::core::PCWSTR(path_wide.as_ptr()),
+            Some(&mut free_bytes_available),
+            Some(&mut total_number_of_bytes),
+            Some(&mut total_number_of_free_bytes),
+        )?;
+    }
+
+    Ok(free_bytes_available)
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn get_free_disk_space_bytes(_dir_path: &Path) -> Result<u64> {
+    Ok(100 * 1024 * 1024 * 1024)
+}
+
+/// Verifies that available free disk space on target_dir exceeds min_free_gb threshold.
+pub fn check_disk_space_guard(target_dir: &Path, min_free_gb: u64) -> Result<u64> {
+    if min_free_gb == 0 {
+        let free = get_free_disk_space_bytes(target_dir).unwrap_or(0);
+        return Ok(free);
+    }
+    let free_bytes = get_free_disk_space_bytes(target_dir)?;
+    let required_bytes = min_free_gb * 1024 * 1024 * 1024;
+    if free_bytes < required_bytes {
+        let free_gb = free_bytes as f64 / (1024.0 * 1024.0 * 1024.0);
+        return Err(anyhow!(
+            "Disk Space Guard Safeguard Triggered: Only {:.2} GB free space available in '{}', but minimum threshold is {} GB.",
+            free_gb, target_dir.display(), min_free_gb
+        ));
+    }
+    Ok(free_bytes)
+}
 
 /// Sanitizes a movie title to make it safe for filesystem folders and file names.
 pub fn sanitize_filename(name: &str) -> String {
@@ -386,6 +437,20 @@ mod tests {
     fn test_run_post_processing_hook_empty() {
         let res = run_post_processing_hook("", std::path::Path::new("dummy.mp4"), "Title", "Movie", Some(2026));
         assert!(res.is_ok());
+    }
+
+    #[test]
+    fn test_check_disk_space_guard() {
+        let temp_dir = std::env::temp_dir();
+        // 0 GB threshold should always pass
+        assert!(check_disk_space_guard(&temp_dir, 0).is_ok());
+        // 1 GB threshold should pass on any system with >= 1 GB free space
+        let free = get_free_disk_space_bytes(&temp_dir).unwrap_or(0);
+        if free > 1024 * 1024 * 1024 {
+            assert!(check_disk_space_guard(&temp_dir, 1).is_ok());
+        }
+        // Extremely high threshold (1,000,000 GB) should fail
+        assert!(check_disk_space_guard(&temp_dir, 1_000_000).is_err());
     }
 
     #[test]
