@@ -284,6 +284,15 @@ pub fn resolve_encoder_defaults(profile: &str) -> EncoderDefaults {
     }
 }
 
+/// Formats a standardized TV show season directory relative path (e.g., "TV/The Office (2005)/Season 01").
+pub fn format_tv_season_folder(show_name: &str, year: Option<u32>, season: u32) -> PathBuf {
+    let clean_show = crate::utils::sanitize_filename(show_name);
+    let folder_name = format_title_folder_name(&clean_show, year);
+    PathBuf::from("TV")
+        .join(folder_name)
+        .join(format!("Season {:02}", season))
+}
+
 /// Probes all titles on the DVD drive, using fast single-pass probing with fallback to sequential probing.
 pub fn probe_dvd_titles(
     ffmpeg_path: &str,
@@ -1210,6 +1219,12 @@ mod tests {
     fn test_format_episode_helpers() {
         assert_eq!(format_episode_code(1, 5), "S01E05");
         assert_eq!(format_episode_filename("The Office", 1, 5), "The Office - S01E05");
+    }
+
+    #[test]
+    fn test_format_tv_season_folder() {
+        let folder = format_tv_season_folder("The Office", Some(2005), 1);
+        assert_eq!(folder, PathBuf::from("TV").join("The Office (2005)").join("Season 01"));
     }
 
     #[test]

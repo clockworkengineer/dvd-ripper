@@ -6,6 +6,7 @@ use std::sync::{Arc, Mutex, OnceLock};
 use std::thread;
 use std::time::Duration;
 use anyhow::Result;
+use serde::{Deserialize, Serialize};
 
 use crate::dvd::eject_disc;
 use crate::history::load_history;
@@ -914,6 +915,43 @@ pub fn mime_type_for_path(path: &str) -> &'static str {
     }
 }
 
+/// Parses all URL query parameters into a HashMap of key-value pairs.
+pub fn parse_query_map(url_path: &str) -> std::collections::HashMap<String, String> {
+    let mut map = std::collections::HashMap::new();
+    if let Some(q_idx) = url_path.find('?') {
+        let query = &url_path[q_idx + 1..];
+        for pair in query.split('&') {
+            let mut parts = pair.splitn(2, '=');
+            if let (Some(k), Some(v)) = (parts.next(), parts.next()) {
+                if !k.is_empty() {
+                    let decoded_v = v.replace('+', " ").replace("%20", " ");
+                    map.insert(k.to_string(), decoded_v);
+                }
+            }
+        }
+    }
+    map
+}
+
+/// Snapshot of appliance telemetry metric counters.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MetricCounters {
+    pub completed_rips: u64,
+    pub failed_rips: u64,
+    pub active_jobs: usize,
+    pub queued_jobs: usize,
+}
+
+/// Returns a thread-safe snapshot of current appliance telemetry metric counters.
+pub fn snapshot_metrics() -> MetricCounters {
+    MetricCounters {
+        completed_rips: COMPLETED_RIPS_COUNTER.load(Ordering::SeqCst),
+        failed_rips: FAILED_RIPS_COUNTER.load(Ordering::SeqCst),
+        active_jobs: if get_appliance_status_handle().lock().map_or(false, |s| s.status == "Ripping") { 1 } else { 0 },
+        queued_jobs: crate::queue::list_jobs().len(),
+    }
+}
+
 /// Helper: Constructs a complete HTTP/1.1 response byte buffer with status line, content type, CORS, and length headers.
 pub fn build_http_response_bytes(status: &str, content_type: &str, body: &[u8]) -> Vec<u8> {
     let header = format!(
@@ -1003,6 +1041,19 @@ mod tests {
 
         let empty_headers: Vec<String> = Vec::new();
         assert_eq!(extract_auth_key(&empty_headers, "/api/rip?api_key=query_token"), Some("query_token".to_string()));
+    }
+
+    #[test]
+    fn test_parse_query_map() {
+        let map = parse_query_map("/api/search?q=Aliens&api_key=secret");
+        assert_eq!(map.get("q"), Some(&"Aliens".to_string()));
+        assert_eq!(map.get("api_key"), Some(&"secret".to_string()));
+    }
+
+    #[test]
+    fn test_snapshot_metrics() {
+        let metrics = snapshot_metrics();
+        assert_eq!(metrics.queued_jobs, crate::queue::list_jobs().len());
     }
 
     #[test]

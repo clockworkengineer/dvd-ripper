@@ -476,6 +476,17 @@ pub fn inspect_drive(input: &str) -> DriveInspection {
     }
 }
 
+/// Formats a human-readable copy protection summary string (e.g. "CSS Encryption Detected").
+pub fn format_copy_protection_summary(has_css: bool, is_encrypted: bool) -> String {
+    if has_css {
+        "CSS / Content Scramble System Encrypted".to_string()
+    } else if is_encrypted {
+        "Generic Protection / Encrypted Disc".to_string()
+    } else {
+        "Unencrypted / Standard DVD-Video".to_string()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -508,6 +519,13 @@ mod tests {
         assert_eq!(clean_drive_letter("d"), "D:\\");
         assert_eq!(clean_drive_letter("D:"), "D:\\");
         assert_eq!(clean_drive_letter("E:\\"), "E:\\");
+    }
+
+    #[test]
+    fn test_format_copy_protection_summary() {
+        assert_eq!(format_copy_protection_summary(true, true), "CSS / Content Scramble System Encrypted");
+        assert_eq!(format_copy_protection_summary(false, true), "Generic Protection / Encrypted Disc");
+        assert_eq!(format_copy_protection_summary(false, false), "Unencrypted / Standard DVD-Video");
     }
 
     #[test]
