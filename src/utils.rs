@@ -54,6 +54,29 @@ pub fn check_disk_space_guard(target_dir: &Path, min_free_gb: u64) -> Result<u64
     Ok(free_bytes)
 }
 
+/// Cleans raw optical DVD volume labels (e.g. "KILL_BILL_VOL1_D1" -> "Kill Bill Vol1 D1").
+pub fn normalize_volume_label_title(label: &str) -> String {
+    let clean = label
+        .replace('_', " ")
+        .replace('.', " ");
+    let mut words: Vec<String> = Vec::new();
+    for w in clean.split_whitespace() {
+        if w.to_uppercase() == "DVD" || w.to_uppercase() == "VIDEO" || w.to_uppercase() == "DISC" {
+            continue;
+        }
+        let mut chars = w.chars();
+        if let Some(first) = chars.next() {
+            let capitalized = format!("{}{}", first.to_uppercase(), chars.as_str().to_lowercase());
+            words.push(capitalized);
+        }
+    }
+    if words.is_empty() {
+        label.to_string()
+    } else {
+        words.join(" ")
+    }
+}
+
 /// Sanitizes a movie title to make it safe for filesystem folders and file names.
 pub fn sanitize_filename(name: &str) -> String {
     let sanitized: String = name
@@ -418,6 +441,12 @@ mod tests {
         assert_eq!(res2.clean_title, "doctor who");
         assert_eq!(res2.season, Some(1));
         assert_eq!(res2.disc, Some(3));
+    }
+
+    #[test]
+    fn test_normalize_volume_label_title() {
+        assert_eq!(normalize_volume_label_title("KILL_BILL_VOL1_DVD"), "Kill Bill Vol1");
+        assert_eq!(normalize_volume_label_title("ALIENS.1986.VIDEO"), "Aliens 1986");
     }
 
     #[test]

@@ -366,31 +366,33 @@ impl DvdRipperApp {
         let title_num = self.title_number;
         let out_dir = self.out_dir.clone();
         let transcode = self.transcode;
-        let mkv = self.mkv;
         let preset = self.preset.clone();
-        let codec = self.codec.clone();
-        let profile = self.profile.clone();
         let ffmpeg_path = self.ffmpeg_path.clone();
         let expected_runtime = self.expected_runtime_secs;
         let tx = self.event_tx.clone();
 
-        let all_audio = self.all_audio;
-        let normalize_audio = self.normalize_audio;
-        let dual_audio = self.dual_audio;
-        let audio_lang = if self.audio_lang.trim().is_empty() { None } else { Some(self.audio_lang.trim().to_string()) };
-        let subtitles = self.subtitles;
-        let sub_lang = if self.sub_lang.trim().is_empty() { None } else { Some(self.sub_lang.trim().to_string()) };
-        let sub_format = Some(self.sub_format.clone());
-        let webhook_url = if self.webhook_url.trim().is_empty() { None } else { Some(self.webhook_url.trim().to_string()) };
-        let no_overwrite = self.no_overwrite;
-        let auto_boxset = self.auto_boxset;
-        let deinterlace = self.deinterlace;
-        let deinterlace_algo = Some(self.deinterlace_algo.clone());
-        let denoise = self.denoise;
-        let min_free_gb = self.min_free_gb;
+        let opts = crate::cli::EncodingOptions {
+            all_audio: self.all_audio,
+            normalize_audio: self.normalize_audio,
+            dual_audio: self.dual_audio,
+            mkv: self.mkv,
+            codec: self.codec.clone(),
+            profile: self.profile.clone(),
+            audio_lang: if self.audio_lang.trim().is_empty() { None } else { Some(self.audio_lang.trim().to_string()) },
+            subtitles: self.subtitles,
+            sub_lang: if self.sub_lang.trim().is_empty() { None } else { Some(self.sub_lang.trim().to_string()) },
+            sub_format: Some(self.sub_format.clone()),
+            webhook_url: if self.webhook_url.trim().is_empty() { None } else { Some(self.webhook_url.trim().to_string()) },
+            no_overwrite: self.no_overwrite,
+            auto_boxset: self.auto_boxset,
+            deinterlace: self.deinterlace,
+            deinterlace_algo: Some(self.deinterlace_algo.clone()),
+            denoise: self.denoise,
+            min_free_gb: self.min_free_gb,
+        };
 
         std::thread::spawn(move || {
-            if let Err(e) = crate::utils::check_disk_space_guard(std::path::Path::new(&out_dir), min_free_gb) {
+            if let Err(e) = crate::utils::check_disk_space_guard(std::path::Path::new(&out_dir), opts.min_free_gb) {
                 let _ = tx.send(ProgressEvent::Error(format!("{}", e)));
                 return;
             }
@@ -433,22 +435,7 @@ impl DvdRipperApp {
                         preset.clone(),
                         ffmpeg_path.clone(),
                     );
-                    args.all_audio = all_audio;
-                    args.normalize_audio = normalize_audio;
-                    args.dual_audio = dual_audio;
-                    args.mkv = mkv;
-                    args.codec = codec.clone();
-                    args.profile = profile.clone();
-                    args.audio_lang = audio_lang.clone();
-                    args.subtitles = subtitles;
-                    args.sub_lang = sub_lang.clone();
-                    args.sub_format = sub_format.clone();
-                    args.webhook_url = webhook_url.clone();
-                    args.no_overwrite = no_overwrite;
-                    args.auto_boxset = auto_boxset;
-                    args.deinterlace = deinterlace;
-                    args.deinterlace_algo = deinterlace_algo.clone();
-                    args.denoise = denoise;
+                    args.apply_encoding_options(opts.clone());
 
                     match resolve_tv_output_path(&args, show_name_opt.as_deref(), year_opt, season, ep.episode_num) {
                         Ok(abs_out) => {
@@ -486,7 +473,7 @@ impl DvdRipperApp {
                     }
                 }
 
-                if auto_boxset && total > 0 {
+                if opts.auto_boxset && total > 0 {
                     if let Some(ref name) = show_name_opt {
                         let _ = crate::queue::record_boxset_episodes_ripped(name, season, total as u32);
                     }
@@ -509,21 +496,7 @@ impl DvdRipperApp {
                     preset.clone(),
                     ffmpeg_path.clone(),
                 );
-                args.all_audio = all_audio;
-                args.normalize_audio = normalize_audio;
-                args.dual_audio = dual_audio;
-                args.mkv = mkv;
-                args.codec = codec.clone();
-                args.profile = profile.clone();
-                args.audio_lang = audio_lang.clone();
-                args.subtitles = subtitles;
-                args.sub_lang = sub_lang.clone();
-                args.sub_format = sub_format.clone();
-                args.webhook_url = webhook_url.clone();
-                args.no_overwrite = no_overwrite;
-                args.deinterlace = deinterlace;
-                args.deinterlace_algo = deinterlace_algo.clone();
-                args.denoise = denoise;
+                args.apply_encoding_options(opts.clone());
 
                 match resolve_tv_output_path(&args, show_name_opt.as_deref(), year_opt, season, ep_num) {
                     Ok(abs_out) => {
@@ -555,21 +528,7 @@ impl DvdRipperApp {
                     preset.clone(),
                     ffmpeg_path.clone(),
                 );
-                args.all_audio = all_audio;
-                args.normalize_audio = normalize_audio;
-                args.dual_audio = dual_audio;
-                args.mkv = mkv;
-                args.codec = codec.clone();
-                args.profile = profile.clone();
-                args.audio_lang = audio_lang.clone();
-                args.subtitles = subtitles;
-                args.sub_lang = sub_lang.clone();
-                args.sub_format = sub_format.clone();
-                args.webhook_url = webhook_url.clone();
-                args.no_overwrite = no_overwrite;
-                args.deinterlace = deinterlace;
-                args.deinterlace_algo = deinterlace_algo.clone();
-                args.denoise = denoise;
+                args.apply_encoding_options(opts.clone());
 
                 match resolve_output_path(&args, show_name_opt.as_deref(), year_opt) {
                     Ok(abs_out) => {

@@ -265,7 +265,48 @@ impl Default for Args {
     }
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct EncodingOptions {
+    pub all_audio: bool,
+    pub normalize_audio: bool,
+    pub dual_audio: bool,
+    pub mkv: bool,
+    pub codec: String,
+    pub profile: String,
+    pub audio_lang: Option<String>,
+    pub subtitles: bool,
+    pub sub_lang: Option<String>,
+    pub sub_format: Option<String>,
+    pub webhook_url: Option<String>,
+    pub no_overwrite: bool,
+    pub auto_boxset: bool,
+    pub deinterlace: bool,
+    pub deinterlace_algo: Option<String>,
+    pub denoise: bool,
+    pub min_free_gb: u64,
+}
+
 impl Args {
+    pub fn apply_encoding_options(&mut self, opts: EncodingOptions) {
+        self.all_audio = opts.all_audio;
+        self.normalize_audio = opts.normalize_audio;
+        self.dual_audio = opts.dual_audio;
+        self.mkv = opts.mkv;
+        self.codec = opts.codec;
+        self.profile = opts.profile;
+        self.audio_lang = opts.audio_lang;
+        self.subtitles = opts.subtitles;
+        self.sub_lang = opts.sub_lang;
+        self.sub_format = opts.sub_format;
+        self.webhook_url = opts.webhook_url;
+        self.no_overwrite = opts.no_overwrite;
+        self.auto_boxset = opts.auto_boxset;
+        self.deinterlace = opts.deinterlace;
+        self.deinterlace_algo = opts.deinterlace_algo;
+        self.denoise = opts.denoise;
+        self.min_free_gb = opts.min_free_gb;
+    }
+
     pub fn new_movie(
         input: String,
         out_dir: String,
