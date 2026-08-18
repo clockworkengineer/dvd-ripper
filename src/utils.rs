@@ -282,6 +282,13 @@ pub fn trigger_media_server_scans(args: &crate::cli::Args) {
     }
 }
 
+/// Resolves sidecar `.nfo` metadata file path from video output path.
+pub fn resolve_nfo_path(video_path: &std::path::Path) -> std::path::PathBuf {
+    let parent = video_path.parent().unwrap_or_else(|| std::path::Path::new("."));
+    let stem = video_path.file_stem().and_then(|s| s.to_str()).unwrap_or("media");
+    parent.join(format!("{}.nfo", stem))
+}
+
 pub fn generate_nfo_file(
     output_file: &std::path::Path,
     title: &str,
@@ -293,8 +300,7 @@ pub fn generate_nfo_file(
 ) -> anyhow::Result<()> {
     if let Some(parent) = output_file.parent() {
         std::fs::create_dir_all(parent)?;
-        let stem = output_file.file_stem().and_then(|s| s.to_str()).unwrap_or("movie");
-        let nfo_path = parent.join(format!("{}.nfo", stem));
+        let nfo_path = resolve_nfo_path(output_file);
 
         let tag = if media_type.to_lowercase().contains("tv") { "tvshow" } else { "movie" };
         let year_str = year.map(|y| format!("  <year>{}</year>\n", y)).unwrap_or_default();
@@ -466,6 +472,13 @@ mod tests {
         assert_eq!(format_title_folder_name("Kill Bill: Vol. 1", Some(2003)), "Kill Bill Vol. 1 (2003)");
         assert_eq!(format_title_folder_name("The Office", None), "The Office");
         assert_eq!(format_episode_name("Doctor Who", 1, 3), "Doctor Who - S01E03");
+    }
+
+    #[test]
+    fn test_resolve_nfo_path() {
+        let video = Path::new("Films/Aliens (1986)/Aliens (1986).mp4");
+        let nfo = resolve_nfo_path(video);
+        assert_eq!(nfo, Path::new("Films/Aliens (1986)/Aliens (1986).nfo"));
     }
 
     #[test]

@@ -30,6 +30,15 @@ pub struct BoxSetRecord {
     pub updated_at: String,
 }
 
+/// Formats a clean human-readable job queue status summary (e.g. "Queue status: 3 total queued (1 active)").
+pub fn format_queue_summary(active_count: usize, total_queued: usize) -> String {
+    if total_queued == 0 && active_count == 0 {
+        "Job queue is empty".to_string()
+    } else {
+        format!("Queue status: {} total queued ({} active)", total_queued, active_count)
+    }
+}
+
 static JOB_QUEUE: OnceLock<Arc<Mutex<Vec<JobItem>>>> = OnceLock::new();
 static BOXSET_MANAGER: OnceLock<Arc<Mutex<Vec<BoxSetRecord>>>> = OnceLock::new();
 
@@ -239,5 +248,11 @@ mod tests {
 
         let next_after_reset = get_next_boxset_episode(show, season);
         assert_eq!(next_after_reset, 1);
+    }
+
+    #[test]
+    fn test_format_queue_summary() {
+        assert_eq!(format_queue_summary(0, 0), "Job queue is empty");
+        assert_eq!(format_queue_summary(1, 3), "Queue status: 3 total queued (1 active)");
     }
 }

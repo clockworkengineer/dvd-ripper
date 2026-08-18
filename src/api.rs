@@ -883,11 +883,22 @@ pub fn fail_appliance_status(title: &str, out_dir: &str, err_msg: &str) {
     Ok(())
 }
 
+/// Helper: Extracts a case-insensitive header value from an HTTP header vector.
+pub fn extract_header_value<'a>(headers: &'a [String], header_name: &str) -> Option<&'a str> {
+    let prefix = format!("{}:", header_name.to_lowercase());
+    for line in headers {
+        if line.to_lowercase().starts_with(&prefix) {
+            return Some(line[prefix.len()..].trim());
+        }
+    }
+    None
+}
+
 /// Extracts API authentication key from HTTP Bearer headers or `api_key=` query parameters.
 pub fn extract_auth_key(headers: &[String], path: &str) -> Option<String> {
-    for line in headers {
-        if line.to_lowercase().starts_with("authorization: bearer ") {
-            return Some(line[21..].trim().to_string());
+    if let Some(auth_val) = extract_header_value(headers, "authorization") {
+        if auth_val.to_lowercase().starts_with("bearer ") {
+            return Some(auth_val[7..].trim().to_string());
         }
     }
     parse_query_param(path, "api_key")
@@ -1045,6 +1056,14 @@ mod tests {
     fn test_extract_body() {
         let req = b"POST /api/select HTTP/1.1\r\nContent-Type: application/json\r\n\r\n{\"imdb_id\":\"tt0266697\"}";
         assert_eq!(extract_body(req), Some("{\"imdb_id\":\"tt0266697\"}"));
+    }
+
+    #[test]
+    fn test_extract_header_value() {
+        let headers = vec!["Host: localhost:8080".to_string(), "Content-Type: application/json".to_string()];
+        assert_eq!(extract_header_value(&headers, "content-type"), Some("application/json"));
+        assert_eq!(extract_header_value(&headers, "host"), Some("localhost:8080"));
+        assert_eq!(extract_header_value(&headers, "missing"), None);
     }
 
     #[test]
