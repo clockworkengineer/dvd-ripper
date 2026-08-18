@@ -892,6 +892,17 @@ pub fn extract_auth_key(headers: &[String], path: &str) -> Option<String> {
     parse_query_param(path, "api_key")
 }
 
+/// Helper: Constructs a complete HTTP/1.1 response byte buffer with status line, content type, CORS, and length headers.
+pub fn build_http_response_bytes(status: &str, content_type: &str, body: &[u8]) -> Vec<u8> {
+    let header = format!(
+        "HTTP/1.1 {}\r\nContent-Type: {}\r\nContent-Length: {}\r\nAccess-Control-Allow-Origin: *\r\nConnection: close\r\n\r\n",
+        status, content_type, body.len()
+    );
+    let mut bytes = header.into_bytes();
+    bytes.extend_from_slice(body);
+    bytes
+}
+
 fn send_json_response(stream: &mut TcpStream, status: &str, body_json: &str) -> Result<()> {
     send_http_response(stream, status, "application/json", body_json)
 }
@@ -902,11 +913,8 @@ fn send_json_error(stream: &mut TcpStream, status: &str, message: &str) -> Resul
 }
 
 fn send_http_response(stream: &mut TcpStream, status: &str, content_type: &str, body: &str) -> Result<()> {
-    let response = format!(
-        "HTTP/1.1 {}\r\nContent-Type: {}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
-        status, content_type, body.len(), body
-    );
-    stream.write_all(response.as_bytes())?;
+    let bytes = build_http_response_bytes(status, content_type, body.as_bytes());
+    stream.write_all(&bytes)?;
     Ok(())
 }
 
@@ -998,5 +1006,14 @@ mod tests {
     fn test_prometheus_metrics_route() {
         let req = b"GET /metrics HTTP/1.1\r\nHost: localhost\r\n\r\n";
         assert_eq!(parse_http_route(req), (b"GET" as &[u8], b"/metrics" as &[u8]));
+    }
+
+    #[test]
+    fn test_build_http_response_bytes() {
+        let bytes = build_http_response_bytes("200 OK", "application/json", b"{\"ok\":true}");
+        let resp_str = String::from_utf8_lossy(&bytes);
+        assert!(resp_str.starts_with("HTTP/1.1 200 OK"));
+        assert!(resp_str.contains("Content-Type: application/json"));
+        assert!(resp_str.contains("{\"ok\":true}"));
     }
 }

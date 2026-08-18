@@ -95,6 +95,21 @@ pub fn get_app_data_dir() -> PathBuf {
         .unwrap_or_else(|_| PathBuf::from("."))
 }
 
+/// Formats floating-point duration seconds into standardized HH:MM:SS format (e.g., 5432.0 -> "01:30:32").
+pub fn format_duration_hhmmss(total_secs: f64) -> String {
+    let total = total_secs.max(0.0) as u64;
+    let hours = total / 3600;
+    let mins = (total % 3600) / 60;
+    let secs = total % 60;
+    format!("{:02}:{:02}:{:02}", hours, mins, secs)
+}
+
+/// Formats a log line with a timestamp and prefix tag (e.g. "[2026-08-18 17:15:14] [Daemon] Message").
+pub fn format_timestamped_log(prefix: &str, msg: &str) -> String {
+    let now = chrono::Local::now().format("%Y-%m-%d %H:%M:%S");
+    format!("[{}] [{}] {}", now, prefix, msg)
+}
+
 /// Sanitizes a movie title to make it safe for filesystem folders and file names.
 pub fn sanitize_filename(name: &str) -> String {
     let sanitized: String = name
@@ -543,5 +558,17 @@ mod tests {
     fn test_get_app_data_dir() {
         let dir = get_app_data_dir();
         assert!(dir.to_string_lossy().contains(".dvd-ripper"));
+    }
+
+    #[test]
+    fn test_format_duration_hhmmss() {
+        assert_eq!(format_duration_hhmmss(5432.0), "01:30:32");
+        assert_eq!(format_duration_hhmmss(0.0), "00:00:00");
+    }
+
+    #[test]
+    fn test_format_timestamped_log() {
+        let log = format_timestamped_log("Daemon", "Drive inserted");
+        assert!(log.contains("[Daemon] Drive inserted"));
     }
 }

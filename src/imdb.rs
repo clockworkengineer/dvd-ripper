@@ -159,6 +159,11 @@ fn get_http_client() -> &'static reqwest::blocking::Client {
     })
 }
 
+/// Helper: Constructs a reqwest::Url with query parameter tuples.
+pub fn build_api_url(endpoint: &str, params: &[(&str, &str)]) -> Result<reqwest::Url> {
+    reqwest::Url::parse_with_params(endpoint, params).context("Failed to parse API URL")
+}
+
 /// Represents a structured candidate search result item for UI popup selection.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
 pub struct SearchResultItem {
@@ -727,5 +732,11 @@ mod tests {
         let cached = lookup_fingerprint_cache(dummy_hash);
         assert!(cached.is_some());
         assert_eq!(cached.unwrap().title, "Test Cached Movie");
+    }
+
+    #[test]
+    fn test_build_api_url() {
+        let url = build_api_url("https://api.omdbapi.com", &[("apikey", "demo"), ("t", "Aliens")]).unwrap();
+        assert_eq!(url.as_str(), "https://api.omdbapi.com/?apikey=demo&t=Aliens");
     }
 }
