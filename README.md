@@ -254,9 +254,25 @@ src/
 
 ---
 
+## 📚 Technical Documentation Index
+
+Detailed user guides and technical architecture documents are available in the [`docs/`](file:///c:/Users/User/.gemini/antigravity-ide/scratch/dvd-ripper/docs) directory:
+
+- 📖 **[CLI User Manual](file:///c:/Users/User/.gemini/antigravity-ide/scratch/dvd-ripper/docs/CLI_GUIDE.md)**: Command-line syntax, modes, filters, and usage examples.
+- 📺 **[TV Series Box Set Guide](file:///c:/Users/User/.gemini/antigravity-ide/scratch/dvd-ripper/docs/TV_BOXSET_GUIDE.md)**: Multi-disc TV show season auto-stitching and cumulative episode tracking.
+- ⚙️ **[Configuration Guide](file:///c:/Users/User/.gemini/antigravity-ide/scratch/dvd-ripper/docs/CONFIGURATION.md)**: TOML configuration keys, defaults, and priority hierarchy.
+- 🌐 **[REST API Reference](file:///c:/Users/User/.gemini/antigravity-ide/scratch/dvd-ripper/docs/API_REFERENCE.md)**: HTTP REST endpoints, Bearer auth, SSE streaming, OpenAPI v3 spec, and Prometheus metrics.
+- 🍿 **[Media Server Integration](file:///c:/Users/User/.gemini/antigravity-ide/scratch/dvd-ripper/docs/MEDIA_SERVER_INTEGRATION.md)**: Plex, Jellyfin, Emby scan triggers, NFO XML files, and poster artwork.
+- ⚡ **[Hardware Acceleration Guide](file:///c:/Users/User/.gemini/antigravity-ide/scratch/dvd-ripper/docs/HARDWARE_ACCELERATION.md)**: NVENC, VAAPI, QSV, and V4L2 M2M GPU setup.
+- 🛠️ **[Troubleshooting & Diagnostics](file:///c:/Users/User/.gemini/antigravity-ide/scratch/dvd-ripper/docs/TROUBLESHOOTING.md)**: Optical read speed benchmarks (RipLock), disk space guards, and copy protection.
+- 🏗️ **[System Architecture](file:///c:/Users/User/.gemini/antigravity-ide/scratch/dvd-ripper/docs/ARCHITECTURE.md)**: Threading model, disc fingerprinting, and codebase module breakdown.
+- 💻 **[Developer Guide](file:///c:/Users/User/.gemini/antigravity-ide/scratch/dvd-ripper/docs/DEVELOPER_GUIDE.md)**: Developer onboarding, adding API routes/filters, and contributing.
+
+---
+
 ## 🧪 Testing
 
-Run the full test suite (59 unit tests):
+Run the full test suite (66 unit tests):
 ```bash
 cargo test
 ```
