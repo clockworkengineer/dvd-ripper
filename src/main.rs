@@ -254,6 +254,17 @@ fn main() -> Result<()> {
     if args.tv {
         let show_name = title_name.as_deref().unwrap_or("TV Show");
 
+        if args.auto_boxset && args.start_episode == 1 {
+            let next_ep = crate::queue::get_next_boxset_episode(show_name, args.season);
+            if next_ep > 1 {
+                args.start_episode = next_ep;
+                println!(
+                    "Auto BoxSet Mode: Automatically offset starting episode to S{:02}E{:02} for show '{}'.",
+                    args.season, next_ep, show_name
+                );
+            }
+        }
+
         println!(
             "TV Mode: Show '{}', Season {:02}, Start Episode #{}.",
             show_name, args.season, args.start_episode
@@ -308,6 +319,15 @@ fn main() -> Result<()> {
                     Some(ep.duration_secs),
                 )?;
                 last_output_file = Some(ep_output);
+            }
+
+            if args.auto_boxset && !episodes.is_empty() {
+                let count = episodes.len() as u32;
+                let new_last = crate::queue::record_boxset_episodes_ripped(show_name, args.season, count);
+                println!(
+                    "\nAuto BoxSet Mode: Recorded {} episodes ripped for '{}' S{:02}. Next disc will start at E{:02}.",
+                    count, show_name, args.season, new_last + 1
+                );
             }
 
             println!("\nSuccessfully completed batch rip of all episodes!");

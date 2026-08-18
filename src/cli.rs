@@ -81,8 +81,11 @@ pub struct Args {
     #[arg(long = "start-episode", default_value_t = 1)]
     pub start_episode: u32,
 
+    /// Automatically calculate cumulative episode numbering across multi-disc TV season box sets
+    #[arg(long = "auto-boxset")]
+    pub auto_boxset: bool,
+
     /// Automatically rip all detected TV episode titles on the disc sequentially
-    #[arg(long = "all-episodes")]
     pub all_episodes: bool,
 
     /// Include all audio tracks from DVD title in output
@@ -206,6 +209,7 @@ impl Default for Args {
             tv: false,
             season: 1,
             start_episode: 1,
+            auto_boxset: false,
             all_episodes: false,
             all_audio: false,
             normalize_audio: false,

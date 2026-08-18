@@ -25,6 +25,7 @@ pub struct AppConfig {
     pub emby_url: Option<String>,
     pub emby_key: Option<String>,
     pub post_script: Option<String>,
+    pub auto_boxset: Option<bool>,
 }
 
 /// Loads configuration from custom path, ./dvd-ripper.toml, or ~/.dvd-ripper/config.toml
@@ -123,6 +124,11 @@ pub fn apply_config_defaults(args: &mut Args, config: &AppConfig) {
     }
     if args.post_script.is_none() {
         args.post_script = config.post_script.clone();
+    }
+    if let Some(val) = config.auto_boxset {
+        if !args.auto_boxset {
+            args.auto_boxset = val;
+        }
     }
 }
 

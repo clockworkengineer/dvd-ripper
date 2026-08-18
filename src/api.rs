@@ -834,6 +834,21 @@ fn handle_client(mut stream: TcpStream, drive_path: &str) -> Result<()> {
         update_appliance_status("Cancelled", "", "", 0.0, "0", "0x");
         let json_body = "{\"success\": true, \"message\": \"Ripping process cancelled by user.\"}";
         send_http_response(&mut stream, "200 OK", "application/json", json_body)?;
+    } else if method_str == "GET" && path_str == "/api/boxset" {
+        let boxsets = crate::queue::list_boxsets();
+        let json_body = serde_json::to_string(&boxsets).unwrap_or_else(|_| "[]".to_string());
+        send_http_response(&mut stream, "200 OK", "application/json", &json_body)?;
+    } else if method_str == "POST" && path_str.starts_with("/api/boxset/reset") {
+        let query_show = parse_query_param(&path_str, "show").unwrap_or_default();
+        let query_season = parse_query_param(&path_str, "season")
+            .and_then(|s| s.parse::<u32>().ok())
+            .unwrap_or(1);
+        let reset = crate::queue::reset_boxset_tracker(&query_show, query_season);
+        let json_body = format!(
+            "{{\"success\": {}, \"show\": \"{}\", \"season\": {}}}",
+            reset, query_show, query_season
+        );
+        send_http_response(&mut stream, "200 OK", "application/json", &json_body)?;
     } else {
         send_http_response(&mut stream, "404 Not Found", "text/plain", "404 Not Found")?;
     }

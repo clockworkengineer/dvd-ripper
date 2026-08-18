@@ -55,6 +55,7 @@ pub struct DvdRipperApp {
     sub_format: String,
     webhook_url: String,
     no_overwrite: bool,
+    auto_boxset: bool,
 
     // Codec & Profile settings
     codec: String,
@@ -100,6 +101,7 @@ impl Default for DvdRipperApp {
             is_tv_mode: false,
             season_number: 1,
             start_episode: 1,
+            auto_boxset: false,
             all_episodes: true,
             detected_episodes: Vec::new(),
 
@@ -344,6 +346,7 @@ impl DvdRipperApp {
         let sub_format = Some(self.sub_format.clone());
         let webhook_url = if self.webhook_url.trim().is_empty() { None } else { Some(self.webhook_url.trim().to_string()) };
         let no_overwrite = self.no_overwrite;
+        let auto_boxset = self.auto_boxset;
 
         std::thread::spawn(move || {
             if is_tv && all_eps {
@@ -396,6 +399,7 @@ impl DvdRipperApp {
                     args.sub_format = sub_format.clone();
                     args.webhook_url = webhook_url.clone();
                     args.no_overwrite = no_overwrite;
+                    args.auto_boxset = auto_boxset;
 
                     match resolve_tv_output_path(&args, show_name_opt.as_deref(), year_opt, season, ep.episode_num) {
                         Ok(abs_out) => {
@@ -430,6 +434,12 @@ impl DvdRipperApp {
                             let _ = tx.send(ProgressEvent::Error(format!("Path resolution error: {}", e)));
                             return;
                         }
+                    }
+                }
+
+                if auto_boxset && total > 0 {
+                    if let Some(ref name) = show_name_opt {
+                        let _ = crate::queue::record_boxset_episodes_ripped(name, season, total as u32);
                     }
                 }
 
@@ -811,20 +821,37 @@ impl eframe::App for DvdRipperApp {
                             ui.add_space(4.0);
 
                             if self.is_tv_mode {
-                                ui.horizontal(|ui| {
-                                    ui.label("Season #:");
-                                    if ui.add(egui::DragValue::new(&mut self.season_number).range(1..=99)).changed() {
-                                        self.update_detected_episode_names();
-                                    }
-                                    ui.label("Start Ep #:");
-                                    if ui.add(egui::DragValue::new(&mut self.start_episode).range(1..=99)).changed() {
-                                        self.update_detected_episode_names();
-                                    }
-                                    ui.checkbox(&mut self.all_episodes, "Rip All Episodes");
-                                    if ui.button("🔍 Scan Disc").clicked() {
-                                        self.trigger_tv_scan();
-                                    }
-                                });
+                                 ui.horizontal(|ui| {
+                                     ui.label("Season #:");
+                                     if ui.add(egui::DragValue::new(&mut self.season_number).range(1..=99)).changed() {
+                                         if self.auto_boxset {
+                                             let next_ep = crate::queue::get_next_boxset_episode(&self.film_name, self.season_number);
+                                             self.start_episode = next_ep;
+                                         }
+                                         self.update_detected_episode_names();
+                                     }
+                                     ui.label("Start Ep #:");
+                                     if ui.add(egui::DragValue::new(&mut self.start_episode).range(1..=99)).changed() {
+                                         self.update_detected_episode_names();
+                                     }
+                                     if ui.checkbox(&mut self.auto_boxset, "📦 Auto BoxSet").changed() {
+                                         if self.auto_boxset {
+                                             let next_ep = crate::queue::get_next_boxset_episode(&self.film_name, self.season_number);
+                                             self.start_episode = next_ep;
+                                             self.update_detected_episode_names();
+                                         }
+                                     }
+                                     ui.checkbox(&mut self.all_episodes, "Rip All Episodes");
+                                     if ui.button("🔍 Scan Disc").clicked() {
+                                         if self.auto_boxset && self.start_episode == 1 {
+                                             let next_ep = crate::queue::get_next_boxset_episode(&self.film_name, self.season_number);
+                                             if next_ep > 1 {
+                                                 self.start_episode = next_ep;
+                                             }
+                                         }
+                                         self.trigger_tv_scan();
+                                     }
+                                 });
 
                                 if !self.detected_episodes.is_empty() {
                                     ui.label(egui::RichText::new(format!("Detected Episodes ({}):", self.detected_episodes.len())).strong().small());
