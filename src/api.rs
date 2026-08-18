@@ -894,6 +894,16 @@ pub fn extract_header_value<'a>(headers: &'a [String], header_name: &str) -> Opt
     None
 }
 
+/// Helper: Parses JSON HTTP request body after verifying Content-Type header.
+pub fn parse_json_request_body<'a>(req: &'a [u8], headers: &[String]) -> Option<&'a str> {
+    if let Some(ct) = extract_header_value(headers, "content-type") {
+        if !ct.to_lowercase().contains("application/json") {
+            return None;
+        }
+    }
+    extract_body(req)
+}
+
 /// Extracts API authentication key from HTTP Bearer headers or `api_key=` query parameters.
 pub fn extract_auth_key(headers: &[String], path: &str) -> Option<String> {
     if let Some(auth_val) = extract_header_value(headers, "authorization") {
@@ -1064,6 +1074,13 @@ mod tests {
         assert_eq!(extract_header_value(&headers, "content-type"), Some("application/json"));
         assert_eq!(extract_header_value(&headers, "host"), Some("localhost:8080"));
         assert_eq!(extract_header_value(&headers, "missing"), None);
+    }
+
+    #[test]
+    fn test_parse_json_request_body() {
+        let req = b"POST /api/rip HTTP/1.1\r\nContent-Type: application/json\r\n\r\n{\"drive\":\"D:\"}";
+        let headers = vec!["Content-Type: application/json".to_string()];
+        assert_eq!(parse_json_request_body(req, &headers), Some("{\"drive\":\"D:\"}"));
     }
 
     #[test]

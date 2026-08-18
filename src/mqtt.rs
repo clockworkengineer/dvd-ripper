@@ -17,9 +17,14 @@ fn format_broker_address(broker: &str) -> String {
     }
 }
 
+/// Normalizes an MQTT topic prefix string by trimming leading and trailing slashes.
+pub fn normalize_mqtt_prefix(prefix: &str) -> String {
+    prefix.trim_matches('/').to_string()
+}
+
 /// Formats a clean MQTT topic string (e.g. "dvd-ripper/appliance/status").
 pub fn format_mqtt_topic(prefix: &str, subtopic: &str) -> String {
-    let clean_prefix = prefix.trim_matches('/');
+    let clean_prefix = normalize_mqtt_prefix(prefix);
     let clean_sub = subtopic.trim_matches('/');
     if clean_prefix.is_empty() {
         clean_sub.to_string()
@@ -226,5 +231,11 @@ mod tests {
     fn test_format_mqtt_topic() {
         assert_eq!(format_mqtt_topic("dvd-ripper", "status"), "dvd-ripper/status");
         assert_eq!(format_mqtt_topic("/dvd-ripper/", "/status/"), "dvd-ripper/status");
+    }
+
+    #[test]
+    fn test_normalize_mqtt_prefix() {
+        assert_eq!(normalize_mqtt_prefix("/dvd-ripper/"), "dvd-ripper");
+        assert_eq!(normalize_mqtt_prefix("dvd-ripper"), "dvd-ripper");
     }
 }

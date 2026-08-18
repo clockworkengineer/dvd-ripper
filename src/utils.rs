@@ -282,6 +282,11 @@ pub fn trigger_media_server_scans(args: &crate::cli::Args) {
     }
 }
 
+/// Resolves sidecar artwork image file path (e.g. "cover.jpg" or "folder.jpg") relative to target directory.
+pub fn resolve_artwork_path(target_dir: &Path, filename: &str) -> PathBuf {
+    target_dir.join(filename)
+}
+
 /// Resolves sidecar `.nfo` metadata file path from video output path.
 pub fn resolve_nfo_path(video_path: &std::path::Path) -> std::path::PathBuf {
     let parent = video_path.parent().unwrap_or_else(|| std::path::Path::new("."));
@@ -479,6 +484,12 @@ mod tests {
         let video = Path::new("Films/Aliens (1986)/Aliens (1986).mp4");
         let nfo = resolve_nfo_path(video);
         assert_eq!(nfo, Path::new("Films/Aliens (1986)/Aliens (1986).nfo"));
+    }
+
+    #[test]
+    fn test_resolve_artwork_path() {
+        let dir = Path::new("Films/Aliens (1986)");
+        assert_eq!(resolve_artwork_path(dir, "poster.jpg"), Path::new("Films/Aliens (1986)/poster.jpg"));
     }
 
     #[test]

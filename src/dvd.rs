@@ -435,15 +435,7 @@ pub fn run_drive_benchmark(
     let read_speed_mbps = (est_bytes as f64 / (1024.0 * 1024.0)) / elapsed;
     let demux_speed_mbps = (est_bytes as f64 / (1024.0 * 1024.0)) / time_sec.max(0.1);
 
-    let rating_summary = if read_speed_mbps >= 15.0 {
-        "High Performance (16x+ Speed)".to_string()
-    } else if read_speed_mbps >= 8.0 {
-        "Standard DVD Read Speed (8x Speed)".to_string()
-    } else if read_speed_mbps >= 4.0 {
-        "Moderate Speed (4x Speed)".to_string()
-    } else {
-        "Slow / Potential RipLock or Bus Bottleneck (< 4x)".to_string()
-    };
+    let rating_summary = format_drive_speed_rating(read_speed_mbps);
 
     Ok(DriveBenchmarkReport {
         drive_path: norm_path.to_string_lossy().to_string(),
@@ -454,6 +446,19 @@ pub fn run_drive_benchmark(
         fps,
         rating_summary,
     })
+}
+
+/// Formats a human-readable DVD drive benchmark read speed rating summary string.
+pub fn format_drive_speed_rating(speed_mbps: f64) -> String {
+    if speed_mbps >= 15.0 {
+        "High Performance (16x+ Speed)".to_string()
+    } else if speed_mbps >= 8.0 {
+        "Standard DVD Read Speed (8x Speed)".to_string()
+    } else if speed_mbps >= 4.0 {
+        "Moderate Speed (4x Speed)".to_string()
+    } else {
+        "Slow / Potential RipLock or Bus Bottleneck (< 4x)".to_string()
+    }
 }
 
 /// Formats a raw hash value into a standardized disc fingerprint string (e.g. "disc_a1b2c3d4").
@@ -541,6 +546,14 @@ mod tests {
         assert_eq!(format_copy_protection_summary(true, true), "CSS / Content Scramble System Encrypted");
         assert_eq!(format_copy_protection_summary(false, true), "Generic Protection / Encrypted Disc");
         assert_eq!(format_copy_protection_summary(false, false), "Unencrypted / Standard DVD-Video");
+    }
+
+    #[test]
+    fn test_format_drive_speed_rating() {
+        assert_eq!(format_drive_speed_rating(16.0), "High Performance (16x+ Speed)");
+        assert_eq!(format_drive_speed_rating(8.5), "Standard DVD Read Speed (8x Speed)");
+        assert_eq!(format_drive_speed_rating(5.0), "Moderate Speed (4x Speed)");
+        assert_eq!(format_drive_speed_rating(2.0), "Slow / Potential RipLock or Bus Bottleneck (< 4x)");
     }
 
     #[test]
