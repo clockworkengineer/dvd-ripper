@@ -951,9 +951,11 @@ impl eframe::App for DvdRipperApp {
 
                 ui.add_space(6.0);
 
+                let avail_w = (ui.available_width() - 8.0).max(180.0);
                 let progress_bar = egui::ProgressBar::new(self.progress_percent)
                     .show_percentage()
-                    .animate(self.is_ripping);
+                    .animate(self.is_ripping)
+                    .desired_width(avail_w);
                 ui.add(progress_bar);
 
                 ui.horizontal(|ui| {

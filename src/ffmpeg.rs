@@ -725,7 +725,7 @@ pub fn run_ffmpeg_with_channel(
                                     crate::api::update_appliance_status("Ripping", "", display_title, percent, &fps, &speed);
 
                                     if tx.is_none() {
-                                        let width = 30;
+                                        let width = 20;
                                         let filled = ((percent / 100.0) * width as f64).round() as usize;
                                         let empty = width - filled;
                                         println!(
