@@ -237,6 +237,24 @@ pub fn format_hwaccel_vf_chain(hwaccel: &str, vf_filters: &[String]) -> Option<S
     }
 }
 
+/// Resolves target FFmpeg subtitle codec string based on user requested format ("subrip", "srt", "dvdsub").
+pub fn resolve_subtitle_codec(sub_format: Option<&str>) -> &'static str {
+    match sub_format.unwrap_or("dvdsub").to_lowercase().as_str() {
+        "subrip" | "srt" => "subrip",
+        _ => "dvdsub",
+    }
+}
+
+/// Formats a human-readable title auto-detection summary log message.
+pub fn format_title_selection_summary(detected_title: u32, duration_opt: Option<f64>, expected_runtime_secs: Option<f64>) -> String {
+    let dur_str = duration_opt.map(|d| format!(" ({:.0} mins)", d / 60.0)).unwrap_or_default();
+    if expected_runtime_secs.is_some() {
+        format!("Auto-selected Title #{}{} (matched running time)", detected_title, dur_str)
+    } else {
+        format!("Auto-selected Title #{}{} (longest duration on DVD)", detected_title, dur_str)
+    }
+}
+
 /// Probes all titles on the DVD drive, using fast single-pass probing with fallback to sequential probing.
 pub fn probe_dvd_titles(
     ffmpeg_path: &str,
@@ -470,10 +488,7 @@ pub fn build_ffmpeg_command(
         } else {
             cmd.arg("-map").arg("0:s?");
         }
-        let sub_codec = match args.sub_format.as_deref().unwrap_or("dvdsub").to_lowercase().as_str() {
-            "subrip" | "srt" => "subrip",
-            _ => "dvdsub",
-        };
+        let sub_codec = resolve_subtitle_codec(args.sub_format.as_deref());
         cmd.arg("-c:s").arg(sub_codec);
     }
 
@@ -1181,6 +1196,20 @@ mod tests {
         assert_eq!(format_hwaccel_vf_chain("vaapi", &filters), Some("scale=-2:720,bwdif,format=nv12,hwupload".to_string()));
         assert_eq!(format_hwaccel_vf_chain("copy", &filters), Some("scale=-2:720,bwdif".to_string()));
         assert_eq!(format_hwaccel_vf_chain("vaapi", &[]), Some("format=nv12,hwupload".to_string()));
+    }
+
+    #[test]
+    fn test_resolve_subtitle_codec() {
+        assert_eq!(resolve_subtitle_codec(Some("srt")), "subrip");
+        assert_eq!(resolve_subtitle_codec(Some("SubRip")), "subrip");
+        assert_eq!(resolve_subtitle_codec(Some("dvdsub")), "dvdsub");
+        assert_eq!(resolve_subtitle_codec(None), "dvdsub");
+    }
+
+    #[test]
+    fn test_format_title_selection_summary() {
+        let msg = format_title_selection_summary(3, Some(7200.0), None);
+        assert_eq!(msg, "Auto-selected Title #3 (120 mins) (longest duration on DVD)");
     }
 
     #[test]

@@ -110,6 +110,11 @@ pub fn format_timestamped_log(prefix: &str, msg: &str) -> String {
     format!("[{}] [{}] {}", now, prefix, msg)
 }
 
+/// Escapes special characters in a string to make it safe for insertion into JSON string literals.
+pub fn escape_json_str(input: &str) -> String {
+    input.replace('\\', "\\\\").replace('"', "\\\"").replace('\n', "\\n").replace('\r', "\\r")
+}
+
 /// Sanitizes a movie title to make it safe for filesystem folders and file names.
 pub fn sanitize_filename(name: &str) -> String {
     let sanitized: String = name
@@ -570,5 +575,10 @@ mod tests {
     fn test_format_timestamped_log() {
         let log = format_timestamped_log("Daemon", "Drive inserted");
         assert!(log.contains("[Daemon] Drive inserted"));
+    }
+
+    #[test]
+    fn test_escape_json_str() {
+        assert_eq!(escape_json_str("Hello \"World\"\nTest"), "Hello \\\"World\\\"\\nTest");
     }
 }

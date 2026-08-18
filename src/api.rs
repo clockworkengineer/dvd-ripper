@@ -908,7 +908,7 @@ fn send_json_response(stream: &mut TcpStream, status: &str, body_json: &str) -> 
 }
 
 fn send_json_error(stream: &mut TcpStream, status: &str, message: &str) -> Result<()> {
-    let err_body = format!("{{\"error\": \"{}\"}}", message.replace('"', "\\\""));
+    let err_body = format!("{{\"error\": \"{}\"}}", crate::utils::escape_json_str(message));
     send_http_response(stream, status, "application/json", &err_body)
 }
 
