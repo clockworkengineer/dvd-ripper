@@ -946,12 +946,16 @@ impl eframe::App for DvdRipperApp {
                         }
                     }
 
-                    ui.label(egui::RichText::new(&self.status_message).strong());
+                    ui.add(
+                        egui::Label::new(egui::RichText::new(&self.status_message).strong())
+                            .truncate()
+                    );
                 });
 
                 ui.add_space(6.0);
 
-                let avail_w = (ui.available_width() - 8.0).max(180.0);
+                let max_w = (ui.clip_rect().width() - 40.0).max(180.0);
+                let avail_w = (ui.available_width() - 8.0).min(max_w);
                 let progress_bar = egui::ProgressBar::new(self.progress_percent)
                     .show_percentage()
                     .animate(self.is_ripping)
