@@ -77,6 +77,16 @@ pub fn normalize_volume_label_title(label: &str) -> String {
     }
 }
 
+/// Ensures that the parent directory for a target file path exists on disk.
+pub fn ensure_parent_dir(path: &Path) -> Result<()> {
+    if let Some(parent) = path.parent() {
+        if !parent.as_os_str().is_empty() && !parent.exists() {
+            std::fs::create_dir_all(parent)?;
+        }
+    }
+    Ok(())
+}
+
 /// Sanitizes a movie title to make it safe for filesystem folders and file names.
 pub fn sanitize_filename(name: &str) -> String {
     let sanitized: String = name

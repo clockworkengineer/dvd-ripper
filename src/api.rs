@@ -732,9 +732,17 @@ fn handle_client(mut stream: TcpStream, drive_path: &str) -> Result<()> {
                     }
                 });
 
+pub fn reset_appliance_status(status_name: &str) {
+    update_appliance_status(status_name, "", "", 0.0, "0", "0x");
+}
+
+pub fn fail_appliance_status(title: &str, out_dir: &str, err_msg: &str) {
+    reset_appliance_status("Failed");
+    let _ = crate::history::record_rip_event(title, "Movie", out_dir, err_msg);
+}
+
                 if let Err(e) = crate::utils::check_disk_space_guard(std::path::Path::new(&args.out_dir), args.min_free_gb) {
-                    update_appliance_status("Failed", "", "", 0.0, "0", "0x");
-                    let _ = crate::history::record_rip_event(&title, "Movie", &args.out_dir, &format!("Disk Space Error: {}", e));
+                    fail_appliance_status(&title, &args.out_dir, &format!("Disk Space Error: {}", e));
                     return;
                 }
 

@@ -26,6 +26,8 @@ pub struct FilmMetadata {
     pub poster_bytes: Option<Vec<u8>>,
 }
 
+
+
 /// Represents a single movie/series search result from the OMDb database.
 #[derive(Deserialize, Debug)]
 pub struct OmdbResponse {
@@ -165,6 +167,14 @@ pub struct SearchResultItem {
     pub imdb_id: String,
     pub type_field: String,
     pub poster_url: Option<String>,
+}
+
+impl SearchResultItem {
+    pub fn formatted_label(&self) -> String {
+        let yr = self.year.map(|y| format!(" ({})", y)).unwrap_or_default();
+        let type_desc = if !self.type_field.is_empty() { format!(" [{}]", self.type_field) } else { String::new() };
+        format!("{}{}{}", self.title, yr, type_desc)
+    }
 }
 
 /// Represents a search result entry from OMDb search endpoint.
@@ -674,6 +684,18 @@ mod tests {
         assert_eq!(meta.runtime_secs, Some(8220.0));
         assert!(meta.plot.is_some());
         assert!(meta.poster_bytes.is_some());
+    }
+
+    #[test]
+    fn test_search_result_item_formatted_label() {
+        let item = SearchResultItem {
+            imdb_id: "tt0090605".to_string(),
+            title: "Aliens".to_string(),
+            year: Some(1986),
+            type_field: "movie".to_string(),
+            poster_url: None,
+        };
+        assert_eq!(item.formatted_label(), "Aliens (1986) [movie]");
     }
 
     #[test]

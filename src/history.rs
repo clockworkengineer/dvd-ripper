@@ -51,6 +51,7 @@ pub fn load_history(path: Option<&Path>) -> Vec<RipRecord> {
 /// Saves history records to disk.
 pub fn save_history(records: &[RipRecord], path: Option<&Path>) -> Result<()> {
     let history_path = resolve_history_path(path);
+    let _ = crate::utils::ensure_parent_dir(&history_path);
     let json = serde_json::to_string_pretty(records)?;
     fs::write(history_path, json)?;
     Ok(())
