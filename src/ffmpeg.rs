@@ -217,6 +217,26 @@ pub fn parse_title_duration_line(line: &str) -> Option<f64> {
     }
 }
 
+/// Formats video filter strings for specific hardware acceleration modes (e.g. VAAPI format=nv12,hwupload).
+pub fn format_hwaccel_vf_chain(hwaccel: &str, vf_filters: &[String]) -> Option<String> {
+    match hwaccel.to_lowercase().as_str() {
+        "vaapi" => {
+            if vf_filters.is_empty() {
+                Some("format=nv12,hwupload".to_string())
+            } else {
+                Some(format!("{},format=nv12,hwupload", vf_filters.join(",")))
+            }
+        }
+        _ => {
+            if vf_filters.is_empty() {
+                None
+            } else {
+                Some(vf_filters.join(","))
+            }
+        }
+    }
+}
+
 /// Probes all titles on the DVD drive, using fast single-pass probing with fallback to sequential probing.
 pub fn probe_dvd_titles(
     ffmpeg_path: &str,
@@ -1153,6 +1173,14 @@ mod tests {
         let line = "  Duration: 00:45:30.12, start: 0.000000, bitrate: 5500 kb/s";
         let parsed = parse_title_duration_line(line);
         assert_eq!(parsed, Some(2730.12));
+    }
+
+    #[test]
+    fn test_format_hwaccel_vf_chain() {
+        let filters = vec!["scale=-2:720".to_string(), "bwdif".to_string()];
+        assert_eq!(format_hwaccel_vf_chain("vaapi", &filters), Some("scale=-2:720,bwdif,format=nv12,hwupload".to_string()));
+        assert_eq!(format_hwaccel_vf_chain("copy", &filters), Some("scale=-2:720,bwdif".to_string()));
+        assert_eq!(format_hwaccel_vf_chain("vaapi", &[]), Some("format=nv12,hwupload".to_string()));
     }
 
     #[test]

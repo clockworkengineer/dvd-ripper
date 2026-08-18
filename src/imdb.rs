@@ -616,13 +616,8 @@ pub fn fetch_tv_episode_title(show_name: &str, season: u32, episode_num: u32) ->
 }
 
 fn resolve_fingerprint_cache_path() -> PathBuf {
-    let home_str = std::env::var("USERPROFILE")
-        .or_else(|_| std::env::var("HOME"))
-        .unwrap_or_else(|_| ".".to_string());
-    let mut base = PathBuf::from(home_str);
-    base.push(".dvd-ripper");
-    let _ = std::fs::create_dir_all(&base);
-    base.push("fingerprints.json");
+    let base = crate::utils::get_app_data_dir().join("fingerprints.json");
+    let _ = crate::utils::ensure_parent_dir(&base);
     base
 }
 

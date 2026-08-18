@@ -47,11 +47,7 @@ fn resolve_boxsets_path(custom_path: Option<&str>) -> PathBuf {
     if let Some(p) = custom_path {
         return PathBuf::from(p);
     }
-    let home = std::env::var("USERPROFILE")
-        .or_else(|_| std::env::var("HOME"))
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| PathBuf::from("."));
-    home.join(".dvd-ripper").join("boxsets.json")
+    crate::utils::get_app_data_dir().join("boxsets.json")
 }
 
 /// Loads persistent box set records from ~/.dvd-ripper/boxsets.json
@@ -70,9 +66,7 @@ pub fn load_boxsets(custom_path: Option<&str>) -> Vec<BoxSetRecord> {
 /// Saves box set records to ~/.dvd-ripper/boxsets.json
 pub fn save_boxsets(records: &[BoxSetRecord], custom_path: Option<&str>) -> anyhow::Result<()> {
     let p = resolve_boxsets_path(custom_path);
-    if let Some(parent) = p.parent() {
-        let _ = fs::create_dir_all(parent);
-    }
+    let _ = crate::utils::ensure_parent_dir(&p);
     let json = serde_json::to_string_pretty(records)?;
     fs::write(p, json)?;
     Ok(())

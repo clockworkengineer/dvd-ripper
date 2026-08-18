@@ -137,14 +137,10 @@ pub fn publish_mqtt_status(
 }
 
 /// Sends a multi-service HTTP POST JSON Webhook notification (Discord / Slack / Ntfy / Telegram / Gotify).
-pub fn send_webhook_notification(
-    webhook_url: &str,
-    disc_name: &str,
-    status: &str,
-    message: &str,
-) -> Result<()> {
+/// Helper: Builds a unified JSON webhook payload compatible with Discord, Slack, Ntfy, Telegram, and Gotify.
+pub fn build_webhook_payload(disc_name: &str, status: &str, message: &str) -> String {
     let text_message = format!("📀 DVD Ripper [{}] - {}: {}", disc_name, status, message);
-    let payload = format!(
+    format!(
         "{{\"appliance\":\"dvd-ripper\",\"status\":\"{}\",\"disc\":\"{}\",\"message\":\"{}\",\"content\":\"{}\",\"text\":\"{}\",\"title\":\"DVD Ripper Alert\",\"timestamp\":\"{}\"}}",
         status,
         disc_name,
@@ -152,7 +148,16 @@ pub fn send_webhook_notification(
         text_message,
         text_message,
         chrono::Local::now().format("%Y-%m-%d %H:%M:%S")
-    );
+    )
+}
+
+pub fn send_webhook_notification(
+    webhook_url: &str,
+    disc_name: &str,
+    status: &str,
+    message: &str,
+) -> Result<()> {
+    let payload = build_webhook_payload(disc_name, status, message);
 
     let client = reqwest::blocking::Client::builder()
         .timeout(Duration::from_secs(5))
@@ -197,5 +202,12 @@ mod tests {
         let pkt = build_mqtt_publish_packet("dvd_ripper/state", "{\"status\":\"Idle\"}");
         assert_eq!(pkt[0], 0x30); // PUBLISH packet type
         assert!(pkt.len() > 15);
+    }
+
+    #[test]
+    fn test_build_webhook_payload() {
+        let payload = build_webhook_payload("ALIENS", "Success", "Completed rip");
+        assert!(payload.contains("\"appliance\":\"dvd-ripper\""));
+        assert!(payload.contains("\"disc\":\"ALIENS\""));
     }
 }

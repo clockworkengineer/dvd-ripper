@@ -87,6 +87,14 @@ pub fn ensure_parent_dir(path: &Path) -> Result<()> {
     Ok(())
 }
 
+/// Returns the centralized application data directory (~/.dvd-ripper or %USERPROFILE%\.dvd-ripper).
+pub fn get_app_data_dir() -> PathBuf {
+    std::env::var("USERPROFILE")
+        .or_else(|_| std::env::var("HOME"))
+        .map(|h| PathBuf::from(h).join(".dvd-ripper"))
+        .unwrap_or_else(|_| PathBuf::from("."))
+}
+
 /// Sanitizes a movie title to make it safe for filesystem folders and file names.
 pub fn sanitize_filename(name: &str) -> String {
     let sanitized: String = name
@@ -529,5 +537,11 @@ mod tests {
         assert!(content.contains("<director>James Cameron</director>"));
 
         let _ = std::fs::remove_dir_all(temp_dir);
+    }
+
+    #[test]
+    fn test_get_app_data_dir() {
+        let dir = get_app_data_dir();
+        assert!(dir.to_string_lossy().contains(".dvd-ripper"));
     }
 }

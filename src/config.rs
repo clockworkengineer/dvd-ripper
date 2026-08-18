@@ -4,7 +4,7 @@
  */
 
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use serde::{Deserialize, Serialize};
 use crate::cli::Args;
 
@@ -56,14 +56,12 @@ pub fn load_config(custom_path: Option<&str>) -> AppConfig {
         }
     }
 
-    if let Some(home) = get_user_home_dir() {
-        let home_config = home.join(".dvd-ripper").join("config.toml");
-        if home_config.exists() {
-            if let Ok(content) = fs::read_to_string(&home_config) {
-                if let Ok(cfg) = parse_config_toml(&content) {
-                    println!("[Config] Loaded configuration from '{}'", home_config.display());
-                    return cfg;
-                }
+    let home_config = crate::utils::get_app_data_dir().join("config.toml");
+    if home_config.exists() {
+        if let Ok(content) = fs::read_to_string(&home_config) {
+            if let Ok(cfg) = parse_config_toml(&content) {
+                println!("[Config] Loaded configuration from '~/.dvd-ripper/config.toml'");
+                return cfg;
             }
         }
     }
@@ -152,13 +150,6 @@ pub fn apply_config_defaults(args: &mut Args, config: &AppConfig) {
             args.min_free_gb = val;
         }
     }
-}
-
-fn get_user_home_dir() -> Option<PathBuf> {
-    std::env::var("USERPROFILE")
-        .or_else(|_| std::env::var("HOME"))
-        .map(PathBuf::from)
-        .ok()
 }
 
 #[cfg(test)]
