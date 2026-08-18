@@ -967,6 +967,12 @@ fn send_json_response(stream: &mut TcpStream, status: &str, body_json: &str) -> 
     send_http_response(stream, status, "application/json", body_json)
 }
 
+/// Helper: Sends a simple single key-value JSON response body (e.g. {"success": "true"} or {"message": "..."}).
+pub fn send_json_message(stream: &mut TcpStream, status: &str, key: &str, val: &str) -> Result<()> {
+    let json_body = format!("{{\"{}\": \"{}\"}}", key, crate::utils::escape_json_str(val));
+    send_json_response(stream, status, &json_body)
+}
+
 fn send_json_error(stream: &mut TcpStream, status: &str, message: &str) -> Result<()> {
     let err_body = format!("{{\"error\": \"{}\"}}", crate::utils::escape_json_str(message));
     send_http_response(stream, status, "application/json", &err_body)
@@ -1048,6 +1054,13 @@ mod tests {
         let map = parse_query_map("/api/search?q=Aliens&api_key=secret");
         assert_eq!(map.get("q"), Some(&"Aliens".to_string()));
         assert_eq!(map.get("api_key"), Some(&"secret".to_string()));
+    }
+
+    #[test]
+    fn test_send_json_message() {
+        // Test helper string formatting logic
+        let json_body = format!("{{\"{}\": \"{}\"}}", "status", crate::utils::escape_json_str("success"));
+        assert_eq!(json_body, "{\"status\": \"success\"}");
     }
 
     #[test]

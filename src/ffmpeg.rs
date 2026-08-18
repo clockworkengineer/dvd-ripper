@@ -293,6 +293,22 @@ pub fn format_tv_season_folder(show_name: &str, year: Option<u32>, season: u32) 
         .join(format!("Season {:02}", season))
 }
 
+/// Formats a standardized movie directory relative path (e.g., "Films/Aliens (1986)").
+pub fn format_movie_folder(title: &str, year: Option<u32>) -> PathBuf {
+    let clean_title = crate::utils::sanitize_filename(title);
+    let folder_name = format_title_folder_name(&clean_title, year);
+    PathBuf::from("Films").join(folder_name)
+}
+
+/// Resolves target FFmpeg library video encoder name from user codec string ("h264", "hevc", "av1").
+pub fn resolve_video_codec_name(codec: &str) -> &'static str {
+    match codec.to_lowercase().as_str() {
+        "hevc" | "h265" => "libx265",
+        "av1" => "libsvtav1",
+        _ => "libx264",
+    }
+}
+
 /// Probes all titles on the DVD drive, using fast single-pass probing with fallback to sequential probing.
 pub fn probe_dvd_titles(
     ffmpeg_path: &str,
@@ -575,13 +591,7 @@ pub fn build_ffmpeg_command(
             if !vf_filters.is_empty() {
                 cmd.arg("-vf").arg(vf_filters.join(","));
             }
-            if codec == "hevc" || codec == "h265" {
-                cmd.arg("-c:v").arg("libx265");
-            } else if codec == "av1" {
-                cmd.arg("-c:v").arg("libsvtav1");
-            } else {
-                cmd.arg("-c:v").arg("libx264");
-            }
+            cmd.arg("-c:v").arg(resolve_video_codec_name(&codec));
             cmd.arg("-preset").arg(&args.preset);
             cmd.arg("-crf").arg("20");
             cmd.arg("-c:a").arg("aac");
@@ -631,13 +641,7 @@ pub fn build_ffmpeg_command(
                     if !vf_filters.is_empty() {
                         cmd.arg("-vf").arg(vf_filters.join(","));
                     }
-                    if codec == "hevc" || codec == "h265" {
-                        cmd.arg("-c:v").arg("libx265");
-                    } else if codec == "av1" {
-                        cmd.arg("-c:v").arg("libsvtav1");
-                    } else {
-                        cmd.arg("-c:v").arg("libx264");
-                    }
+                    cmd.arg("-c:v").arg(resolve_video_codec_name(&codec));
                     cmd.arg("-preset").arg(&args.preset);
                     cmd.arg("-crf").arg("22");
                     cmd.arg("-c:a").arg("aac");
@@ -1225,6 +1229,20 @@ mod tests {
     fn test_format_tv_season_folder() {
         let folder = format_tv_season_folder("The Office", Some(2005), 1);
         assert_eq!(folder, PathBuf::from("TV").join("The Office (2005)").join("Season 01"));
+    }
+
+    #[test]
+    fn test_format_movie_folder() {
+        let folder = format_movie_folder("Aliens", Some(1986));
+        assert_eq!(folder, PathBuf::from("Films").join("Aliens (1986)"));
+    }
+
+    #[test]
+    fn test_resolve_video_codec_name() {
+        assert_eq!(resolve_video_codec_name("hevc"), "libx265");
+        assert_eq!(resolve_video_codec_name("h265"), "libx265");
+        assert_eq!(resolve_video_codec_name("av1"), "libsvtav1");
+        assert_eq!(resolve_video_codec_name("h264"), "libx264");
     }
 
     #[test]

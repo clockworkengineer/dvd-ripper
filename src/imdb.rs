@@ -174,6 +174,11 @@ pub fn build_api_url(endpoint: &str, params: &[(&str, &str)]) -> Result<reqwest:
     reqwest::Url::parse_with_params(endpoint, params).context("Failed to parse API URL")
 }
 
+/// Formats a raw IMDb rating string into a standardized rating badge string (e.g., "8.4" -> "IMDb: 8.4").
+pub fn format_imdb_rating(rating: Option<&str>) -> String {
+    rating.map(|r| format!("IMDb: {}", r)).unwrap_or_else(|| "IMDb: N/A".to_string())
+}
+
 /// Represents a structured candidate search result item for UI popup selection.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
 pub struct SearchResultItem {
@@ -756,5 +761,11 @@ mod tests {
         assert_eq!(parse_year_from_str("1986–"), Some(1986));
         assert_eq!(parse_year_from_str("2021-05-14"), Some(2021));
         assert_eq!(parse_year_from_str("invalid"), None);
+    }
+
+    #[test]
+    fn test_format_imdb_rating() {
+        assert_eq!(format_imdb_rating(Some("8.4")), "IMDb: 8.4");
+        assert_eq!(format_imdb_rating(None), "IMDb: N/A");
     }
 }
