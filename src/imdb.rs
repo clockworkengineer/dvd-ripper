@@ -174,6 +174,11 @@ pub fn build_api_url(endpoint: &str, params: &[(&str, &str)]) -> Result<reqwest:
     reqwest::Url::parse_with_params(endpoint, params).context("Failed to parse API URL")
 }
 
+/// Helper: Builds an OMDb/TMDb search request URL with API key and query parameter.
+pub fn build_imdb_search_url(base_url: &str, api_key: &str, query: &str) -> Result<reqwest::Url> {
+    build_api_url(base_url, &[("apikey", api_key), ("s", query)])
+}
+
 /// Formats a raw IMDb rating string into a standardized rating badge string (e.g., "8.4" -> "IMDb: 8.4").
 pub fn format_imdb_rating(rating: Option<&str>) -> String {
     rating.map(|r| format!("IMDb: {}", r)).unwrap_or_else(|| "IMDb: N/A".to_string())
@@ -796,6 +801,12 @@ mod tests {
     fn test_normalize_imdb_id() {
         assert_eq!(normalize_imdb_id(" tt0090605 "), Some("tt0090605".to_string()));
         assert_eq!(normalize_imdb_id("invalid"), None);
+    }
+
+    #[test]
+    fn test_build_imdb_search_url() {
+        let url = build_imdb_search_url("https://api.omdbapi.com", "demo", "Aliens").unwrap();
+        assert_eq!(url.as_str(), "https://api.omdbapi.com/?apikey=demo&s=Aliens");
     }
 
     #[test]

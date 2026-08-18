@@ -168,12 +168,40 @@ pub fn parse_duration(s: &str) -> Option<f64> {
 pub fn extract_kv_field<'a>(line: &'a str, key: &str) -> Option<&'a str> {
     let idx = line.find(key)?;
     let sub = &line[idx + key.len()..];
-    let val = sub.split_whitespace().next()?.trim();
+    let trimmed = sub.trim_start();
+    let val = trimmed.split_whitespace().next()?;
     if val.is_empty() {
         None
     } else {
         Some(val)
     }
+}
+
+/// Structured metrics parsed from an FFmpeg stderr progress line.
+#[derive(Debug, Clone, PartialEq)]
+pub struct FfmpegProgressMetrics {
+    pub fps: Option<f64>,
+    pub speed: Option<String>,
+    pub bitrate: Option<String>,
+    pub time_secs: Option<f64>,
+}
+
+/// Parses an FFmpeg progress output line (e.g., "frame= 100 fps=25.5 q=28.0 size= 1024kB time=00:01:30.00 bitrate=100.0kbits/s speed= 2.5x").
+pub fn parse_ffmpeg_progress_line(line: &str) -> Option<FfmpegProgressMetrics> {
+    if !line.contains("time=") && !line.contains("fps=") {
+        return None;
+    }
+    let fps = extract_kv_field(line, "fps=").and_then(|v| v.parse::<f64>().ok());
+    let speed = extract_kv_field(line, "speed=").map(|v| v.to_string());
+    let bitrate = extract_kv_field(line, "bitrate=").map(|v| v.to_string());
+    let time_secs = extract_kv_field(line, "time=").and_then(parse_duration);
+
+    Some(FfmpegProgressMetrics {
+        fps,
+        speed,
+        bitrate,
+        time_secs,
+    })
 }
 
 /// DRY helper: Formats a film/show folder name, appending `(Year)` if provided, with sanitized path characters.
@@ -483,6 +511,15 @@ mod tests {
         assert_eq!(extract_kv_field(line, "speed="), Some("2.5x"));
         assert_eq!(extract_kv_field(line, "time="), Some("00:01:30.00"));
         assert_eq!(extract_kv_field(line, "missing="), None);
+    }
+
+    #[test]
+    fn test_parse_ffmpeg_progress_line() {
+        let line = "frame= 100 fps=25.5 q=28.0 size= 1024kB time=00:01:30.00 bitrate=100.0kbits/s speed= 2.5x";
+        let metrics = parse_ffmpeg_progress_line(line).unwrap();
+        assert_eq!(metrics.fps, Some(25.5));
+        assert_eq!(metrics.speed, Some("2.5x".to_string()));
+        assert_eq!(metrics.time_secs, Some(90.0));
     }
 
     #[test]
