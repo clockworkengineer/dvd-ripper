@@ -882,6 +882,16 @@ pub fn fail_appliance_status(title: &str, out_dir: &str, err_msg: &str) {
     Ok(())
 }
 
+/// Extracts API authentication key from HTTP Bearer headers or `api_key=` query parameters.
+pub fn extract_auth_key(headers: &[String], path: &str) -> Option<String> {
+    for line in headers {
+        if line.to_lowercase().starts_with("authorization: bearer ") {
+            return Some(line[21..].trim().to_string());
+        }
+    }
+    parse_query_param(path, "api_key")
+}
+
 fn send_json_response(stream: &mut TcpStream, status: &str, body_json: &str) -> Result<()> {
     send_http_response(stream, status, "application/json", body_json)
 }
@@ -954,6 +964,15 @@ mod tests {
 
         let req_invalid = b"POST /api/rip HTTP/1.1\r\nAuthorization: Bearer wrong\r\n\r\n";
         assert!(!validate_api_key_header(req_invalid, "/api/rip"));
+    }
+
+    #[test]
+    fn test_extract_auth_key() {
+        let headers = vec!["Authorization: Bearer my_token_123".to_string()];
+        assert_eq!(extract_auth_key(&headers, "/api/rip"), Some("my_token_123".to_string()));
+
+        let empty_headers: Vec<String> = Vec::new();
+        assert_eq!(extract_auth_key(&empty_headers, "/api/rip?api_key=query_token"), Some("query_token".to_string()));
     }
 
     #[test]

@@ -11,6 +11,16 @@ use anyhow::{anyhow, Context, Result};
 use crate::cli::Args;
 use crate::utils::{extract_kv_field, format_episode_name, format_title_folder_name, parse_duration};
 
+/// Formats a TV season and episode number into a standardized episode code string (e.g., "S01E05").
+pub fn format_episode_code(season: u32, episode: u32) -> String {
+    format!("S{:02}E{:02}", season, episode)
+}
+
+/// Formats a TV show name, season, and episode number into a standardized media filename (e.g., "The Office - S01E05").
+pub fn format_episode_filename(show_name: &str, season: u32, episode: u32) -> String {
+    format!("{} - {}", show_name, format_episode_code(season, episode))
+}
+
 /// Helper: Ensures parent directories exist and returns absolute path with optional collision incrementing.
 fn ensure_absolute_parent_dir(base_dir: &str, path: PathBuf, no_overwrite: bool) -> Result<PathBuf> {
     let mut absolute_output = if path.is_absolute() {
@@ -194,6 +204,17 @@ pub fn probe_dvd_titles_fast(
     }
 
     titles
+}
+
+/// Parses a single line of FFmpeg probe output for Duration patterns (e.g., "Duration: 01:23:45.67").
+pub fn parse_title_duration_line(line: &str) -> Option<f64> {
+    if let Some(dur_idx) = line.find("Duration: ") {
+        let after = &line[dur_idx + 10..];
+        let dur_str = after.split(',').next()?.trim();
+        parse_duration(dur_str)
+    } else {
+        None
+    }
 }
 
 /// Probes all titles on the DVD drive, using fast single-pass probing with fallback to sequential probing.
@@ -1119,6 +1140,19 @@ mod tests {
         let args_vec_archival: Vec<String> = cmd_archival.get_args().map(|s| s.to_string_lossy().to_string()).collect();
         assert!(args_vec_archival.contains(&"matroska".to_string()));
         assert!(args_vec_archival.contains(&"copy".to_string()));
+    }
+
+    #[test]
+    fn test_format_episode_helpers() {
+        assert_eq!(format_episode_code(1, 5), "S01E05");
+        assert_eq!(format_episode_filename("The Office", 1, 5), "The Office - S01E05");
+    }
+
+    #[test]
+    fn test_parse_title_duration_line() {
+        let line = "  Duration: 00:45:30.12, start: 0.000000, bitrate: 5500 kb/s";
+        let parsed = parse_title_duration_line(line);
+        assert_eq!(parsed, Some(2730.12));
     }
 
     #[test]

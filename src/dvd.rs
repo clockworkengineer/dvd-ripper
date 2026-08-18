@@ -444,6 +444,26 @@ pub fn run_drive_benchmark(
     })
 }
 
+/// Compound drive inspection results containing normalized drive path, volume label, and disc fingerprint.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DriveInspection {
+    pub drive_path: PathBuf,
+    pub volume_label: Option<String>,
+    pub fingerprint: String,
+}
+
+/// Helper: Performs a complete initial drive inspection on a user-provided drive input.
+pub fn inspect_drive(input: &str) -> DriveInspection {
+    let drive_path = normalize_dvd_path(input);
+    let volume_label = get_volume_label(&drive_path.to_string_lossy());
+    let fingerprint = compute_disc_fingerprint(&drive_path.to_string_lossy());
+    DriveInspection {
+        drive_path,
+        volume_label,
+        fingerprint,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -462,6 +482,13 @@ mod tests {
         assert_eq!(report.drive_path, "D:\\");
         assert_eq!(report.test_duration_secs, 10);
         assert!(report.read_speed_mbps > 10.0);
+    }
+
+    #[test]
+    fn test_inspect_drive() {
+        let inspection = inspect_drive("D:");
+        assert_eq!(inspection.drive_path, PathBuf::from("D:\\"));
+        assert!(inspection.fingerprint.starts_with("disc_"));
     }
 
     #[test]
