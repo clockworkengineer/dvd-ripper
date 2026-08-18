@@ -456,6 +456,15 @@ pub fn run_drive_benchmark(
     })
 }
 
+/// Formats a raw hash value into a standardized disc fingerprint string (e.g. "disc_a1b2c3d4").
+pub fn format_disc_fingerprint(raw_hash: &str) -> String {
+    if raw_hash.starts_with("disc_") {
+        raw_hash.to_string()
+    } else {
+        format!("disc_{}", raw_hash)
+    }
+}
+
 /// Compound drive inspection results containing normalized drive path, volume label, and disc fingerprint.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DriveInspection {
@@ -519,6 +528,12 @@ mod tests {
         assert_eq!(clean_drive_letter("d"), "D:\\");
         assert_eq!(clean_drive_letter("D:"), "D:\\");
         assert_eq!(clean_drive_letter("E:\\"), "E:\\");
+    }
+
+    #[test]
+    fn test_format_disc_fingerprint() {
+        assert_eq!(format_disc_fingerprint("a1b2c3d4"), "disc_a1b2c3d4");
+        assert_eq!(format_disc_fingerprint("disc_a1b2c3d4"), "disc_a1b2c3d4");
     }
 
     #[test]

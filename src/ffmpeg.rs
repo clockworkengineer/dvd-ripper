@@ -360,6 +360,35 @@ pub fn apply_audio_options(cmd: &mut Command, args: &Args) {
     }
 }
 
+/// Applies subtitle stream mapping and codec configuration to an FFmpeg command.
+pub fn apply_subtitle_options(cmd: &mut Command, args: &Args) {
+    if args.subtitles {
+        cmd.arg("-map").arg("0:s?");
+        let sub_codec = resolve_subtitle_codec(args.sub_format.as_deref());
+        cmd.arg("-c:s").arg(sub_codec);
+    }
+}
+
+/// Constructs a vector of video filter string elements based on resolution scaling, deinterlacing, and denoise flags.
+pub fn build_video_filter_chain(args: &Args, profile: &str) -> Vec<String> {
+    let mut vf_filters = Vec::new();
+    if profile == "mobile" {
+        vf_filters.push("scale=-2:720".to_string());
+    }
+    if args.deinterlace {
+        let algo = match args.deinterlace_algo.as_deref().unwrap_or("bwdif").to_lowercase().as_str() {
+            "yadif" => "yadif=1:-1:0",
+            "w3fdif" => "w3fdif=filter=complex",
+            _ => "bwdif=mode=send_frame:parity=auto:deint=all",
+        };
+        vf_filters.push(algo.to_string());
+    }
+    if args.denoise {
+        vf_filters.push("hqdn3d=4:3:6:4.5".to_string());
+    }
+    vf_filters
+}
+
 /// Probes all titles on the DVD drive, using fast single-pass probing with fallback to sequential probing.
 pub fn probe_dvd_titles(
     ffmpeg_path: &str,
@@ -551,23 +580,19 @@ pub fn build_ffmpeg_command(
     apply_audio_options(&mut cmd, args);
 
     // Subtitle stream mapping
-    if args.subtitles {
+    if args.subtitles && args.sub_lang.is_some() {
         if let Some(ref lang) = args.sub_lang {
             cmd.arg("-map").arg(format!("0:s:m:language:{}", lang));
-        } else {
-            cmd.arg("-map").arg("0:s?");
         }
         let sub_codec = resolve_subtitle_codec(args.sub_format.as_deref());
         cmd.arg("-c:s").arg(sub_codec);
+    } else {
+        apply_subtitle_options(&mut cmd, args);
     }
 
     let profile = args.profile.to_lowercase();
     let codec = args.codec.to_lowercase();
-    let is_mkv = args.mkv
-        || profile == "archival"
-        || absolute_output
-            .extension()
-            .map_or(false, |ext| ext.eq_ignore_ascii_case("mkv"));
+    let is_mkv = is_mkv_output(args, absolute_output);
 
     if profile == "archival" || codec == "copy" {
         cmd.arg("-c").arg("copy");
@@ -577,21 +602,7 @@ pub fn build_ffmpeg_command(
             cmd.arg("-f").arg("dvd");
         }
     } else if is_transcode_enabled(args) {
-        let mut vf_filters = Vec::new();
-        if profile == "mobile" {
-            vf_filters.push("scale=-2:720".to_string());
-        }
-        if args.deinterlace {
-            let algo = match args.deinterlace_algo.as_deref().unwrap_or("bwdif").to_lowercase().as_str() {
-                "yadif" => "yadif=1:-1:0",
-                "w3fdif" => "w3fdif=filter=complex",
-                _ => "bwdif=mode=send_frame:parity=auto:deint=all",
-            };
-            vf_filters.push(algo.to_string());
-        }
-        if args.denoise {
-            vf_filters.push("hqdn3d=4:3:6:4.5".to_string());
-        }
+        let vf_filters = build_video_filter_chain(args, &profile);
 
         if profile == "mobile" {
             if !vf_filters.is_empty() {
@@ -1250,6 +1261,14 @@ mod tests {
     fn test_format_movie_folder() {
         let folder = format_movie_folder("Aliens", Some(1986));
         assert_eq!(folder, PathBuf::from("Films").join("Aliens (1986)"));
+    }
+
+    #[test]
+    fn test_build_video_filter_chain() {
+        let args = Args { deinterlace: true, denoise: true, ..Default::default() };
+        let filters = build_video_filter_chain(&args, "mobile");
+        assert_eq!(filters.len(), 3);
+        assert_eq!(filters[0], "scale=-2:720");
     }
 
     #[test]

@@ -952,6 +952,11 @@ pub fn snapshot_metrics() -> MetricCounters {
     }
 }
 
+/// Helper: Formats MetricCounters snapshot into a JSON string.
+pub fn format_metrics_json(metrics: &MetricCounters) -> String {
+    serde_json::to_string(metrics).unwrap_or_else(|_| "{}".to_string())
+}
+
 /// Helper: Constructs a complete HTTP/1.1 response byte buffer with status line, content type, CORS, and length headers.
 pub fn build_http_response_bytes(status: &str, content_type: &str, body: &[u8]) -> Vec<u8> {
     let header = format!(
@@ -1090,6 +1095,9 @@ mod tests {
     fn test_snapshot_metrics() {
         let metrics = snapshot_metrics();
         assert_eq!(metrics.queued_jobs, crate::queue::list_jobs().len());
+
+        let json = format_metrics_json(&metrics);
+        assert!(json.contains("completed_rips"));
     }
 
     #[test]
