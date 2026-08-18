@@ -312,18 +312,19 @@ pub fn detect_tv_episodes(
     episodes
 }
 
-/// Probes the DVD drive to find the title number best matching expected_runtime_secs, or with the longest duration.
-pub fn detect_best_title(
+/// Probes the DVD drive to find the title number and probed duration best matching expected_runtime_secs, or with the longest duration.
+pub fn detect_best_title_info(
     ffmpeg_path: &str,
     dvd_path: &Path,
     expected_runtime_secs: Option<f64>,
-) -> u32 {
+) -> (u32, Option<f64>) {
     let titles = probe_dvd_titles(ffmpeg_path, dvd_path, None);
     if titles.is_empty() {
-        return 1;
+        return (1, None);
     }
 
     let mut best_title = 1u32;
+    let mut best_duration = None;
     let mut best_diff = f64::MAX;
     let mut max_duration = 0.0f64;
 
@@ -333,14 +334,25 @@ pub fn detect_best_title(
             if diff < best_diff {
                 best_diff = diff;
                 best_title = t.title_num;
+                best_duration = Some(t.duration_secs);
             }
         } else if t.duration_secs > max_duration {
             max_duration = t.duration_secs;
             best_title = t.title_num;
+            best_duration = Some(t.duration_secs);
         }
     }
 
-    best_title
+    (best_title, best_duration)
+}
+
+/// Probes the DVD drive to find the title number best matching expected_runtime_secs, or with the longest duration.
+pub fn detect_best_title(
+    ffmpeg_path: &str,
+    dvd_path: &Path,
+    expected_runtime_secs: Option<f64>,
+) -> u32 {
+    detect_best_title_info(ffmpeg_path, dvd_path, expected_runtime_secs).0
 }
 
 /// Helper for longest duration title detection.
@@ -577,7 +589,7 @@ pub fn run_ffmpeg_with_channel(
     cancel_flag: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
     is_batch: bool,
 ) -> Result<()> {
-    let resolved_title = if args.title == 0 {
+    let (resolved_title, probed_duration) = if args.title == 0 {
         let msg = if let Some(target) = expected_runtime_secs {
             format!(
                 "Auto-detecting DVD title matching movie running time ({:.0} mins)...",
@@ -594,7 +606,7 @@ pub fn run_ffmpeg_with_channel(
             std::io::stdout().flush().ok();
         }
 
-        let detected = detect_best_title(&args.ffmpeg, dvd_path, expected_runtime_secs);
+        let (detected, duration_opt) = detect_best_title_info(&args.ffmpeg, dvd_path, expected_runtime_secs);
         let msg2 = if expected_runtime_secs.is_some() {
             format!("Auto-selected Title #{} (matched running time)", detected)
         } else {
@@ -607,9 +619,9 @@ pub fn run_ffmpeg_with_channel(
             println!("{}", msg2);
             std::io::stdout().flush().ok();
         }
-        detected
+        (detected, duration_opt)
     } else {
-        args.title
+        (args.title, None)
     };
 
     let mut cmd = build_ffmpeg_command(args, dvd_path, absolute_output, resolved_title);
@@ -645,7 +657,7 @@ pub fn run_ffmpeg_with_channel(
         .take()
         .ok_or_else(|| anyhow!("Failed to capture FFmpeg stderr"))?;
 
-    let mut total_seconds: Option<f64> = expected_runtime_secs;
+    let mut total_seconds: Option<f64> = probed_duration.or(expected_runtime_secs);
 
     let mut buf = [0u8; 1024];
     let mut line_bytes = Vec::new();
@@ -705,8 +717,19 @@ pub fn run_ffmpeg_with_channel(
                     if let Some(duration_str) = extract_kv_field(&line, "Duration: ") {
                         let clean_duration = duration_str.trim_end_matches(',');
                         if let Some(secs) = parse_duration(clean_duration) {
-                            if secs > 0.0 {
-                                total_seconds = Some(secs);
+                            // Require duration >= 5 minutes (300s) to filter out short chapters, menus, & sub-streams
+                            if secs >= 300.0 {
+                                match total_seconds {
+                                    Some(current) => {
+                                        // Refine total_seconds only if candidate duration is within 35% of current estimate
+                                        if (secs - current).abs() < current * 0.35 {
+                                            total_seconds = Some(secs);
+                                        }
+                                    }
+                                    None => {
+                                        total_seconds = Some(secs);
+                                    }
+                                }
                             }
                         }
                     }
