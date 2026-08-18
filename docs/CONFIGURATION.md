@@ -53,6 +53,17 @@ emby_key = "YOUR_EMBY_KEY"
 
 # Post-processing script hook executable path
 post_script = "/usr/local/bin/post_rip_handler.sh"
+
+# Multi-Disc TV Series Box Set Auto-Stitching Mode
+auto_boxset = true
+
+# Video Deinterlacing & Denoising Quality Suite
+deinterlace = true
+deinterlace_algo = "bwdif"
+denoise = true
+
+# Minimum required free disk space threshold (GB) before ripping
+min_free_gb = 10
 ```
 
 ---
@@ -68,6 +79,12 @@ post_script = "/usr/local/bin/post_rip_handler.sh"
 | `--codec <CODEC>` | | Video codec choice (`h264`, `hevc`, `av1`, `copy`) | `"h264"` |
 | `--profile <PRESET>` | | Transcoding profile (`standard`, `archival`, `plex`, `mobile`) | `"standard"` |
 | `--preset <PRESET>` | | FFmpeg CPU speed preset (`veryfast`, `fast`, `medium`) | `"veryfast"` |
+| `--deinterlace` | | Motion-adaptive video deinterlacing filter | `false` |
+| `--deinterlace-algo <ALGO>` | | Deinterlacing algorithm (`bwdif`, `yadif`, `w3fdif`) | `"bwdif"` |
+| `--denoise` | | 3D spatial/temporal noise reduction filter (`hqdn3d`) | `false` |
+| `--min-free-gb <GB>` | | Minimum free disk space threshold (GB) | `10` |
+| `--auto-boxset` | | Auto-calculate episode numbering across multi-disc box sets | `false` |
+| `--benchmark` | | Run 10-second optical sector read speed throughput test | `false` |
 | `--sub-format <FMT>` | | Subtitle stream codec format (`dvdsub` or `subrip`/`srt`) | `"dvdsub"` |
 | `--normalize-audio` | | EBU R128 audio loudness normalization filter | `false` |
 | `--dual-audio` | | Dual-track output (Stereo AAC + 5.1 Passthrough) | `false` |

@@ -38,3 +38,19 @@ preset = "veryfast"
 # Optional post-processing script executable path to run upon rip completion
 # Environment variables set: DVD_OUTPUT_PATH, DVD_TITLE, DVD_MEDIA_TYPE, DVD_YEAR
 # post_script = "/usr/local/bin/post_rip_handler.sh"
+
+# Multi-Disc TV Series Box Set Auto-Stitching Mode (default: false)
+# Automatically increments cumulative episode numbers across multi-disc TV show season sets
+# auto_boxset = true
+
+# Motion-Adaptive Video Deinterlacing Filter (default: false)
+# Options: deinterlace = true, deinterlace_algo = "bwdif" (or "yadif", "w3fdif")
+# deinterlace = true
+# deinterlace_algo = "bwdif"
+
+# 3D Spatial/Temporal Denoising Quality Filter (default: false)
+# denoise = true
+
+# Enterprise Disk Space Safeguard Threshold in Gigabytes (default: 10)
+# min_free_gb = 10
+

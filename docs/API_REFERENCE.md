@@ -167,7 +167,55 @@ Removes a queued job by ID.
 
 ---
 
-### 2.5 OpenAPI v3 Specification & Prometheus Metrics
+### 2.5 Multi-Disc Box Set & Drive Diagnostics
+
+#### `GET /api/boxset`
+Returns a JSON array of active multi-disc TV show season box set tracking records (`boxsets.json`).
+
+**Response `200 OK` (JSON)**:
+```json
+[
+  {
+    "show_name": "The Office",
+    "season": 1,
+    "last_episode": 8,
+    "total_discs_ripped": 2,
+    "updated_at": "2026-08-18 15:45:10"
+  }
+]
+```
+
+#### `POST /api/boxset/reset?show={SHOW}&season={N}`
+Resets cumulative episode tracking counter for a specific show and season.
+
+**Response `200 OK` (JSON)**:
+```json
+{
+  "success": true,
+  "show": "The Office",
+  "season": 1
+}
+```
+
+#### `POST /api/benchmark?drive={DRIVE}`
+Executes a 10-second optical sector read speed test and returns throughput metrics and drive health rating.
+
+**Response `200 OK` (JSON)**:
+```json
+{
+  "drive_path": "D:\\",
+  "test_duration_secs": 10,
+  "read_bytes": 125829120,
+  "read_speed_mbps": 12.58,
+  "demux_speed_mbps": 18.20,
+  "fps": "45.0",
+  "rating_summary": "Standard DVD Read Speed (8x Speed)"
+}
+```
+
+---
+
+### 2.6 OpenAPI v3 Specification & Prometheus Metrics
 
 #### `GET /api/openapi.json`
 Returns the complete OpenAPI 3.0 specification JSON document describing all REST API routes and schemas.
