@@ -96,6 +96,18 @@ pub struct Args {
     #[arg(long = "normalize-audio")]
     pub normalize_audio: bool,
 
+    /// Apply motion-adaptive video deinterlacing filter to remove comb artifacts (-vf bwdif/yadif)
+    #[arg(long = "deinterlace")]
+    pub deinterlace: bool,
+
+    /// Deinterlacing algorithm selection: bwdif (default), yadif, or w3fdif
+    #[arg(long = "deinterlace-algo")]
+    pub deinterlace_algo: Option<String>,
+
+    /// Apply high-quality 3D spatial/temporal denoising filter (-vf hqdn3d)
+    #[arg(long = "denoise")]
+    pub denoise: bool,
+
     /// Generate dual audio streams (Track 1: Stereo AAC normalized, Track 2: 5.1 Surround Passthrough)
     #[arg(long = "dual-audio")]
     pub dual_audio: bool,
@@ -213,6 +225,9 @@ impl Default for Args {
             all_episodes: false,
             all_audio: false,
             normalize_audio: false,
+            deinterlace: false,
+            deinterlace_algo: None,
+            denoise: false,
             dual_audio: false,
             audio_lang: None,
             auto_audio_pref: None,

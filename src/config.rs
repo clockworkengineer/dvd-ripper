@@ -26,6 +26,9 @@ pub struct AppConfig {
     pub emby_key: Option<String>,
     pub post_script: Option<String>,
     pub auto_boxset: Option<bool>,
+    pub deinterlace: Option<bool>,
+    pub deinterlace_algo: Option<String>,
+    pub denoise: Option<bool>,
 }
 
 /// Loads configuration from custom path, ./dvd-ripper.toml, or ~/.dvd-ripper/config.toml
@@ -128,6 +131,19 @@ pub fn apply_config_defaults(args: &mut Args, config: &AppConfig) {
     if let Some(val) = config.auto_boxset {
         if !args.auto_boxset {
             args.auto_boxset = val;
+        }
+    }
+    if let Some(val) = config.deinterlace {
+        if !args.deinterlace {
+            args.deinterlace = val;
+        }
+    }
+    if args.deinterlace_algo.is_none() {
+        args.deinterlace_algo = config.deinterlace_algo.clone();
+    }
+    if let Some(val) = config.denoise {
+        if !args.denoise {
+            args.denoise = val;
         }
     }
 }

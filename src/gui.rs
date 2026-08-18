@@ -60,6 +60,9 @@ pub struct DvdRipperApp {
     // Codec & Profile settings
     codec: String,
     profile: String,
+    deinterlace: bool,
+    deinterlace_algo: String,
+    denoise: bool,
 
     // Search Modal Popup state
     show_search_modal: bool,
@@ -117,6 +120,9 @@ impl Default for DvdRipperApp {
 
             codec: "h264".to_string(),
             profile: "standard".to_string(),
+            deinterlace: false,
+            deinterlace_algo: "bwdif".to_string(),
+            denoise: false,
 
             plot: String::new(),
             genre: String::new(),
@@ -347,6 +353,9 @@ impl DvdRipperApp {
         let webhook_url = if self.webhook_url.trim().is_empty() { None } else { Some(self.webhook_url.trim().to_string()) };
         let no_overwrite = self.no_overwrite;
         let auto_boxset = self.auto_boxset;
+        let deinterlace = self.deinterlace;
+        let deinterlace_algo = Some(self.deinterlace_algo.clone());
+        let denoise = self.denoise;
 
         std::thread::spawn(move || {
             if is_tv && all_eps {
@@ -400,6 +409,9 @@ impl DvdRipperApp {
                     args.webhook_url = webhook_url.clone();
                     args.no_overwrite = no_overwrite;
                     args.auto_boxset = auto_boxset;
+                    args.deinterlace = deinterlace;
+                    args.deinterlace_algo = deinterlace_algo.clone();
+                    args.denoise = denoise;
 
                     match resolve_tv_output_path(&args, show_name_opt.as_deref(), year_opt, season, ep.episode_num) {
                         Ok(abs_out) => {
@@ -472,6 +484,9 @@ impl DvdRipperApp {
                 args.sub_format = sub_format.clone();
                 args.webhook_url = webhook_url.clone();
                 args.no_overwrite = no_overwrite;
+                args.deinterlace = deinterlace;
+                args.deinterlace_algo = deinterlace_algo.clone();
+                args.denoise = denoise;
 
                 match resolve_tv_output_path(&args, show_name_opt.as_deref(), year_opt, season, ep_num) {
                     Ok(abs_out) => {
@@ -515,6 +530,9 @@ impl DvdRipperApp {
                 args.sub_format = sub_format.clone();
                 args.webhook_url = webhook_url.clone();
                 args.no_overwrite = no_overwrite;
+                args.deinterlace = deinterlace;
+                args.deinterlace_algo = deinterlace_algo.clone();
+                args.denoise = denoise;
 
                 match resolve_output_path(&args, show_name_opt.as_deref(), year_opt) {
                     Ok(abs_out) => {
@@ -924,6 +942,18 @@ impl eframe::App for DvdRipperApp {
                                     ui.selectable_value(&mut self.preset, "medium".to_string(), "medium");
                                 });
                         }
+
+                        ui.checkbox(&mut self.deinterlace, "🧹 Deinterlace");
+                        if self.deinterlace {
+                            egui::ComboBox::from_id_salt("deint_algo_combo")
+                                .selected_text(&self.deinterlace_algo)
+                                .show_ui(ui, |ui| {
+                                    ui.selectable_value(&mut self.deinterlace_algo, "bwdif".to_string(), "bwdif (Best)");
+                                    ui.selectable_value(&mut self.deinterlace_algo, "yadif".to_string(), "yadif");
+                                    ui.selectable_value(&mut self.deinterlace_algo, "w3fdif".to_string(), "w3fdif");
+                                });
+                        }
+                        ui.checkbox(&mut self.denoise, "✨ Denoise (hqdn3d)");
                     });
 
                     ui.horizontal(|ui| {

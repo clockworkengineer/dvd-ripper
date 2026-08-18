@@ -452,14 +452,35 @@ pub fn build_ffmpeg_command(
             cmd.arg("-f").arg("dvd");
         }
     } else if is_transcode_enabled(args) {
+        let mut vf_filters = Vec::new();
         if profile == "mobile" {
-            cmd.arg("-vf").arg("scale=-2:720");
+            vf_filters.push("scale=-2:720".to_string());
+        }
+        if args.deinterlace {
+            let algo = match args.deinterlace_algo.as_deref().unwrap_or("bwdif").to_lowercase().as_str() {
+                "yadif" => "yadif=1:-1:0",
+                "w3fdif" => "w3fdif=filter=complex",
+                _ => "bwdif=mode=send_frame:parity=auto:deint=all",
+            };
+            vf_filters.push(algo.to_string());
+        }
+        if args.denoise {
+            vf_filters.push("hqdn3d=4:3:6:4.5".to_string());
+        }
+
+        if profile == "mobile" {
+            if !vf_filters.is_empty() {
+                cmd.arg("-vf").arg(vf_filters.join(","));
+            }
             cmd.arg("-c:v").arg("libx264");
             cmd.arg("-preset").arg(&args.preset);
             cmd.arg("-crf").arg("24");
             cmd.arg("-c:a").arg("aac");
             cmd.arg("-b:a").arg("128k");
         } else if profile == "plex" {
+            if !vf_filters.is_empty() {
+                cmd.arg("-vf").arg(vf_filters.join(","));
+            }
             if codec == "hevc" || codec == "h265" {
                 cmd.arg("-c:v").arg("libx265");
             } else if codec == "av1" {
@@ -474,6 +495,9 @@ pub fn build_ffmpeg_command(
         } else {
             match args.hwaccel.to_lowercase().as_str() {
                 "v4l2" | "v4l2m2m" => {
+                    if !vf_filters.is_empty() {
+                        cmd.arg("-vf").arg(vf_filters.join(","));
+                    }
                     cmd.arg("-c:v").arg("h264_v4l2m2m");
                     cmd.arg("-b:v").arg("4M");
                     cmd.arg("-c:a").arg("aac");
@@ -481,24 +505,38 @@ pub fn build_ffmpeg_command(
                 }
                 "vaapi" => {
                     cmd.arg("-vaapi_device").arg("/dev/dri/renderD128");
-                    cmd.arg("-vf").arg("format=nv12,hwupload");
+                    let vf_str = if vf_filters.is_empty() {
+                        "format=nv12,hwupload".to_string()
+                    } else {
+                        format!("{},format=nv12,hwupload", vf_filters.join(","))
+                    };
+                    cmd.arg("-vf").arg(vf_str);
                     cmd.arg("-c:v").arg("h264_vaapi");
                     cmd.arg("-c:a").arg("aac");
                     cmd.arg("-b:a").arg("128k");
                 }
                 "nvenc" => {
+                    if !vf_filters.is_empty() {
+                        cmd.arg("-vf").arg(vf_filters.join(","));
+                    }
                     cmd.arg("-c:v").arg("h264_nvenc");
                     cmd.arg("-preset").arg(&args.preset);
                     cmd.arg("-c:a").arg("aac");
                     cmd.arg("-b:a").arg("128k");
                 }
                 "qsv" => {
+                    if !vf_filters.is_empty() {
+                        cmd.arg("-vf").arg(vf_filters.join(","));
+                    }
                     cmd.arg("-c:v").arg("h264_qsv");
                     cmd.arg("-preset").arg(&args.preset);
                     cmd.arg("-c:a").arg("aac");
                     cmd.arg("-b:a").arg("128k");
                 }
                 _ => {
+                    if !vf_filters.is_empty() {
+                        cmd.arg("-vf").arg(vf_filters.join(","));
+                    }
                     if codec == "hevc" || codec == "h265" {
                         cmd.arg("-c:v").arg("libx265");
                     } else if codec == "av1" {
@@ -897,6 +935,27 @@ mod tests {
         assert!(cmd_args.contains(&"0:a".to_string()));
         assert!(cmd_args.contains(&"0:s:m:language:eng".to_string()));
         assert!(cmd_args.contains(&"dvdsub".to_string()));
+    }
+
+    #[test]
+    fn test_build_ffmpeg_command_deinterlace_and_denoise() {
+        let args = Args {
+            transcode: true,
+            deinterlace: true,
+            deinterlace_algo: Some("yadif".to_string()),
+            denoise: true,
+            ..Default::default()
+        };
+
+        let output_path = PathBuf::from("Films/Test/Test.mp4");
+        let cmd = build_ffmpeg_command(&args, Path::new("D:\\"), &output_path, 1);
+        let cmd_args: Vec<String> = cmd.get_args().map(|s| s.to_string_lossy().to_string()).collect();
+
+        assert!(cmd_args.contains(&"-vf".to_string()));
+        let vf_idx = cmd_args.iter().position(|r| r == "-vf").unwrap();
+        let vf_val = &cmd_args[vf_idx + 1];
+        assert!(vf_val.contains("yadif=1:-1:0"));
+        assert!(vf_val.contains("hqdn3d=4:3:6:4.5"));
     }
 
     #[test]
