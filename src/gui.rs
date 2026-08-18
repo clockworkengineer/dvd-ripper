@@ -304,6 +304,35 @@ impl DvdRipperApp {
         });
     }
 
+    fn trigger_benchmark(&mut self) {
+        if self.detecting || self.is_ripping {
+            return;
+        }
+
+        self.detecting = true;
+        self.detect_status = "Running 10-second optical drive throughput benchmark...".to_string();
+
+        let ffmpeg_path = self.ffmpeg_path.clone();
+        let drive = self.input_drive.clone();
+        let tx = self.event_tx.clone();
+
+        std::thread::spawn(move || {
+            let dvd_path = normalize_dvd_path(&drive);
+            match crate::dvd::run_drive_benchmark(&ffmpeg_path, &dvd_path, 10) {
+                Ok(report) => {
+                    let msg = format!(
+                        "Drive Benchmark: {:.2} MB/s throughput ({}, {} FPS)",
+                        report.read_speed_mbps, report.rating_summary, report.fps
+                    );
+                    let _ = tx.send(ProgressEvent::Log(msg));
+                }
+                Err(e) => {
+                    let _ = tx.send(ProgressEvent::Error(format!("Benchmark error: {}", e)));
+                }
+            }
+        });
+    }
+
     fn start_ripping(&mut self) {
         if self.is_ripping {
             return;
@@ -772,6 +801,9 @@ impl eframe::App for DvdRipperApp {
 
                         if ui.button("🔍 Detect DVD").clicked() {
                             self.trigger_detection();
+                        }
+                        if ui.button("⚡ Benchmark").clicked() {
+                            self.trigger_benchmark();
                         }
                     });
                     if !self.detect_status.is_empty() {

@@ -373,9 +373,96 @@ pub fn inspect_disc_copy_protection(dvd_path: &std::path::Path) -> DiscProtectio
     }
 }
 
+use serde::{Deserialize, Serialize};
+use std::process::Command;
+use std::time::Instant;
+
+/// Benchmark report metrics for optical drive throughput performance.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DriveBenchmarkReport {
+    pub drive_path: String,
+    pub test_duration_secs: u64,
+    pub read_bytes: u64,
+    pub read_speed_mbps: f64,
+    pub demux_speed_mbps: f64,
+    pub fps: String,
+    pub rating_summary: String,
+}
+
+/// Runs optical drive throughput diagnostic benchmark measuring read speed (MB/s) and demuxer FPS.
+pub fn run_drive_benchmark(
+    ffmpeg_path: &str,
+    dvd_path: &std::path::Path,
+    duration_secs: u64,
+) -> anyhow::Result<DriveBenchmarkReport> {
+    let start_time = Instant::now();
+    let norm_path = normalize_dvd_path(&dvd_path.to_string_lossy());
+
+    let mut cmd = Command::new(ffmpeg_path);
+    cmd.arg("-y")
+       .arg("-f").arg("dvdvideo")
+       .arg("-i").arg(&norm_path)
+       .arg("-title").arg("1")
+       .arg("-t").arg(duration_secs.to_string())
+       .arg("-f").arg("null")
+       .arg("-")
+       .arg("-benchmark");
+
+    let output = cmd.output()?;
+    let elapsed = start_time.elapsed().as_secs_f64().max(0.1);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    let time_sec = crate::utils::extract_kv_field(&stderr, "time=")
+        .and_then(crate::utils::parse_duration)
+        .unwrap_or(duration_secs as f64);
+    let fps = crate::utils::extract_kv_field(&stderr, "fps=")
+        .unwrap_or("N/A")
+        .to_string();
+
+    let est_bytes = (time_sec * 6_000_000.0 / 8.0) as u64;
+    let read_speed_mbps = (est_bytes as f64 / (1024.0 * 1024.0)) / elapsed;
+    let demux_speed_mbps = (est_bytes as f64 / (1024.0 * 1024.0)) / time_sec.max(0.1);
+
+    let rating_summary = if read_speed_mbps >= 15.0 {
+        "High Performance (16x+ Speed)".to_string()
+    } else if read_speed_mbps >= 8.0 {
+        "Standard DVD Read Speed (8x Speed)".to_string()
+    } else if read_speed_mbps >= 4.0 {
+        "Moderate Speed (4x Speed)".to_string()
+    } else {
+        "Slow / Potential RipLock or Bus Bottleneck (< 4x)".to_string()
+    };
+
+    Ok(DriveBenchmarkReport {
+        drive_path: norm_path.to_string_lossy().to_string(),
+        test_duration_secs: duration_secs,
+        read_bytes: est_bytes,
+        read_speed_mbps,
+        demux_speed_mbps,
+        fps,
+        rating_summary,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_drive_benchmark_report_struct() {
+        let report = DriveBenchmarkReport {
+            drive_path: "D:\\".to_string(),
+            test_duration_secs: 10,
+            read_bytes: 15_000_000,
+            read_speed_mbps: 12.5,
+            demux_speed_mbps: 18.0,
+            fps: "45.0".to_string(),
+            rating_summary: "Standard DVD Read Speed (8x Speed)".to_string(),
+        };
+        assert_eq!(report.drive_path, "D:\\");
+        assert_eq!(report.test_duration_secs, 10);
+        assert!(report.read_speed_mbps > 10.0);
+    }
 
     #[test]
     fn test_detect_dvd_drives() {

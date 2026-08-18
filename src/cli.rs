@@ -148,6 +148,10 @@ pub struct Args {
     #[arg(long = "check-protection")]
     pub check_protection: bool,
 
+    /// Execute optical drive read throughput diagnostic benchmark (MB/s) and exit
+    #[arg(long = "benchmark")]
+    pub benchmark: bool,
+
     /// Webhook URL (e.g. Discord, Slack, Ntfy, Telegram) for HTTP status POST notifications
     #[arg(long = "webhook-url")]
     pub webhook_url: Option<String>,
@@ -242,6 +246,7 @@ impl Default for Args {
             nfo: false,
             chapters: true,
             check_protection: false,
+            benchmark: false,
             webhook_url: None,
             no_overwrite: false,
             post_script: None,

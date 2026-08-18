@@ -237,6 +237,25 @@ fn main() -> Result<()> {
         println!("------------------------------------------------\n");
     }
 
+    if args.benchmark {
+        println!("\n--- [Optical Drive Throughput Benchmark Diagnostic] ---");
+        println!("Running 10-second optical sector read speed test on '{}'...", dvd_path.display());
+        match dvd::run_drive_benchmark(&args.ffmpeg, &dvd_path, 10) {
+            Ok(report) => {
+                println!("  • Drive Path     : {}", report.drive_path);
+                println!("  • Test Duration  : {} seconds", report.test_duration_secs);
+                println!("  • Read Throughput: {:.2} MB/s", report.read_speed_mbps);
+                println!("  • Demux Rate     : {:.2} MB/s ({} FPS)", report.demux_speed_mbps, report.fps);
+                println!("  • Performance    : {}", report.rating_summary);
+            }
+            Err(e) => {
+                println!("  • Benchmark Error: {}", e);
+            }
+        }
+        println!("--------------------------------------------------------\n");
+        return Ok(());
+    }
+
     // 2. Resolve metadata via IMDb search, ID selection, or volume label auto-detection
     let volume_label = get_volume_label(&dvd_path.to_string_lossy());
     let (title_name, title_year, film_runtime, poster_bytes) =

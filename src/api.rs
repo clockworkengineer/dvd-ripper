@@ -855,6 +855,19 @@ fn handle_client(mut stream: TcpStream, drive_path: &str) -> Result<()> {
             reset, query_show, query_season
         );
         send_http_response(&mut stream, "200 OK", "application/json", &json_body)?;
+    } else if method_str == "POST" && path_str.starts_with("/api/benchmark") {
+        let drive = parse_query_param(&path_str, "drive").unwrap_or_else(|| "auto".to_string());
+        let dvd_path = crate::dvd::normalize_dvd_path(&drive);
+        match crate::dvd::run_drive_benchmark("ffmpeg", &dvd_path, 10) {
+            Ok(report) => {
+                let json_body = serde_json::to_string(&report).unwrap_or_else(|_| "{}".to_string());
+                send_http_response(&mut stream, "200 OK", "application/json", &json_body)?;
+            }
+            Err(e) => {
+                let err_body = format!("{{\"error\": \"{}\"}}", e);
+                send_http_response(&mut stream, "500 Internal Server Error", "application/json", &err_body)?;
+            }
+        }
     } else {
         send_http_response(&mut stream, "404 Not Found", "text/plain", "404 Not Found")?;
     }
