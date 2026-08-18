@@ -968,9 +968,22 @@ fn send_json_response(stream: &mut TcpStream, status: &str, body_json: &str) -> 
 }
 
 /// Helper: Sends a simple single key-value JSON response body (e.g. {"success": "true"} or {"message": "..."}).
+#[allow(dead_code)]
 pub fn send_json_message(stream: &mut TcpStream, status: &str, key: &str, val: &str) -> Result<()> {
     let json_body = format!("{{\"{}\": \"{}\"}}", key, crate::utils::escape_json_str(val));
     send_json_response(stream, status, &json_body)
+}
+
+/// Helper: Sends a standardized boolean status JSON response (e.g. {"success": true}).
+#[allow(dead_code)]
+pub fn send_json_status_bool(stream: &mut TcpStream, success: bool, message: Option<&str>) -> Result<()> {
+    let json_body = if let Some(msg) = message {
+        format!("{{\"success\": {}, \"message\": \"{}\"}}", success, crate::utils::escape_json_str(msg))
+    } else {
+        format!("{{\"success\": {}}}", success)
+    };
+    let http_status = if success { "200 OK" } else { "400 Bad Request" };
+    send_json_response(stream, http_status, &json_body)
 }
 
 fn send_json_error(stream: &mut TcpStream, status: &str, message: &str) -> Result<()> {
@@ -1061,6 +1074,16 @@ mod tests {
         // Test helper string formatting logic
         let json_body = format!("{{\"{}\": \"{}\"}}", "status", crate::utils::escape_json_str("success"));
         assert_eq!(json_body, "{\"status\": \"success\"}");
+    }
+
+    #[test]
+    fn test_send_json_status_bool() {
+        // Test helper string formatting logic
+        let json_true = format!("{{\"success\": {}}}", true);
+        assert_eq!(json_true, "{\"success\": true}");
+
+        let json_msg = format!("{{\"success\": {}, \"message\": \"{}\"}}", false, crate::utils::escape_json_str("Error occurred"));
+        assert_eq!(json_msg, "{\"success\": false, \"message\": \"Error occurred\"}");
     }
 
     #[test]

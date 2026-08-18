@@ -212,6 +212,19 @@ pub struct OmdbSearchItem {
     pub poster: Option<String>,
 }
 
+impl From<&OmdbSearchItem> for SearchResultItem {
+    fn from(item: &OmdbSearchItem) -> Self {
+        let yr = item.year.as_deref().and_then(parse_year_from_str);
+        SearchResultItem {
+            title: item.title.clone().unwrap_or_default(),
+            year: yr,
+            imdb_id: item.imdb_id.clone().unwrap_or_default(),
+            type_field: item.type_field.clone().unwrap_or_else(|| "movie".to_string()),
+            poster_url: item.poster.clone(),
+        }
+    }
+}
+
 /// Represents response from OMDb search endpoint (`s=`).
 #[derive(Deserialize, Debug)]
 pub struct OmdbSearchResponse {
@@ -767,5 +780,20 @@ mod tests {
     fn test_format_imdb_rating() {
         assert_eq!(format_imdb_rating(Some("8.4")), "IMDb: 8.4");
         assert_eq!(format_imdb_rating(None), "IMDb: N/A");
+    }
+
+    #[test]
+    fn test_search_result_item_from_omdb() {
+        let omdb = OmdbSearchItem {
+            title: Some("Aliens".to_string()),
+            year: Some("1986".to_string()),
+            imdb_id: Some("tt0090605".to_string()),
+            type_field: Some("movie".to_string()),
+            poster: None,
+        };
+        let item = SearchResultItem::from(&omdb);
+        assert_eq!(item.title, "Aliens");
+        assert_eq!(item.year, Some(1986));
+        assert_eq!(item.imdb_id, "tt0090605");
     }
 }

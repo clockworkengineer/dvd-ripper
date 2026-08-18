@@ -309,6 +309,57 @@ pub fn resolve_video_codec_name(codec: &str) -> &'static str {
     }
 }
 
+/// Determines whether output target should use Matroska MKV container format.
+pub fn is_mkv_output(args: &Args, output_path: &Path) -> bool {
+    let profile = args.profile.to_lowercase();
+    args.mkv
+        || profile == "archival"
+        || output_path
+            .extension()
+            .map_or(false, |ext| ext.eq_ignore_ascii_case("mkv"))
+}
+
+/// Applies audio mapping and audio normalization flags to an FFmpeg command.
+pub fn apply_audio_options(cmd: &mut Command, args: &Args) {
+    if args.dual_audio {
+        cmd.arg("-map").arg("0:a:0?");
+        cmd.arg("-c:a:0").arg("aac");
+        cmd.arg("-b:a:0").arg("192k");
+        cmd.arg("-ac:a:0").arg("2");
+        if args.normalize_audio {
+            cmd.arg("-filter:a:0").arg("loudnorm=I=-16:TP=-1.5:LRA=11");
+        }
+        cmd.arg("-metadata:s:a:0").arg("title=Stereo AAC (Normalized)");
+
+        cmd.arg("-map").arg("0:a:0?");
+        cmd.arg("-c:a:1").arg("copy");
+        cmd.arg("-metadata:s:a:1").arg("title=5.1 Surround Passthrough");
+    } else if args.all_audio {
+        cmd.arg("-map").arg("0:a");
+        if args.normalize_audio {
+            cmd.arg("-filter:a").arg("loudnorm=I=-16:TP=-1.5:LRA=11");
+        }
+    } else if let Some(ref lang) = args.audio_lang {
+        cmd.arg("-map").arg(format!("0:a:m:language:{}", lang));
+        if args.normalize_audio {
+            cmd.arg("-filter:a").arg("loudnorm=I=-16:TP=-1.5:LRA=11");
+        }
+    } else if let Some(ref pref) = args.auto_audio_pref {
+        let langs = parse_ranked_audio_languages(pref);
+        for lang in langs {
+            cmd.arg("-map").arg(format!("0:a:m:language:{}?", lang));
+        }
+        if args.normalize_audio {
+            cmd.arg("-filter:a").arg("loudnorm=I=-16:TP=-1.5:LRA=11");
+        }
+    } else {
+        cmd.arg("-map").arg("0:a?");
+        if args.normalize_audio {
+            cmd.arg("-filter:a").arg("loudnorm=I=-16:TP=-1.5:LRA=11");
+        }
+    }
+}
+
 /// Probes all titles on the DVD drive, using fast single-pass probing with fallback to sequential probing.
 pub fn probe_dvd_titles(
     ffmpeg_path: &str,
@@ -497,43 +548,7 @@ pub fn build_ffmpeg_command(
     }
 
     // Audio stream mapping
-    if args.dual_audio {
-        cmd.arg("-map").arg("0:a:0?");
-        cmd.arg("-c:a:0").arg("aac");
-        cmd.arg("-b:a:0").arg("192k");
-        cmd.arg("-ac:a:0").arg("2");
-        if args.normalize_audio {
-            cmd.arg("-filter:a:0").arg("loudnorm=I=-16:TP=-1.5:LRA=11");
-        }
-        cmd.arg("-metadata:s:a:0").arg("title=Stereo AAC (Normalized)");
-
-        cmd.arg("-map").arg("0:a:0?");
-        cmd.arg("-c:a:1").arg("copy");
-        cmd.arg("-metadata:s:a:1").arg("title=5.1 Surround Passthrough");
-    } else if args.all_audio {
-        cmd.arg("-map").arg("0:a");
-        if args.normalize_audio {
-            cmd.arg("-filter:a").arg("loudnorm=I=-16:TP=-1.5:LRA=11");
-        }
-    } else if let Some(ref lang) = args.audio_lang {
-        cmd.arg("-map").arg(format!("0:a:m:language:{}", lang));
-        if args.normalize_audio {
-            cmd.arg("-filter:a").arg("loudnorm=I=-16:TP=-1.5:LRA=11");
-        }
-    } else if let Some(ref pref) = args.auto_audio_pref {
-        let langs = parse_ranked_audio_languages(pref);
-        for lang in langs {
-            cmd.arg("-map").arg(format!("0:a:m:language:{}?", lang));
-        }
-        if args.normalize_audio {
-            cmd.arg("-filter:a").arg("loudnorm=I=-16:TP=-1.5:LRA=11");
-        }
-    } else {
-        cmd.arg("-map").arg("0:a?");
-        if args.normalize_audio {
-            cmd.arg("-filter:a").arg("loudnorm=I=-16:TP=-1.5:LRA=11");
-        }
-    }
+    apply_audio_options(&mut cmd, args);
 
     // Subtitle stream mapping
     if args.subtitles {
@@ -1235,6 +1250,16 @@ mod tests {
     fn test_format_movie_folder() {
         let folder = format_movie_folder("Aliens", Some(1986));
         assert_eq!(folder, PathBuf::from("Films").join("Aliens (1986)"));
+    }
+
+    #[test]
+    fn test_is_mkv_output() {
+        let args_mkv = Args { mkv: true, ..Default::default() };
+        assert!(is_mkv_output(&args_mkv, Path::new("output.mp4")));
+
+        let args_normal = Args::default();
+        assert!(is_mkv_output(&args_normal, Path::new("output.mkv")));
+        assert!(!is_mkv_output(&args_normal, Path::new("output.mp4")));
     }
 
     #[test]
