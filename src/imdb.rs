@@ -110,6 +110,16 @@ pub fn parse_runtime_minutes(s: &str) -> Option<f64> {
     }
 }
 
+/// Parses a release year string (e.g. "1986", "1986–", "2021-05-14") into a 4-digit u32 year.
+pub fn parse_year_from_str(s: &str) -> Option<u32> {
+    let clean: String = s.chars().filter(|c| c.is_ascii_digit()).collect();
+    if clean.len() >= 4 {
+        clean[..4].parse().ok()
+    } else {
+        None
+    }
+}
+
 /// Parses an ISO 8601 duration string (e.g. "PT2H17M", "PT137M", "PT1H30M15S") into total seconds.
 #[allow(dead_code)]
 pub fn parse_iso_duration(s: &str) -> Option<f64> {
@@ -738,5 +748,13 @@ mod tests {
     fn test_build_api_url() {
         let url = build_api_url("https://api.omdbapi.com", &[("apikey", "demo"), ("t", "Aliens")]).unwrap();
         assert_eq!(url.as_str(), "https://api.omdbapi.com/?apikey=demo&t=Aliens");
+    }
+
+    #[test]
+    fn test_parse_year_from_str() {
+        assert_eq!(parse_year_from_str("1986"), Some(1986));
+        assert_eq!(parse_year_from_str("1986–"), Some(1986));
+        assert_eq!(parse_year_from_str("2021-05-14"), Some(2021));
+        assert_eq!(parse_year_from_str("invalid"), None);
     }
 }

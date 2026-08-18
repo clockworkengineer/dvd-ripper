@@ -105,6 +105,18 @@ pub fn auto_detect_dvd_drive() -> String {
     })
 }
 
+/// Cleans an input drive string, returning a normalized drive letter (e.g. "D:\", "d:" -> "D:\").
+pub fn clean_drive_letter(input: &str) -> String {
+    let clean = input.trim().trim_matches('"').trim_matches('\'');
+    if clean.len() == 1 && clean.chars().next().map_or(false, |c| c.is_ascii_alphabetic()) {
+        format!("{}:\\", clean.to_ascii_uppercase())
+    } else if clean.len() == 2 && clean.ends_with(':') {
+        format!("{}\\", clean.to_ascii_uppercase())
+    } else {
+        clean.to_string()
+    }
+}
+
 /// Resolves and normalizes the DVD drive input path (e.g., handling "auto", drive letters, trailing backslashes).
 pub fn normalize_dvd_path(input: &str) -> PathBuf {
     let trimmed = input.trim();
@@ -489,6 +501,13 @@ mod tests {
         let inspection = inspect_drive("D:");
         assert_eq!(inspection.drive_path, PathBuf::from("D:\\"));
         assert!(inspection.fingerprint.starts_with("disc_"));
+    }
+
+    #[test]
+    fn test_clean_drive_letter() {
+        assert_eq!(clean_drive_letter("d"), "D:\\");
+        assert_eq!(clean_drive_letter("D:"), "D:\\");
+        assert_eq!(clean_drive_letter("E:\\"), "E:\\");
     }
 
     #[test]

@@ -892,6 +892,28 @@ pub fn extract_auth_key(headers: &[String], path: &str) -> Option<String> {
     parse_query_param(path, "api_key")
 }
 
+/// Returns the HTTP MIME Content-Type header string based on file path extension.
+pub fn mime_type_for_path(path: &str) -> &'static str {
+    let lower = path.to_lowercase();
+    if lower.ends_with(".html") || lower.ends_with(".htm") {
+        "text/html; charset=utf-8"
+    } else if lower.ends_with(".css") {
+        "text/css; charset=utf-8"
+    } else if lower.ends_with(".js") {
+        "application/javascript; charset=utf-8"
+    } else if lower.ends_with(".json") {
+        "application/json"
+    } else if lower.ends_with(".png") {
+        "image/png"
+    } else if lower.ends_with(".jpg") || lower.ends_with(".jpeg") {
+        "image/jpeg"
+    } else if lower.ends_with(".svg") {
+        "image/svg+xml"
+    } else {
+        "application/octet-stream"
+    }
+}
+
 /// Helper: Constructs a complete HTTP/1.1 response byte buffer with status line, content type, CORS, and length headers.
 pub fn build_http_response_bytes(status: &str, content_type: &str, body: &[u8]) -> Vec<u8> {
     let header = format!(
@@ -1015,5 +1037,13 @@ mod tests {
         assert!(resp_str.starts_with("HTTP/1.1 200 OK"));
         assert!(resp_str.contains("Content-Type: application/json"));
         assert!(resp_str.contains("{\"ok\":true}"));
+    }
+
+    #[test]
+    fn test_mime_type_for_path() {
+        assert_eq!(mime_type_for_path("index.html"), "text/html; charset=utf-8");
+        assert_eq!(mime_type_for_path("app.css"), "text/css; charset=utf-8");
+        assert_eq!(mime_type_for_path("data.json"), "application/json");
+        assert_eq!(mime_type_for_path("image.png"), "image/png");
     }
 }

@@ -255,6 +255,35 @@ pub fn format_title_selection_summary(detected_title: u32, duration_opt: Option<
     }
 }
 
+/// Encoder quality parameters resolved from encoding profile and codec options.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EncoderDefaults {
+    pub preset: &'static str,
+    pub crf: &'static str,
+    pub audio_bitrate: &'static str,
+}
+
+/// Resolves default encoder quality parameters (preset, CRF, audio bitrate) based on profile name.
+pub fn resolve_encoder_defaults(profile: &str) -> EncoderDefaults {
+    match profile.to_lowercase().as_str() {
+        "mobile" => EncoderDefaults {
+            preset: "fast",
+            crf: "24",
+            audio_bitrate: "128k",
+        },
+        "plex" => EncoderDefaults {
+            preset: "medium",
+            crf: "20",
+            audio_bitrate: "192k",
+        },
+        _ => EncoderDefaults {
+            preset: "medium",
+            crf: "22",
+            audio_bitrate: "128k",
+        },
+    }
+}
+
 /// Probes all titles on the DVD drive, using fast single-pass probing with fallback to sequential probing.
 pub fn probe_dvd_titles(
     ffmpeg_path: &str,
@@ -1204,6 +1233,17 @@ mod tests {
         assert_eq!(resolve_subtitle_codec(Some("SubRip")), "subrip");
         assert_eq!(resolve_subtitle_codec(Some("dvdsub")), "dvdsub");
         assert_eq!(resolve_subtitle_codec(None), "dvdsub");
+    }
+
+    #[test]
+    fn test_resolve_encoder_defaults() {
+        let mobile = resolve_encoder_defaults("mobile");
+        assert_eq!(mobile.preset, "fast");
+        assert_eq!(mobile.crf, "24");
+
+        let default_enc = resolve_encoder_defaults("custom");
+        assert_eq!(default_enc.preset, "medium");
+        assert_eq!(default_enc.crf, "22");
     }
 
     #[test]
