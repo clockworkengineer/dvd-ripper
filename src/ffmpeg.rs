@@ -3,7 +3,7 @@
  * @brief FFmpeg process invocation and real-time progress parsing.
  */
 
-use std::io::{BufRead, BufReader, Write};
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use anyhow::{anyhow, Context, Result};
@@ -640,15 +640,16 @@ pub fn run_ffmpeg_with_channel(
         .spawn()
         .context("Failed to spawn FFmpeg process. Is it installed and in your PATH?")?;
 
-    let stderr = child
+    let mut stderr = child
         .stderr
         .take()
         .ok_or_else(|| anyhow!("Failed to capture FFmpeg stderr"))?;
 
-    let mut reader = BufReader::new(stderr);
-    let mut total_seconds: Option<f64> = None;
+    let mut total_seconds: Option<f64> = expected_runtime_secs;
 
+    let mut buf = [0u8; 1024];
     let mut line_bytes = Vec::new();
+
     loop {
         if let Some(ref flag) = cancel_flag {
             if flag.load(std::sync::atomic::Ordering::SeqCst) {
@@ -672,69 +673,85 @@ pub fn run_ffmpeg_with_channel(
             }
         }
 
-        line_bytes.clear();
-        let read_bytes = match reader.read_until(b'\r', &mut line_bytes) {
+        let n = match stderr.read(&mut buf) {
+            Ok(0) => {
+                if let Ok(Some(_)) = child.try_wait() {
+                    break;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(10));
+                continue;
+            }
             Ok(n) => n,
-            Err(_) => 0,
+            Err(_) => {
+                if let Ok(Some(_)) = child.try_wait() {
+                    break;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(10));
+                continue;
+            }
         };
 
-        if read_bytes == 0 {
-            if let Ok(Some(_)) = child.try_wait() {
-                break;
-            }
-            std::thread::sleep(std::time::Duration::from_millis(10));
-            continue;
-        }
+        for &b in &buf[..n] {
+            if b == b'\r' || b == b'\n' {
+                if !line_bytes.is_empty() {
+                    let line = String::from_utf8_lossy(&line_bytes).to_string();
+                    line_bytes.clear();
 
-        let line = String::from_utf8_lossy(&line_bytes).to_string();
+                    if let Some(ref sender) = tx {
+                        let _ = sender.send(ProgressEvent::Log(line.clone()));
+                    }
 
-        if let Some(ref sender) = tx {
-            let _ = sender.send(ProgressEvent::Log(line.clone()));
-        }
+                    // Detect overall duration from initialization log or stream info
+                    if let Some(duration_str) = extract_kv_field(&line, "Duration: ") {
+                        let clean_duration = duration_str.trim_end_matches(',');
+                        if let Some(secs) = parse_duration(clean_duration) {
+                            if secs > 0.0 {
+                                total_seconds = Some(secs);
+                            }
+                        }
+                    }
 
-        // Detect overall duration from initialization log
-        if total_seconds.is_none() {
-            if let Some(duration_str) = extract_kv_field(&line, "Duration: ") {
-                let clean_duration = duration_str.trim_end_matches(',');
-                if let Some(secs) = parse_duration(clean_duration) {
-                    total_seconds = Some(secs);
-                }
-            }
-        }
+                    // Parse time=, speed=, and fps= using DRY helper
+                    if let Some(time_str) = extract_kv_field(&line, "time=") {
+                        let clean_time = time_str.trim_start_matches('-');
+                        if let Some(secs) = parse_duration(clean_time) {
+                            let speed = extract_kv_field(&line, "speed=").unwrap_or("N/A").to_string();
+                            let fps = extract_kv_field(&line, "fps=").unwrap_or("N/A").to_string();
 
-        // Parse time=, speed=, and fps= using DRY helper
-        if let Some(time_str) = extract_kv_field(&line, "time=") {
-            if let Some(secs) = parse_duration(time_str) {
-                let speed = extract_kv_field(&line, "speed=").unwrap_or("N/A").to_string();
-                let fps = extract_kv_field(&line, "fps=").unwrap_or("N/A").to_string();
+                            if let Some(total) = total_seconds {
+                                if total > 0.0 {
+                                    let percent = (secs / total * 100.0).min(100.0).max(0.0);
 
-                if let Some(total) = total_seconds {
-                    let percent = (secs / total * 100.0).min(100.0).max(0.0);
+                                    crate::api::update_appliance_status("Ripping", "", display_title, percent, &fps, &speed);
 
-                    crate::api::update_appliance_status("Ripping", "", display_title, percent, &fps, &speed);
-
-                    if tx.is_none() {
-                        let width = 30;
-                        let filled = ((percent / 100.0) * width as f64).round() as usize;
-                        let empty = width - filled;
-                        println!(
-                            "[Daemon Progress] [{}{}] {:.1}% | FPS: {} | Speed: {} | {}",
-                            "█".repeat(filled),
-                            "░".repeat(empty),
-                            percent,
-                            fps,
-                            speed,
-                            display_title
-                        );
-                        std::io::stdout().flush().ok();
-                    } else if let Some(ref sender) = tx {
-                        let _ = sender.send(ProgressEvent::Progress {
-                            percent,
-                            fps: fps.clone(),
-                            speed: speed.clone(),
-                        });
+                                    if tx.is_none() {
+                                        let width = 30;
+                                        let filled = ((percent / 100.0) * width as f64).round() as usize;
+                                        let empty = width - filled;
+                                        println!(
+                                            "[Daemon Progress] [{}{}] {:.1}% | FPS: {} | Speed: {} | {}",
+                                            "█".repeat(filled),
+                                            "░".repeat(empty),
+                                            percent,
+                                            fps,
+                                            speed,
+                                            display_title
+                                        );
+                                        std::io::stdout().flush().ok();
+                                    } else if let Some(ref sender) = tx {
+                                        let _ = sender.send(ProgressEvent::Progress {
+                                            percent,
+                                            fps: fps.clone(),
+                                            speed: speed.clone(),
+                                        });
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
+            } else {
+                line_bytes.push(b);
             }
         }
     }
@@ -742,6 +759,14 @@ pub fn run_ffmpeg_with_channel(
     let status = child.wait().context("Failed to wait on FFmpeg process")?;
 
     if status.success() {
+        crate::api::update_appliance_status("Completed", "", display_title, 100.0, "N/A", "N/A");
+        if let Some(ref sender) = tx {
+            let _ = sender.send(ProgressEvent::Progress {
+                percent: 100.0,
+                fps: "N/A".to_string(),
+                speed: "N/A".to_string(),
+            });
+        }
         let succ_msg = format!("Success! DVD ripped successfully to: {}", absolute_output.display());
         if tx.is_none() {
             println!("\n\n{}", succ_msg);
