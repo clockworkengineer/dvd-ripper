@@ -103,7 +103,8 @@ pub fn resolve_output_path(
         PathBuf::from(format!("output.{}", extension))
     };
 
-    ensure_absolute_parent_dir(&args.out_dir, rel_or_abs_file, args.no_overwrite)
+    let target_path = ensure_absolute_parent_dir(&args.out_dir, rel_or_abs_file, args.no_overwrite)?;
+    crate::utils::ensure_path_contained(Path::new(&args.out_dir), &target_path)
 }
 
 /// Resolves the absolute output file path for a TV series episode (e.g. TV/The Office (2005)/Season 01/The Office - S01E01.mpg).
@@ -137,7 +138,8 @@ pub fn resolve_tv_output_path(
         .join(season_folder)
         .join(filename);
 
-    ensure_absolute_parent_dir(root_dir, rel_file, args.no_overwrite)
+    let target_path = ensure_absolute_parent_dir(root_dir, rel_file, args.no_overwrite)?;
+    crate::utils::ensure_path_contained(Path::new(root_dir), &target_path)
 }
 
 /// Structure representing a detected TV episode title on a DVD disc.
@@ -851,6 +853,7 @@ pub fn run_ffmpeg_with_channel(
         if let Some(ref flag) = cancel_flag {
             if flag.load(std::sync::atomic::Ordering::SeqCst) {
                 let _ = child.kill();
+                let _ = child.wait();
                 let msg = "Ripping process cancelled by user.".to_string();
                 if let Some(ref sender) = tx {
                     let _ = sender.send(ProgressEvent::Error(msg.clone()));
@@ -862,6 +865,7 @@ pub fn run_ffmpeg_with_channel(
         if let Some(ref rx) = cancel_rx {
             if rx.try_recv().is_ok() {
                 let _ = child.kill();
+                let _ = child.wait();
                 let msg = "Ripping process cancelled by user.".to_string();
                 if let Some(ref sender) = tx {
                     let _ = sender.send(ProgressEvent::Error(msg.clone()));

@@ -578,13 +578,17 @@ pub fn lookup_film_details(query: &str) -> Result<FilmMetadata> {
     })
 }
 
+pub fn get_tmdb_api_key() -> String {
+    std::env::var("TMDB_API_KEY").unwrap_or_else(|_| "3aec63790d50f3b9fc2efb4c15a8cf99".to_string())
+}
+
 /// Queries TMDB API for movie / TV show metadata details.
 pub fn lookup_tmdb_details(query: &str) -> Option<FilmMetadata> {
     let client = get_http_client();
-    let api_key = "3aec63790d50f3b9fc2efb4c15a8cf99";
+    let api_key = get_tmdb_api_key();
     let url = reqwest::Url::parse_with_params(
         "https://api.themoviedb.org/3/search/multi",
-        &[("api_key", api_key), ("query", query)],
+        &[("api_key", api_key.as_str()), ("query", query)],
     ).ok()?;
 
     let text = client.get(url).send().ok()?.text().ok()?;
@@ -707,7 +711,7 @@ pub fn save_fingerprint_cache(hash: &str, meta: &FilmMetadata) {
     };
     map.insert(hash.to_string(), meta.clone());
     if let Ok(json) = serde_json::to_string_pretty(&map) {
-        let _ = std::fs::write(path, json);
+        let _ = crate::utils::atomic_write_file(&path, json);
     }
 }
 

@@ -296,12 +296,16 @@ pub fn eject_disc(root_path: &str) -> bool {
         } else {
             root_path.to_string()
         };
-        let drive_letter = resolved.chars().next().unwrap_or('D');
+        let drive_letter = resolved
+            .chars()
+            .find(|c| c.is_ascii_alphabetic())
+            .unwrap_or('D')
+            .to_ascii_uppercase();
         let ps_cmd = format!(
             "(New-Object -ComObject Shell.Application).NameSpace(17).ParseName('{}:').InvokeVerb('Eject')",
             drive_letter
         );
-        Command::new("powershell").args(["-Command", &ps_cmd]).output().is_ok()
+        Command::new("powershell").args(["-NoProfile", "-Command", &ps_cmd]).output().map_or(false, |out| out.status.success())
     }
     #[cfg(not(target_os = "windows"))]
     {

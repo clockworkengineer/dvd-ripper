@@ -141,6 +141,15 @@ pub fn update_appliance_status(
     }
 }
 
+pub fn reset_appliance_status(status_name: &str) {
+    update_appliance_status(status_name, "", "", 0.0, "0", "0x");
+}
+
+pub fn fail_appliance_status(title: &str, out_dir: &str, err_msg: &str) {
+    reset_appliance_status("Failed");
+    let _ = crate::history::record_rip_event(title, "Movie", out_dir, err_msg);
+}
+
 /// Embedded HTML5 Web UI Dashboard string embedded directly into the binary.
 const EMBEDDED_DASHBOARD_HTML: &str = r#"<!DOCTYPE html>
 <html lang="en">
@@ -430,25 +439,42 @@ fn get_configured_api_key_handle() -> &'static Arc<Mutex<Option<String>>> {
     CONFIGURED_API_KEY.get_or_init(|| Arc::new(Mutex::new(None)))
 }
 
+pub fn lock_or_recover<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    match mutex.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
+    }
+}
+
+pub fn constant_time_eq(a: &str, b: &str) -> bool {
+    let a_bytes = a.as_bytes();
+    let b_bytes = b.as_bytes();
+    if a_bytes.len() != b_bytes.len() {
+        return false;
+    }
+    let mut res = 0u8;
+    for (x, y) in a_bytes.iter().zip(b_bytes.iter()) {
+        res |= x ^ y;
+    }
+    res == 0
+}
+
 pub fn set_api_key(key: String) {
     let handle = get_configured_api_key_handle();
-    if let Ok(mut lock) = handle.lock() {
-        *lock = Some(key);
-    }
+    let mut lock = lock_or_recover(handle);
+    *lock = Some(key);
 }
 
 pub fn validate_api_key_header(req_bytes: &[u8], path_str: &str) -> bool {
     let handle = get_configured_api_key_handle();
-    let expected_key = match handle.lock() {
-        Ok(lock) => match lock.clone() {
-            Some(k) if !k.trim().is_empty() => k,
-            _ => return true,
-        },
-        Err(_) => return true,
+    let lock = lock_or_recover(handle);
+    let expected_key = match lock.clone() {
+        Some(k) if !k.trim().is_empty() => k,
+        _ => return true,
     };
 
     if let Some(param_key) = parse_query_param(path_str, "api_key") {
-        if param_key == expected_key {
+        if constant_time_eq(&param_key, &expected_key) {
             return true;
         }
     }
@@ -460,7 +486,7 @@ pub fn validate_api_key_header(req_bytes: &[u8], path_str: &str) -> bool {
                 let token = bearer.trim();
                 if token.to_lowercase().starts_with("bearer ") {
                     let key = token[7..].trim();
-                    if key == expected_key {
+                    if constant_time_eq(key, &expected_key) {
                         return true;
                     }
                 }
@@ -631,13 +657,13 @@ fn handle_client(mut stream: TcpStream, drive_path: &str) -> Result<()> {
         let title = parse_query_param(&path_str, "title").unwrap_or_else(|| "Unknown".to_string());
         let media_type = parse_query_param(&path_str, "type").unwrap_or_else(|| "Movie".to_string());
         let id = crate::queue::add_job(&title, &media_type, drive_path);
-        let json_body = format!("{{\"success\":true,\"job_id\":\"{}\"}}", id);
-        send_http_response(&mut stream, "200 OK", "application/json", &json_body)?;
+        let resp_obj = serde_json::json!({ "success": true, "job_id": id });
+        send_http_response(&mut stream, "200 OK", "application/json", &resp_obj.to_string())?;
     } else if method_str == "POST" && path_str.starts_with("/api/queue/remove") {
         let id = parse_query_param(&path_str, "id").unwrap_or_default();
         let ok = crate::queue::remove_job(&id);
-        let json_body = format!("{{\"success\":{}}}", ok);
-        send_http_response(&mut stream, "200 OK", "application/json", &json_body)?;
+        let resp_obj = serde_json::json!({ "success": ok });
+        send_http_response(&mut stream, "200 OK", "application/json", &resp_obj.to_string())?;
     } else if method_str == "GET" && path_str.starts_with("/api/search") {
         let query = parse_query_param(&path_str, "q").unwrap_or_default();
         let candidates = if !query.trim().is_empty() {
@@ -661,20 +687,20 @@ fn handle_client(mut stream: TcpStream, drive_path: &str) -> Result<()> {
         if let Some(ref id) = imdb_id {
             if let Some(meta) = crate::imdb::lookup_omdb_by_id(id) {
                 let handle = get_appliance_status_handle();
-                if let Ok(mut state) = handle.lock() {
-                    state.current_title = meta.title.clone();
-                    state.year = meta.year;
-                    state.is_series = meta.is_series;
-                    state.has_selected_movie = true;
-                    state.status = format!("Ready (Selected: {})", meta.title);
-                }
-                let escaped_title = meta.title.replace('"', "\\\"");
-                let year_str = meta.year.map(|y| y.to_string()).unwrap_or_else(|| "null".to_string());
-                let json_body = format!(
-                    "{{\"success\":true,\"title\":\"{}\",\"year\":{},\"is_series\":{}}}",
-                    escaped_title, year_str, meta.is_series
-                );
-                send_http_response(&mut stream, "200 OK", "application/json", &json_body)?;
+                let mut state = lock_or_recover(&handle);
+                state.current_title = meta.title.clone();
+                state.year = meta.year;
+                state.is_series = meta.is_series;
+                state.has_selected_movie = true;
+                state.status = format!("Ready (Selected: {})", meta.title);
+
+                let resp_obj = serde_json::json!({
+                    "success": true,
+                    "title": meta.title,
+                    "year": meta.year,
+                    "is_series": meta.is_series
+                });
+                send_http_response(&mut stream, "200 OK", "application/json", &resp_obj.to_string())?;
             } else {
                 let json_body = "{\"success\":false,\"message\":\"Failed to find metadata for IMDb ID\"}";
                 send_http_response(&mut stream, "404 Not Found", "application/json", json_body)?;
@@ -685,8 +711,8 @@ fn handle_client(mut stream: TcpStream, drive_path: &str) -> Result<()> {
         }
     } else if method_str == "POST" && path_str == "/api/eject" {
         let ok = eject_disc(drive_path);
-        let json_body = format!("{{\"success\": {}}}", ok);
-        send_http_response(&mut stream, "200 OK", "application/json", &json_body)?;
+        let resp_obj = serde_json::json!({ "success": ok });
+        send_http_response(&mut stream, "200 OK", "application/json", &resp_obj.to_string())?;
     } else if method_str == "POST" && path_str == "/api/rip" {
         let handle = get_appliance_status_handle();
         let (has_selected, title, is_series, year, disc) = if let Ok(state) = handle.lock() {
@@ -704,7 +730,7 @@ fn handle_client(mut stream: TcpStream, drive_path: &str) -> Result<()> {
         } else {
             update_appliance_status("Ripping", "", &title, 0.0, "0", "0x");
             let drive_clone = drive_path.to_string();
-            let escaped_title = title.replace('"', "\\\"");
+            let display_title = title.clone();
 
             let cancel_flag = get_cancel_flag_handle();
             cancel_flag.store(false, Ordering::SeqCst);
@@ -735,15 +761,6 @@ fn handle_client(mut stream: TcpStream, drive_path: &str) -> Result<()> {
                         }
                     }
                 });
-
-pub fn reset_appliance_status(status_name: &str) {
-    update_appliance_status(status_name, "", "", 0.0, "0", "0x");
-}
-
-pub fn fail_appliance_status(title: &str, out_dir: &str, err_msg: &str) {
-    reset_appliance_status("Failed");
-    let _ = crate::history::record_rip_event(title, "Movie", out_dir, err_msg);
-}
 
                 if let Err(e) = crate::utils::check_disk_space_guard(std::path::Path::new(&args.out_dir), args.min_free_gb) {
                     fail_appliance_status(&title, &args.out_dir, &format!("Disk Space Error: {}", e));
@@ -838,8 +855,11 @@ pub fn fail_appliance_status(title: &str, out_dir: &str, err_msg: &str) {
                 }
             });
 
-            let json_body = format!("{{\"success\": true, \"message\": \"Started ripping selected title: {}\"}}", escaped_title);
-            send_http_response(&mut stream, "200 OK", "application/json", &json_body)?;
+            let resp_obj = serde_json::json!({
+                "success": true,
+                "message": format!("Started ripping selected title: {}", display_title)
+            });
+            send_http_response(&mut stream, "200 OK", "application/json", &resp_obj.to_string())?;
         }
     } else if method_str == "POST" && path_str == "/api/cancel" {
         let flag = get_cancel_flag_handle();
@@ -862,11 +882,12 @@ pub fn fail_appliance_status(title: &str, out_dir: &str, err_msg: &str) {
             .and_then(|s| s.parse::<u32>().ok())
             .unwrap_or(1);
         let reset = crate::queue::reset_boxset_tracker(&query_show, query_season);
-        let json_body = format!(
-            "{{\"success\": {}, \"show\": \"{}\", \"season\": {}}}",
-            reset, query_show, query_season
-        );
-        send_json_response(&mut stream, "200 OK", &json_body)?;
+        let resp_obj = serde_json::json!({
+            "success": reset,
+            "show": query_show,
+            "season": query_season
+        });
+        send_json_response(&mut stream, "200 OK", &resp_obj.to_string())?;
     } else if method_str == "POST" && path_str.starts_with("/api/benchmark") {
         let drive = parse_query_param(&path_str, "drive").unwrap_or_else(|| "auto".to_string());
         let dvd_path = crate::dvd::normalize_dvd_path(&drive);
@@ -983,13 +1004,13 @@ pub fn format_metrics_json(metrics: &MetricCounters) -> String {
     serde_json::to_string(metrics).unwrap_or_else(|_| "{}".to_string())
 }
 
-/// Helper: Constructs a complete HTTP/1.1 response byte buffer with status line, content type, CORS, and length headers.
+/// Helper: Constructs a complete HTTP/1.1 response byte buffer with status line, content type, CORS, security, and length headers.
 pub fn build_http_response_bytes(status: &str, content_type: &str, body: &[u8]) -> Vec<u8> {
-    let mut bytes = Vec::with_capacity(128 + status.len() + content_type.len() + body.len());
+    let mut bytes = Vec::with_capacity(160 + status.len() + content_type.len() + body.len());
     use std::io::Write;
     let _ = write!(
         bytes,
-        "HTTP/1.1 {}\r\nContent-Type: {}\r\nContent-Length: {}\r\nAccess-Control-Allow-Origin: *\r\nConnection: close\r\n\r\n",
+        "HTTP/1.1 {}\r\nContent-Type: {}\r\nContent-Length: {}\r\nAccess-Control-Allow-Origin: *\r\nX-Content-Type-Options: nosniff\r\nX-Frame-Options: DENY\r\nConnection: close\r\n\r\n",
         status, content_type, body.len()
     );
     bytes.extend_from_slice(body);

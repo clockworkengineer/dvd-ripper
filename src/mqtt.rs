@@ -134,15 +134,19 @@ pub fn publish_mqtt_status(
         Duration::from_secs(3),
     );
 
-    let state_payload = format!(
-        "{{\"appliance\":\"dvd-ripper\",\"status\":\"{}\",\"disc\":\"{}\",\"progress\":{:.1},\"timestamp\":\"{}\"}}",
-        status,
-        disc_name,
-        progress,
-        chrono::Local::now().format("%Y-%m-%d %H:%M:%S")
-    );
+    let state_obj = serde_json::json!({
+        "appliance": "dvd-ripper",
+        "status": status,
+        "disc": disc_name,
+        "progress": (progress * 10.0).round() / 10.0,
+        "timestamp": chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string()
+    });
+    let state_payload = serde_json::to_string(&state_obj).unwrap_or_default();
 
-    let progress_payload = format!("{{\"progress\":{:.1}}}", progress);
+    let progress_obj = serde_json::json!({
+        "progress": (progress * 10.0).round() / 10.0
+    });
+    let progress_payload = serde_json::to_string(&progress_obj).unwrap_or_default();
 
     if let Ok(mut socket) = stream {
         // Send MQTT CONNECT packet
@@ -168,15 +172,17 @@ pub fn publish_mqtt_status(
 /// Helper: Builds a unified JSON webhook payload compatible with Discord, Slack, Ntfy, Telegram, and Gotify.
 pub fn build_webhook_payload(disc_name: &str, status: &str, message: &str) -> String {
     let text_message = format!("📀 DVD Ripper [{}] - {}: {}", disc_name, status, message);
-    format!(
-        "{{\"appliance\":\"dvd-ripper\",\"status\":\"{}\",\"disc\":\"{}\",\"message\":\"{}\",\"content\":\"{}\",\"text\":\"{}\",\"title\":\"DVD Ripper Alert\",\"timestamp\":\"{}\"}}",
-        status,
-        disc_name,
-        message,
-        text_message,
-        text_message,
-        chrono::Local::now().format("%Y-%m-%d %H:%M:%S")
-    )
+    let payload_obj = serde_json::json!({
+        "appliance": "dvd-ripper",
+        "status": status,
+        "disc": disc_name,
+        "message": message,
+        "content": text_message,
+        "text": text_message,
+        "title": "DVD Ripper Alert",
+        "timestamp": chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string()
+    });
+    serde_json::to_string(&payload_obj).unwrap_or_default()
 }
 
 pub fn send_webhook_notification(

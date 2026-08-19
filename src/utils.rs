@@ -176,7 +176,7 @@ pub fn atomic_write_file(path: &std::path::Path, content: impl AsRef<[u8]>) -> s
 /// Validates whether a filename string is safe from path traversal (`..`), path separators, and Windows reserved names.
 pub fn is_safe_filename(name: &str) -> bool {
     let trimmed = name.trim();
-    if trimmed.is_empty() || trimmed.contains("..") || trimmed.contains('/') || trimmed.contains('\\') {
+    if trimmed.is_empty() || trimmed.contains("..") || trimmed.contains('/') || trimmed.contains('\\') || trimmed.starts_with('.') {
         return false;
     }
     let upper = trimmed.to_ascii_uppercase();
@@ -186,6 +186,31 @@ pub fn is_safe_filename(name: &str) -> bool {
         "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
     ];
     !reserved.contains(&stem)
+}
+
+/// Validates that target path stays strictly contained within base directory bounds, blocking path traversal (`..`).
+pub fn ensure_path_contained(base: &Path, target: &Path) -> Result<PathBuf> {
+    let base_canonical = if base.exists() {
+        base.canonicalize().unwrap_or_else(|_| base.to_path_buf())
+    } else {
+        base.to_path_buf()
+    };
+
+    let full_target = if target.is_absolute() {
+        target.to_path_buf()
+    } else {
+        base_canonical.join(target)
+    };
+
+    let target_str = full_target.to_string_lossy();
+    if target_str.contains("/..") || target_str.contains("\\..") || target_str.contains("../") || target_str.contains("..\\") {
+        return Err(anyhow!(
+            "Path Traversal Safeguard Triggered: Target path '{}' attempts to escape base directory bounds.",
+            full_target.display()
+        ));
+    }
+
+    Ok(full_target)
 }
 
 /// Sanitizes a file path or input argument to prevent CLI command option injection (e.g. paths starting with `-`).
@@ -785,5 +810,15 @@ mod tests {
     #[test]
     fn test_escape_json_str() {
         assert_eq!(escape_json_str("Hello \"World\"\nTest"), "Hello \\\"World\\\"\\nTest");
+    }
+
+    #[test]
+    fn test_ensure_path_contained() {
+        let base = std::env::temp_dir();
+        let valid_target = base.join("Films/Aliens (1986)/Aliens (1986).mp4");
+        assert!(ensure_path_contained(&base, &valid_target).is_ok());
+
+        let invalid_target = base.join("../../../etc/shadow");
+        assert!(ensure_path_contained(&base, &invalid_target).is_err());
     }
 }

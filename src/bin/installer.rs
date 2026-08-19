@@ -221,6 +221,7 @@ fn configure_path(target_dir: &Path) -> Result<()> {
     #[cfg(windows)]
     {
         println!("      [+] Updating Windows User Registry PATH...");
+        let safe_target = target_str.replace('\\', "\\\\").replace('\'', "''");
         let ps_cmd = format!(
             "$oldPath = [Environment]::GetEnvironmentVariable('Path', 'User'); \
              if (-not $oldPath.Split(';').Contains('{}')) {{ \
@@ -228,8 +229,8 @@ fn configure_path(target_dir: &Path) -> Result<()> {
                  [Environment]::SetEnvironmentVariable('Path', $newPath, 'User'); \
                  Write-Host 'PATH updated successfully.'; \
              }} else {{ Write-Host 'Directory already present in PATH.'; }}",
-            target_str.replace('\\', "\\\\"),
-            target_str.replace('\\', "\\\\")
+            safe_target,
+            safe_target
         );
         let output = Command::new("powershell")
             .args(["-NoProfile", "-Command", &ps_cmd])
