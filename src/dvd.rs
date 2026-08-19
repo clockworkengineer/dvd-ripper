@@ -117,6 +117,11 @@ pub fn clean_drive_letter(input: &str) -> String {
     }
 }
 
+/// Cleans and normalizes a raw disc volume label string (e.g. "  ALIENS_DISC_1  " -> "ALIENS DISC 1").
+pub fn clean_volume_label(label: &str) -> String {
+    label.trim().trim_matches('_').replace('_', " ").trim().to_string()
+}
+
 /// Resolves and normalizes the DVD drive input path (e.g., handling "auto", drive letters, trailing backslashes).
 pub fn normalize_dvd_path(input: &str) -> PathBuf {
     let trimmed = input.trim();
@@ -533,6 +538,11 @@ mod tests {
         assert_eq!(clean_drive_letter("d"), "D:\\");
         assert_eq!(clean_drive_letter("D:"), "D:\\");
         assert_eq!(clean_drive_letter("E:\\"), "E:\\");
+    }
+
+    #[test]
+    fn test_clean_volume_label() {
+        assert_eq!(clean_volume_label(" _ALIENS_DISC_1_ "), "ALIENS DISC 1");
     }
 
     #[test]

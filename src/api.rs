@@ -989,6 +989,11 @@ pub fn build_http_response_bytes(status: &str, content_type: &str, body: &[u8]) 
     bytes
 }
 
+/// Helper: Formats an HTTP Content-Length header string (e.g. "Content-Length: 1024\r\n").
+pub fn format_content_length_header(length: usize) -> String {
+    format!("Content-Length: {}\r\n", length)
+}
+
 /// Helper: Constructs a complete HTTP/1.1 JSON response byte buffer.
 pub fn build_http_json_response_bytes(status: &str, json_body: &str) -> Vec<u8> {
     build_http_response_bytes(status, "application/json", json_body.as_bytes())
@@ -1031,6 +1036,11 @@ fn send_http_response(stream: &mut TcpStream, status: &str, content_type: &str, 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_format_content_length_header() {
+        assert_eq!(format_content_length_header(100), "Content-Length: 100\r\n");
+    }
 
     #[test]
     fn test_parse_http_route() {

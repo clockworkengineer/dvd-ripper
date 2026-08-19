@@ -810,6 +810,12 @@ mod tests {
     }
 
     #[test]
+    fn test_normalize_search_title() {
+        assert_eq!(normalize_search_title("dr who"), "doctor who");
+        assert_eq!(normalize_search_title("kill bill vol1"), "kill bill vol 1");
+    }
+
+    #[test]
     fn test_search_result_item_from_omdb() {
         let omdb = OmdbSearchItem {
             title: Some("Aliens".to_string()),
