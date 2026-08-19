@@ -110,14 +110,17 @@ pub fn parse_runtime_minutes(s: &str) -> Option<f64> {
     }
 }
 
-/// Parses a release year string (e.g. "1986", "1986–", "2021-05-14") into a 4-digit u32 year.
+/// Parses a release year string (e.g. "1986", "1986–", "2021-05-14") into a valid 4-digit u32 year (1888..=2100).
 pub fn parse_year_from_str(s: &str) -> Option<u32> {
     let clean: String = s.chars().filter(|c| c.is_ascii_digit()).collect();
     if clean.len() >= 4 {
-        clean[..4].parse().ok()
-    } else {
-        None
+        if let Ok(yr) = clean[..4].parse::<u32>() {
+            if (1888..=2100).contains(&yr) {
+                return Some(yr);
+            }
+        }
     }
+    None
 }
 
 /// Parses an ISO 8601 duration string (e.g. "PT2H17M", "PT137M", "PT1H30M15S") into total seconds.

@@ -8,13 +8,25 @@ use std::net::TcpStream;
 use std::time::Duration;
 use anyhow::{anyhow, Result};
 
+/// Validates and normalizes network host and port addresses.
+pub fn sanitize_network_address(host: &str, default_port: u16) -> String {
+    let trimmed = host.trim();
+    if let Some((h, p)) = trimmed.split_once(':') {
+        let clean_h = h.trim();
+        if let Ok(port) = p.trim().parse::<u16>() {
+            if (1..=65535).contains(&port) {
+                return format!("{}:{}", clean_h, port);
+            }
+        }
+        format!("{}:{}", clean_h, default_port)
+    } else {
+        format!("{}:{}", trimmed, default_port)
+    }
+}
+
 /// Formats and resolves broker address with default port 1883.
 fn format_broker_address(broker: &str) -> String {
-    if broker.contains(':') {
-        broker.to_string()
-    } else {
-        format!("{}:1883", broker)
-    }
+    sanitize_network_address(broker, 1883)
 }
 
 /// Normalizes an MQTT topic prefix string by trimming leading and trailing slashes.
@@ -198,6 +210,13 @@ mod tests {
         assert_eq!(format_broker_address("192.168.1.50"), "192.168.1.50:1883");
         assert_eq!(format_broker_address("192.168.1.50:18833"), "192.168.1.50:18833");
         assert_eq!(format_broker_address("mqtt.local:8883"), "mqtt.local:8883");
+    }
+
+    #[test]
+    fn test_sanitize_network_address() {
+        assert_eq!(sanitize_network_address(" 192.168.1.100 ", 8080), "192.168.1.100:8080");
+        assert_eq!(sanitize_network_address("localhost:9090", 8080), "localhost:9090");
+        assert_eq!(sanitize_network_address("192.168.1.1:999999", 8080), "192.168.1.1:8080");
     }
 
     #[test]
