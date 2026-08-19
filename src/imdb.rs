@@ -194,6 +194,14 @@ pub fn normalize_imdb_id(raw_id: &str) -> Option<String> {
     }
 }
 
+/// Checks if a release year matches a target release year within a tolerance delta.
+pub fn is_year_in_range(year: Option<u32>, target_year: Option<u32>, max_delta: u32) -> bool {
+    match (year, target_year) {
+        (Some(y1), Some(y2)) => (y1 as i32 - y2 as i32).abs() <= max_delta as i32,
+        _ => true,
+    }
+}
+
 /// Represents a structured candidate search result item for UI popup selection.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
 pub struct SearchResultItem {
@@ -801,6 +809,14 @@ mod tests {
     fn test_normalize_imdb_id() {
         assert_eq!(normalize_imdb_id(" tt0090605 "), Some("tt0090605".to_string()));
         assert_eq!(normalize_imdb_id("invalid"), None);
+    }
+
+    #[test]
+    fn test_is_year_in_range() {
+        assert!(is_year_in_range(Some(1986), Some(1986), 1));
+        assert!(is_year_in_range(Some(1986), Some(1987), 1));
+        assert!(!is_year_in_range(Some(1986), Some(1990), 1));
+        assert!(is_year_in_range(None, Some(1986), 1));
     }
 
     #[test]

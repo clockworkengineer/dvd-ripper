@@ -11,6 +11,8 @@ use serde::{Deserialize, Serialize};
 use crate::dvd::eject_disc;
 use crate::history::load_history;
 
+pub const MIME_APPLICATION_JSON: &str = "application/json";
+
 static CANCEL_FLAG: OnceLock<Arc<AtomicBool>> = OnceLock::new();
 static CANCEL_TX: OnceLock<Arc<Mutex<Option<Sender<()>>>>> = OnceLock::new();
 

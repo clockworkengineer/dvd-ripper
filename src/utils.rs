@@ -270,16 +270,27 @@ pub fn run_post_processing_hook(
     Ok(())
 }
 
+/// Helper: Builds a media server library refresh URL (Plex, Jellyfin, or Emby).
+pub fn format_media_server_refresh_url(server_type: &str, base_url: &str, key: &str) -> String {
+    let clean_base = base_url.trim_end_matches('/');
+    match server_type.to_lowercase().as_str() {
+        "plex" => format!("{}/library/sections/all/refresh?X-Plex-Token={}", clean_base, key),
+        "jellyfin" => format!("{}/Items/Root/Refresh?api_key={}", clean_base, key),
+        "emby" => format!("{}/Library/Refresh?api_key={}", clean_base, key),
+        _ => format!("{}/Library/Refresh?api_key={}", clean_base, key),
+    }
+}
+
 pub fn build_plex_refresh_url(base_url: &str, token: &str) -> String {
-    format!("{}/library/sections/all/refresh?X-Plex-Token={}", base_url.trim_end_matches('/'), token)
+    format_media_server_refresh_url("plex", base_url, token)
 }
 
 pub fn build_jellyfin_refresh_url(base_url: &str, api_key: &str) -> String {
-    format!("{}/Items/Root/Refresh?api_key={}", base_url.trim_end_matches('/'), api_key)
+    format_media_server_refresh_url("jellyfin", base_url, api_key)
 }
 
 pub fn build_emby_refresh_url(base_url: &str, api_key: &str) -> String {
-    format!("{}/Library/Refresh?api_key={}", base_url.trim_end_matches('/'), api_key)
+    format_media_server_refresh_url("emby", base_url, api_key)
 }
 
 pub fn trigger_plex_library_scan(url: &str, token: &str) -> anyhow::Result<()> {
@@ -495,6 +506,13 @@ mod tests {
         assert_eq!(sanitize_filename("Thor: Ragnarok"), "Thor Ragnarok");
         assert_eq!(sanitize_filename("Movie/Name?*"), "Movie_Name__");
         assert_eq!(sanitize_filename("  Multiple   Spaces  "), "Multiple Spaces");
+    }
+
+    #[test]
+    fn test_format_media_server_refresh_url() {
+        assert_eq!(format_media_server_refresh_url("plex", "http://localhost:32400/", "tok"), "http://localhost:32400/library/sections/all/refresh?X-Plex-Token=tok");
+        assert_eq!(format_media_server_refresh_url("jellyfin", "http://localhost:8096/", "key"), "http://localhost:8096/Items/Root/Refresh?api_key=key");
+        assert_eq!(format_media_server_refresh_url("emby", "http://localhost:8096/", "key"), "http://localhost:8096/Library/Refresh?api_key=key");
     }
 
     #[test]
