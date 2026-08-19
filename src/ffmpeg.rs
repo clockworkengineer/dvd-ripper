@@ -12,11 +12,13 @@ use crate::cli::Args;
 use crate::utils::{extract_kv_field, format_episode_name, format_title_folder_name, parse_duration};
 
 /// Formats a TV season and episode number into a standardized episode code string (e.g., "S01E05").
+#[allow(dead_code)]
 pub fn format_episode_code(season: u32, episode: u32) -> String {
     format!("S{:02}E{:02}", season, episode)
 }
 
 /// Formats a TV show name, season, and episode number into a standardized media filename (e.g., "The Office - S01E05").
+#[allow(dead_code)]
 pub fn format_episode_filename(show_name: &str, season: u32, episode: u32) -> String {
     format!("{} - {}", show_name, format_episode_code(season, episode))
 }
@@ -209,6 +211,7 @@ pub fn probe_dvd_titles_fast(
 }
 
 /// Parses a single line of FFmpeg probe output for Duration patterns (e.g., "Duration: 01:23:45.67").
+#[allow(dead_code)]
 pub fn parse_title_duration_line(line: &str) -> Option<f64> {
     if let Some(dur_idx) = line.find("Duration: ") {
         let after = &line[dur_idx + 10..];
@@ -220,6 +223,7 @@ pub fn parse_title_duration_line(line: &str) -> Option<f64> {
 }
 
 /// Formats video filter strings for specific hardware acceleration modes (e.g. VAAPI format=nv12,hwupload).
+#[allow(dead_code)]
 pub fn format_hwaccel_vf_chain(hwaccel: &str, vf_filters: &[String]) -> Option<String> {
     match hwaccel.to_lowercase().as_str() {
         "vaapi" => {
@@ -248,6 +252,7 @@ pub fn resolve_subtitle_codec(sub_format: Option<&str>) -> &'static str {
 }
 
 /// Formats a human-readable title auto-detection summary log message.
+#[allow(dead_code)]
 pub fn format_title_selection_summary(detected_title: u32, duration_opt: Option<f64>, expected_runtime_secs: Option<f64>) -> String {
     let dur_str = duration_opt.map(|d| format!(" ({:.0} mins)", d / 60.0)).unwrap_or_default();
     if expected_runtime_secs.is_some() {
@@ -266,6 +271,7 @@ pub struct EncoderDefaults {
 }
 
 /// Resolves default encoder quality parameters (preset, CRF, audio bitrate) based on profile name.
+#[allow(dead_code)]
 pub fn resolve_encoder_defaults(profile: &str) -> EncoderDefaults {
     match profile.to_lowercase().as_str() {
         "mobile" => EncoderDefaults {
@@ -287,6 +293,7 @@ pub fn resolve_encoder_defaults(profile: &str) -> EncoderDefaults {
 }
 
 /// Formats a standardized TV show season directory relative path (e.g., "TV/The Office (2005)/Season 01").
+#[allow(dead_code)]
 pub fn format_tv_season_folder(show_name: &str, year: Option<u32>, season: u32) -> PathBuf {
     let clean_show = crate::utils::sanitize_filename(show_name);
     let folder_name = format_title_folder_name(&clean_show, year);
@@ -296,6 +303,7 @@ pub fn format_tv_season_folder(show_name: &str, year: Option<u32>, season: u32) 
 }
 
 /// Formats a standardized movie directory relative path (e.g., "Films/Aliens (1986)").
+#[allow(dead_code)]
 pub fn format_movie_folder(title: &str, year: Option<u32>) -> PathBuf {
     let clean_title = crate::utils::sanitize_filename(title);
     let folder_name = format_title_folder_name(&clean_title, year);
@@ -392,6 +400,7 @@ pub fn build_video_filter_chain(args: &Args, profile: &str) -> Vec<String> {
 }
 
 /// Configures hardware-accelerated video encoder command arguments for supported GPUs (NVENC, QSV, VAAPI, V4L2).
+#[allow(dead_code)]
 pub fn apply_hwaccel_encoder(cmd: &mut Command, hwaccel: &str, preset: &str) {
     match hwaccel.to_lowercase().as_str() {
         "nvenc" => {

@@ -31,6 +31,7 @@ pub struct BoxSetRecord {
 }
 
 /// Formats a clean human-readable job queue status summary (e.g. "Queue status: 3 total queued (1 active)").
+#[allow(dead_code)]
 pub fn format_queue_summary(active_count: usize, total_queued: usize) -> String {
     if total_queued == 0 && active_count == 0 {
         "Job queue is empty".to_string()

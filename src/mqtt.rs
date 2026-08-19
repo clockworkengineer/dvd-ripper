@@ -30,11 +30,13 @@ fn format_broker_address(broker: &str) -> String {
 }
 
 /// Normalizes an MQTT topic prefix string by trimming leading and trailing slashes.
+#[allow(dead_code)]
 pub fn normalize_mqtt_prefix(prefix: &str) -> String {
     prefix.trim_matches('/').to_string()
 }
 
 /// Formats a clean MQTT topic string (e.g. "dvd-ripper/appliance/status").
+#[allow(dead_code)]
 pub fn format_mqtt_topic(prefix: &str, subtopic: &str) -> String {
     let clean_prefix = normalize_mqtt_prefix(prefix);
     let clean_sub = subtopic.trim_matches('/');

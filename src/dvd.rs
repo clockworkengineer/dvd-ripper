@@ -106,6 +106,7 @@ pub fn auto_detect_dvd_drive() -> String {
 }
 
 /// Cleans an input drive string, returning a normalized drive letter (e.g. "D:\", "d:" -> "D:\").
+#[allow(dead_code)]
 pub fn clean_drive_letter(input: &str) -> String {
     let clean = input.trim().trim_matches('"').trim_matches('\'');
     if clean.len() == 1 && clean.chars().next().map_or(false, |c| c.is_ascii_alphabetic()) {
@@ -118,6 +119,7 @@ pub fn clean_drive_letter(input: &str) -> String {
 }
 
 /// Cleans and normalizes a raw disc volume label string (e.g. "  ALIENS_DISC_1  " -> "ALIENS DISC 1").
+#[allow(dead_code)]
 pub fn clean_volume_label(label: &str) -> String {
     label.trim().trim_matches('_').replace('_', " ").trim().to_string()
 }
@@ -471,6 +473,7 @@ pub fn format_drive_speed_rating(speed_mbps: f64) -> String {
 }
 
 /// Formats a raw hash value into a standardized disc fingerprint string (e.g. "disc_a1b2c3d4").
+#[allow(dead_code)]
 pub fn format_disc_fingerprint(raw_hash: &str) -> String {
     if raw_hash.starts_with("disc_") {
         raw_hash.to_string()
@@ -488,6 +491,7 @@ pub struct DriveInspection {
 }
 
 /// Helper: Performs a complete initial drive inspection on a user-provided drive input.
+#[allow(dead_code)]
 pub fn inspect_drive(input: &str) -> DriveInspection {
     let drive_path = normalize_dvd_path(input);
     let volume_label = get_volume_label(&drive_path.to_string_lossy());
@@ -500,6 +504,7 @@ pub fn inspect_drive(input: &str) -> DriveInspection {
 }
 
 /// Formats a human-readable copy protection summary string (e.g. "CSS Encryption Detected").
+#[allow(dead_code)]
 pub fn format_copy_protection_summary(has_css: bool, is_encrypted: bool) -> String {
     if has_css {
         "CSS / Content Scramble System Encrypted".to_string()

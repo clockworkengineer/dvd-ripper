@@ -63,10 +63,12 @@ pub fn get_appliance_status_handle() -> Arc<Mutex<ApplianceStatusInfo>> {
 static COMPLETED_RIPS_COUNTER: AtomicU64 = AtomicU64::new(0);
 static FAILED_RIPS_COUNTER: AtomicU64 = AtomicU64::new(0);
 
+#[allow(dead_code)]
 pub fn increment_completed_rips() {
     COMPLETED_RIPS_COUNTER.fetch_add(1, Ordering::SeqCst);
 }
 
+#[allow(dead_code)]
 pub fn increment_failed_rips() {
     FAILED_RIPS_COUNTER.fetch_add(1, Ordering::SeqCst);
 }
@@ -459,6 +461,7 @@ pub fn constant_time_eq(a: &str, b: &str) -> bool {
     res == 0
 }
 
+#[allow(dead_code)]
 pub fn set_api_key(key: String) {
     let handle = get_configured_api_key_handle();
     let mut lock = lock_or_recover(handle);
@@ -908,6 +911,7 @@ fn handle_client(mut stream: TcpStream, drive_path: &str) -> Result<()> {
 }
 
 /// Helper: Extracts a case-insensitive header value from an HTTP header vector without heap allocations.
+#[allow(dead_code)]
 pub fn extract_header_value<'a>(headers: &'a [String], header_name: &str) -> Option<&'a str> {
     for line in headers {
         if let Some(colon_idx) = line.find(':') {
@@ -921,6 +925,7 @@ pub fn extract_header_value<'a>(headers: &'a [String], header_name: &str) -> Opt
 }
 
 /// Helper: Parses JSON HTTP request body after verifying Content-Type header.
+#[allow(dead_code)]
 pub fn parse_json_request_body<'a>(req: &'a [u8], headers: &[String]) -> Option<&'a str> {
     if let Some(ct) = extract_header_value(headers, "content-type") {
         if !ct.to_lowercase().contains("application/json") {
@@ -931,6 +936,7 @@ pub fn parse_json_request_body<'a>(req: &'a [u8], headers: &[String]) -> Option<
 }
 
 /// Extracts API authentication key from HTTP Bearer headers or `api_key=` query parameters.
+#[allow(dead_code)]
 pub fn extract_auth_key(headers: &[String], path: &str) -> Option<String> {
     if let Some(auth_val) = extract_header_value(headers, "authorization") {
         if auth_val.to_lowercase().starts_with("bearer ") {
@@ -941,6 +947,7 @@ pub fn extract_auth_key(headers: &[String], path: &str) -> Option<String> {
 }
 
 /// Returns the HTTP MIME Content-Type header string based on file path extension.
+#[allow(dead_code)]
 pub fn mime_type_for_path(path: &str) -> &'static str {
     let lower = path.to_lowercase();
     if lower.ends_with(".html") || lower.ends_with(".htm") {
@@ -963,6 +970,7 @@ pub fn mime_type_for_path(path: &str) -> &'static str {
 }
 
 /// Parses all URL query parameters into a HashMap of key-value pairs.
+#[allow(dead_code)]
 pub fn parse_query_map(url_path: &str) -> std::collections::HashMap<String, String> {
     let mut map = std::collections::HashMap::new();
     if let Some(q_idx) = url_path.find('?') {
@@ -990,6 +998,7 @@ pub struct MetricCounters {
 }
 
 /// Returns a thread-safe snapshot of current appliance telemetry metric counters.
+#[allow(dead_code)]
 pub fn snapshot_metrics() -> MetricCounters {
     MetricCounters {
         completed_rips: COMPLETED_RIPS_COUNTER.load(Ordering::SeqCst),
@@ -1000,6 +1009,7 @@ pub fn snapshot_metrics() -> MetricCounters {
 }
 
 /// Helper: Formats MetricCounters snapshot into a JSON string.
+#[allow(dead_code)]
 pub fn format_metrics_json(metrics: &MetricCounters) -> String {
     serde_json::to_string(metrics).unwrap_or_else(|_| "{}".to_string())
 }
@@ -1018,11 +1028,13 @@ pub fn build_http_response_bytes(status: &str, content_type: &str, body: &[u8]) 
 }
 
 /// Helper: Formats an HTTP Content-Length header string (e.g. "Content-Length: 1024\r\n").
+#[allow(dead_code)]
 pub fn format_content_length_header(length: usize) -> String {
     format!("Content-Length: {}\r\n", length)
 }
 
 /// Helper: Constructs a complete HTTP/1.1 JSON response byte buffer.
+#[allow(dead_code)]
 pub fn build_http_json_response_bytes(status: &str, json_body: &str) -> Vec<u8> {
     build_http_response_bytes(status, "application/json", json_body.as_bytes())
 }

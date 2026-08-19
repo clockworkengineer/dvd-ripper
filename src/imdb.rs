@@ -173,21 +173,25 @@ fn get_http_client() -> &'static reqwest::blocking::Client {
 }
 
 /// Helper: Constructs a reqwest::Url with query parameter tuples.
+#[allow(dead_code)]
 pub fn build_api_url(endpoint: &str, params: &[(&str, &str)]) -> Result<reqwest::Url> {
     reqwest::Url::parse_with_params(endpoint, params).context("Failed to parse API URL")
 }
 
 /// Helper: Builds an OMDb/TMDb search request URL with API key and query parameter.
+#[allow(dead_code)]
 pub fn build_imdb_search_url(base_url: &str, api_key: &str, query: &str) -> Result<reqwest::Url> {
     build_api_url(base_url, &[("apikey", api_key), ("s", query)])
 }
 
 /// Formats a raw IMDb rating string into a standardized rating badge string (e.g., "8.4" -> "IMDb: 8.4").
+#[allow(dead_code)]
 pub fn format_imdb_rating(rating: Option<&str>) -> String {
     rating.map(|r| format!("IMDb: {}", r)).unwrap_or_else(|| "IMDb: N/A".to_string())
 }
 
 /// Normalizes and validates an IMDb ID string (e.g. " tt0090605 " -> Some("tt0090605")).
+#[allow(dead_code)]
 pub fn normalize_imdb_id(raw_id: &str) -> Option<String> {
     let trimmed = raw_id.trim();
     if trimmed.starts_with("tt") && trimmed.len() >= 9 && trimmed[2..].chars().all(|c| c.is_ascii_digit()) {
@@ -198,6 +202,7 @@ pub fn normalize_imdb_id(raw_id: &str) -> Option<String> {
 }
 
 /// Checks if a release year matches a target release year within a tolerance delta.
+#[allow(dead_code)]
 pub fn is_year_in_range(year: Option<u32>, target_year: Option<u32>, max_delta: u32) -> bool {
     match (year, target_year) {
         (Some(y1), Some(y2)) => (y1 as i32 - y2 as i32).abs() <= max_delta as i32,
@@ -216,6 +221,7 @@ pub struct SearchResultItem {
 }
 
 impl SearchResultItem {
+    #[allow(dead_code)]
     pub fn formatted_label(&self) -> String {
         let yr = self.year.map(|y| format!(" ({})", y)).unwrap_or_default();
         let type_desc = if !self.type_field.is_empty() { format!(" [{}]", self.type_field) } else { String::new() };

@@ -33,6 +33,7 @@ impl RipRecord {
 }
 
 /// Formats a clean user-facing media display title (e.g. "Aliens (1986)" or "The Office - S01E05").
+#[allow(dead_code)]
 pub fn format_media_display_title(title: &str, year: Option<u32>, tv_info: Option<(u32, u32)>) -> String {
     if let Some((season, episode)) = tv_info {
         format!("{} - S{:02}E{:02}", title, season, episode)

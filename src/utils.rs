@@ -55,6 +55,7 @@ pub fn check_disk_space_guard(target_dir: &Path, min_free_gb: u64) -> Result<u64
 }
 
 /// Cleans raw optical DVD volume labels (e.g. "KILL_BILL_VOL1_D1" -> "Kill Bill Vol1 D1").
+#[allow(dead_code)]
 pub fn normalize_volume_label_title(label: &str) -> String {
     let clean = label
         .replace('_', " ")
@@ -96,6 +97,7 @@ pub fn get_app_data_dir() -> PathBuf {
 }
 
 /// Formats floating-point duration seconds into standardized HH:MM:SS format (e.g., 5432.0 -> "01:30:32").
+#[allow(dead_code)]
 pub fn format_duration_hhmmss(total_secs: f64) -> String {
     let total = total_secs.max(0.0) as u64;
     let hours = total / 3600;
@@ -105,12 +107,14 @@ pub fn format_duration_hhmmss(total_secs: f64) -> String {
 }
 
 /// Formats floating-point duration seconds into rounded runtime minute text (e.g. 5400.0 -> "90 mins").
+#[allow(dead_code)]
 pub fn format_duration_minutes(total_secs: f64) -> String {
     let mins = (total_secs.max(0.0) / 60.0).round() as u64;
     format!("{} mins", mins)
 }
 
 /// Formats a standardized low disk space alert warning message.
+#[allow(dead_code)]
 pub fn format_disk_space_warning(free_gb: f64, min_gb: u64) -> String {
     format!(
         "Low Disk Space Warning: {:.2} GB available (minimum {} GB required)",
@@ -119,6 +123,7 @@ pub fn format_disk_space_warning(free_gb: f64, min_gb: u64) -> String {
 }
 
 /// Formats a log line with a timestamp and prefix tag (e.g. "[2026-08-18 17:15:14] [Daemon] Message").
+#[allow(dead_code)]
 pub fn format_timestamped_log(prefix: &str, msg: &str) -> String {
     let now = chrono::Local::now().format("%Y-%m-%d %H:%M:%S");
     format!("[{}] [{}] {}", now, prefix, msg)
@@ -146,6 +151,7 @@ pub fn escape_json_str(input: &str) -> String {
 }
 
 /// Percent-encodes special characters in URL query parameter values.
+#[allow(dead_code)]
 pub fn url_query_escape(input: &str) -> String {
     let mut encoded = String::with_capacity(input.len() + 16);
     for b in input.bytes() {
@@ -174,6 +180,7 @@ pub fn atomic_write_file(path: &std::path::Path, content: impl AsRef<[u8]>) -> s
 }
 
 /// Validates whether a filename string is safe from path traversal (`..`), path separators, and Windows reserved names.
+#[allow(dead_code)]
 pub fn is_safe_filename(name: &str) -> bool {
     let trimmed = name.trim();
     if trimmed.is_empty() || trimmed.contains("..") || trimmed.contains('/') || trimmed.contains('\\') || trimmed.starts_with('.') {
@@ -214,6 +221,7 @@ pub fn ensure_path_contained(base: &Path, target: &Path) -> Result<PathBuf> {
 }
 
 /// Sanitizes a file path or input argument to prevent CLI command option injection (e.g. paths starting with `-`).
+#[allow(dead_code)]
 pub fn sanitize_cli_path_arg(path_str: &str) -> String {
     let trimmed = path_str.trim();
     if trimmed.starts_with('-') {
@@ -281,6 +289,7 @@ pub struct FfmpegProgressMetrics {
 }
 
 /// Parses an FFmpeg progress output line (e.g., "frame= 100 fps=25.5 q=28.0 size= 1024kB time=00:01:30.00 bitrate=100.0kbits/s speed= 2.5x").
+#[allow(dead_code)]
 pub fn parse_ffmpeg_progress_line(line: &str) -> Option<FfmpegProgressMetrics> {
     if !line.contains("time=") && !line.contains("fps=") {
         return None;
@@ -430,6 +439,7 @@ pub fn trigger_media_server_scans(args: &crate::cli::Args) {
 }
 
 /// Resolves sidecar artwork image file path (e.g. "cover.jpg" or "folder.jpg") relative to target directory.
+#[allow(dead_code)]
 pub fn resolve_artwork_path(target_dir: &Path, filename: &str) -> PathBuf {
     target_dir.join(filename)
 }
