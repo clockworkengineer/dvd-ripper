@@ -885,12 +885,14 @@ pub fn fail_appliance_status(title: &str, out_dir: &str, err_msg: &str) {
     Ok(())
 }
 
-/// Helper: Extracts a case-insensitive header value from an HTTP header vector.
+/// Helper: Extracts a case-insensitive header value from an HTTP header vector without heap allocations.
 pub fn extract_header_value<'a>(headers: &'a [String], header_name: &str) -> Option<&'a str> {
-    let prefix = format!("{}:", header_name.to_lowercase());
     for line in headers {
-        if line.to_lowercase().starts_with(&prefix) {
-            return Some(line[prefix.len()..].trim());
+        if let Some(colon_idx) = line.find(':') {
+            let key = line[..colon_idx].trim();
+            if key.eq_ignore_ascii_case(header_name) {
+                return Some(line[colon_idx + 1..].trim());
+            }
         }
     }
     None
@@ -982,11 +984,13 @@ pub fn format_metrics_json(metrics: &MetricCounters) -> String {
 
 /// Helper: Constructs a complete HTTP/1.1 response byte buffer with status line, content type, CORS, and length headers.
 pub fn build_http_response_bytes(status: &str, content_type: &str, body: &[u8]) -> Vec<u8> {
-    let header = format!(
+    let mut bytes = Vec::with_capacity(128 + status.len() + content_type.len() + body.len());
+    use std::io::Write;
+    let _ = write!(
+        bytes,
         "HTTP/1.1 {}\r\nContent-Type: {}\r\nContent-Length: {}\r\nAccess-Control-Allow-Origin: *\r\nConnection: close\r\n\r\n",
         status, content_type, body.len()
     );
-    let mut bytes = header.into_bytes();
     bytes.extend_from_slice(body);
     bytes
 }

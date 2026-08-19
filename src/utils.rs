@@ -386,12 +386,22 @@ pub fn generate_nfo_file(
     Ok(())
 }
 
-fn quick_xml_escape(input: &str) -> String {
-    input.replace('&', "&amp;")
-         .replace('<', "&lt;")
-         .replace('>', "&gt;")
-         .replace('"', "&quot;")
-         .replace('\'', "&apos;")
+fn quick_xml_escape(input: &str) -> std::borrow::Cow<'_, str> {
+    if !input.contains(&['&', '<', '>', '"', '\''][..]) {
+        return std::borrow::Cow::Borrowed(input);
+    }
+    let mut escaped = String::with_capacity(input.len() + 16);
+    for c in input.chars() {
+        match c {
+            '&' => escaped.push_str("&amp;"),
+            '<' => escaped.push_str("&lt;"),
+            '>' => escaped.push_str("&gt;"),
+            '"' => escaped.push_str("&quot;"),
+            '\'' => escaped.push_str("&apos;"),
+            _ => escaped.push(c),
+        }
+    }
+    std::borrow::Cow::Owned(escaped)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
