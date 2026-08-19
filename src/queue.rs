@@ -72,12 +72,11 @@ pub fn load_boxsets(custom_path: Option<&str>) -> Vec<BoxSetRecord> {
     Vec::new()
 }
 
-/// Saves box set records to ~/.dvd-ripper/boxsets.json
+/// Saves box set records to ~/.dvd-ripper/boxsets.json using atomic file writing.
 pub fn save_boxsets(records: &[BoxSetRecord], custom_path: Option<&str>) -> anyhow::Result<()> {
     let p = resolve_boxsets_path(custom_path);
-    let _ = crate::utils::ensure_parent_dir(&p);
     let json = serde_json::to_string_pretty(records)?;
-    fs::write(p, json)?;
+    crate::utils::atomic_write_file(&p, json)?;
     Ok(())
 }
 

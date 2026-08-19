@@ -69,6 +69,13 @@ pub fn load_config(custom_path: Option<&str>) -> AppConfig {
     AppConfig::default()
 }
 
+/// Saves an AppConfig struct to TOML file using atomic file write.
+pub fn save_config(config: &AppConfig, target_path: &Path) -> anyhow::Result<()> {
+    let toml_str = toml::to_string_pretty(config)?;
+    crate::utils::atomic_write_file(target_path, toml_str)?;
+    Ok(())
+}
+
 /// Parses TOML content string into an AppConfig struct.
 pub fn parse_config_toml(content: &str) -> anyhow::Result<AppConfig> {
     let cfg: AppConfig = toml::from_str(content)?;

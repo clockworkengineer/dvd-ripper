@@ -129,6 +129,17 @@ pub fn escape_json_str(input: &str) -> String {
     input.replace('\\', "\\\\").replace('"', "\\\"").replace('\n', "\\n").replace('\r', "\\r")
 }
 
+/// Writes content atomically to a file by creating a temporary file and performing an atomic rename.
+pub fn atomic_write_file(path: &std::path::Path, content: impl AsRef<[u8]>) -> std::io::Result<()> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let tmp_file = path.with_extension(format!("tmp_{}", std::process::id()));
+    std::fs::write(&tmp_file, content)?;
+    std::fs::rename(&tmp_file, path)?;
+    Ok(())
+}
+
 /// Validates whether a filename string is safe from path traversal (`..`), path separators, and Windows reserved names.
 pub fn is_safe_filename(name: &str) -> bool {
     let trimmed = name.trim();
@@ -571,6 +582,16 @@ mod tests {
         assert_eq!(format_title_folder_name("Kill Bill: Vol. 1", Some(2003)), "Kill Bill Vol. 1 (2003)");
         assert_eq!(format_title_folder_name("The Office", None), "The Office");
         assert_eq!(format_episode_name("Doctor Who", 1, 3), "Doctor Who - S01E03");
+    }
+
+    #[test]
+    fn test_atomic_write_file() {
+        let temp_dir = std::env::temp_dir().join("atomic_test");
+        let file = temp_dir.join("test.txt");
+        let res = atomic_write_file(&file, "Hello World");
+        assert!(res.is_ok());
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), "Hello World");
+        let _ = std::fs::remove_dir_all(temp_dir);
     }
 
     #[test]
