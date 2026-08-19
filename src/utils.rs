@@ -129,6 +129,31 @@ pub fn escape_json_str(input: &str) -> String {
     input.replace('\\', "\\\\").replace('"', "\\\"").replace('\n', "\\n").replace('\r', "\\r")
 }
 
+/// Validates whether a filename string is safe from path traversal (`..`), path separators, and Windows reserved names.
+pub fn is_safe_filename(name: &str) -> bool {
+    let trimmed = name.trim();
+    if trimmed.is_empty() || trimmed.contains("..") || trimmed.contains('/') || trimmed.contains('\\') {
+        return false;
+    }
+    let upper = trimmed.to_ascii_uppercase();
+    let stem = upper.split('.').next().unwrap_or(&upper);
+    let reserved = [
+        "CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",
+        "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
+    ];
+    !reserved.contains(&stem)
+}
+
+/// Sanitizes a file path or input argument to prevent CLI command option injection (e.g. paths starting with `-`).
+pub fn sanitize_cli_path_arg(path_str: &str) -> String {
+    let trimmed = path_str.trim();
+    if trimmed.starts_with('-') {
+        format!("./{}", trimmed)
+    } else {
+        trimmed.to_string()
+    }
+}
+
 /// Sanitizes a movie title to make it safe for filesystem folders and file names.
 pub fn sanitize_filename(name: &str) -> String {
     let sanitized: String = name
@@ -386,22 +411,12 @@ pub fn generate_nfo_file(
     Ok(())
 }
 
-fn quick_xml_escape(input: &str) -> std::borrow::Cow<'_, str> {
-    if !input.contains(&['&', '<', '>', '"', '\''][..]) {
-        return std::borrow::Cow::Borrowed(input);
-    }
-    let mut escaped = String::with_capacity(input.len() + 16);
-    for c in input.chars() {
-        match c {
-            '&' => escaped.push_str("&amp;"),
-            '<' => escaped.push_str("&lt;"),
-            '>' => escaped.push_str("&gt;"),
-            '"' => escaped.push_str("&quot;"),
-            '\'' => escaped.push_str("&apos;"),
-            _ => escaped.push(c),
-        }
-    }
-    std::borrow::Cow::Owned(escaped)
+fn quick_xml_escape(input: &str) -> String {
+    input.replace('&', "&amp;")
+         .replace('<', "&lt;")
+         .replace('>', "&gt;")
+         .replace('"', "&quot;")
+         .replace('\'', "&apos;")
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -556,6 +571,20 @@ mod tests {
         assert_eq!(format_title_folder_name("Kill Bill: Vol. 1", Some(2003)), "Kill Bill Vol. 1 (2003)");
         assert_eq!(format_title_folder_name("The Office", None), "The Office");
         assert_eq!(format_episode_name("Doctor Who", 1, 3), "Doctor Who - S01E03");
+    }
+
+    #[test]
+    fn test_is_safe_filename() {
+        assert!(super::is_safe_filename("Aliens (1986).mp4"));
+        assert!(!super::is_safe_filename("../etc/passwd"));
+        assert!(!super::is_safe_filename("CON.mp4"));
+        assert!(!super::is_safe_filename("NUL"));
+    }
+
+    #[test]
+    fn test_sanitize_cli_path_arg() {
+        assert_eq!(super::sanitize_cli_path_arg("-vf"), "./-vf");
+        assert_eq!(super::sanitize_cli_path_arg("video.mp4"), "video.mp4");
     }
 
     #[test]
