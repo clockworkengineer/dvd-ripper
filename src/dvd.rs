@@ -546,6 +546,12 @@ mod tests {
     }
 
     #[test]
+    fn test_inspect_drive_struct() {
+        let insp = inspect_drive("D:");
+        assert_eq!(insp.drive_path, std::path::Path::new("D:\\"));
+    }
+
+    #[test]
     fn test_format_disc_fingerprint() {
         assert_eq!(format_disc_fingerprint("a1b2c3d4"), "disc_a1b2c3d4");
         assert_eq!(format_disc_fingerprint("disc_a1b2c3d4"), "disc_a1b2c3d4");

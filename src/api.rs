@@ -1045,6 +1045,23 @@ mod tests {
     }
 
     #[test]
+    fn test_api_metric_counter_increments() {
+        increment_completed_rips();
+        increment_failed_rips();
+        let snap = snapshot_metrics();
+        assert!(snap.completed_rips > 0 || snap.failed_rips > 0);
+    }
+
+    #[test]
+    fn test_extract_auth_key_bearer_and_param() {
+        let headers = vec!["Authorization: Bearer secret_token_123".to_string()];
+        assert_eq!(extract_auth_key(&headers, "/api/status"), Some("secret_token_123".to_string()));
+
+        let empty_headers: Vec<String> = Vec::new();
+        assert_eq!(extract_auth_key(&empty_headers, "/api/status?api_key=query_secret"), Some("query_secret".to_string()));
+    }
+
+    #[test]
     fn test_parse_http_route() {
         let req1 = b"GET / HTTP/1.1\r\nHost: localhost\r\n\r\n";
         assert_eq!(parse_http_route(req1), (b"GET" as &[u8], b"/" as &[u8]));
