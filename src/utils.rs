@@ -124,9 +124,42 @@ pub fn format_timestamped_log(prefix: &str, msg: &str) -> String {
     format!("[{}] [{}] {}", now, prefix, msg)
 }
 
-/// Escapes special characters in a string to make it safe for insertion into JSON string literals.
+/// Escapes special characters and ASCII control characters in a string to make it safe for insertion into JSON string literals.
 pub fn escape_json_str(input: &str) -> String {
-    input.replace('\\', "\\\\").replace('"', "\\\"").replace('\n', "\\n").replace('\r', "\\r")
+    let mut escaped = String::with_capacity(input.len() + 16);
+    for c in input.chars() {
+        match c {
+            '\\' => escaped.push_str("\\\\"),
+            '"' => escaped.push_str("\\\""),
+            '\n' => escaped.push_str("\\n"),
+            '\r' => escaped.push_str("\\r"),
+            '\t' => escaped.push_str("\\t"),
+            '\x08' => escaped.push_str("\\b"),
+            '\x0C' => escaped.push_str("\\f"),
+            c if c < ' ' => {
+                let _ = std::fmt::write(&mut escaped, format_args!("\\u{:04x}", c as u32));
+            }
+            c => escaped.push(c),
+        }
+    }
+    escaped
+}
+
+/// Percent-encodes special characters in URL query parameter values.
+pub fn url_query_escape(input: &str) -> String {
+    let mut encoded = String::with_capacity(input.len() + 16);
+    for b in input.bytes() {
+        match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                encoded.push(b as char);
+            }
+            b' ' => encoded.push('+'),
+            _ => {
+                let _ = std::fmt::write(&mut encoded, format_args!("%{:02X}", b));
+            }
+        }
+    }
+    encoded
 }
 
 /// Writes content atomically to a file by creating a temporary file and performing an atomic rename.
@@ -606,6 +639,12 @@ mod tests {
     fn test_sanitize_cli_path_arg() {
         assert_eq!(super::sanitize_cli_path_arg("-vf"), "./-vf");
         assert_eq!(super::sanitize_cli_path_arg("video.mp4"), "video.mp4");
+    }
+
+    #[test]
+    fn test_url_query_escape() {
+        assert_eq!(super::url_query_escape("Kill Bill: Vol. 1"), "Kill+Bill%3A+Vol.+1");
+        assert_eq!(super::url_query_escape("Dr. Who & Friends"), "Dr.+Who+%26+Friends");
     }
 
     #[test]
