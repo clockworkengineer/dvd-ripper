@@ -124,6 +124,8 @@ pub fn clean_volume_label(label: &str) -> String {
     label.trim().trim_matches('_').replace('_', " ").trim().to_string()
 }
 
+
+
 /// Resolves and normalizes the DVD drive input path (e.g., handling "auto", drive letters, trailing backslashes).
 pub fn normalize_dvd_path(input: &str) -> PathBuf {
     let trimmed = input.trim();
