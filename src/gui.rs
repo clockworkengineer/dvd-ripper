@@ -177,6 +177,28 @@ impl DvdRipperApp {
         self.film_name_opt().unwrap_or_else(|| "TV Show".to_string())
     }
 
+    pub fn build_encoding_options(&self) -> crate::cli::EncodingOptions {
+        crate::cli::EncodingOptions {
+            all_audio: self.all_audio,
+            normalize_audio: self.normalize_audio,
+            dual_audio: self.dual_audio,
+            mkv: self.mkv,
+            codec: self.codec.clone(),
+            profile: self.profile.clone(),
+            audio_lang: if self.audio_lang.trim().is_empty() { None } else { Some(self.audio_lang.trim().to_string()) },
+            subtitles: self.subtitles,
+            sub_lang: if self.sub_lang.trim().is_empty() { None } else { Some(self.sub_lang.trim().to_string()) },
+            sub_format: Some(self.sub_format.clone()),
+            webhook_url: if self.webhook_url.trim().is_empty() { None } else { Some(self.webhook_url.trim().to_string()) },
+            no_overwrite: self.no_overwrite,
+            auto_boxset: self.auto_boxset,
+            deinterlace: self.deinterlace,
+            deinterlace_algo: Some(self.deinterlace_algo.clone()),
+            denoise: self.denoise,
+            min_free_gb: self.min_free_gb,
+        }
+    }
+
     fn trigger_detection(&mut self) {
         self.trigger_detection_with_query(None);
     }
@@ -371,25 +393,7 @@ impl DvdRipperApp {
         let expected_runtime = self.expected_runtime_secs;
         let tx = self.event_tx.clone();
 
-        let opts = crate::cli::EncodingOptions {
-            all_audio: self.all_audio,
-            normalize_audio: self.normalize_audio,
-            dual_audio: self.dual_audio,
-            mkv: self.mkv,
-            codec: self.codec.clone(),
-            profile: self.profile.clone(),
-            audio_lang: if self.audio_lang.trim().is_empty() { None } else { Some(self.audio_lang.trim().to_string()) },
-            subtitles: self.subtitles,
-            sub_lang: if self.sub_lang.trim().is_empty() { None } else { Some(self.sub_lang.trim().to_string()) },
-            sub_format: Some(self.sub_format.clone()),
-            webhook_url: if self.webhook_url.trim().is_empty() { None } else { Some(self.webhook_url.trim().to_string()) },
-            no_overwrite: self.no_overwrite,
-            auto_boxset: self.auto_boxset,
-            deinterlace: self.deinterlace,
-            deinterlace_algo: Some(self.deinterlace_algo.clone()),
-            denoise: self.denoise,
-            min_free_gb: self.min_free_gb,
-        };
+        let opts = self.build_encoding_options();
 
         std::thread::spawn(move || {
             if let Err(e) = crate::utils::check_disk_space_guard(std::path::Path::new(&out_dir), opts.min_free_gb) {
