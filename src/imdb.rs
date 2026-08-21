@@ -392,8 +392,31 @@ pub fn lookup_omdb_search(query: &str) -> Option<FilmMetadata> {
     None
 }
 
+/// Trait defining decoupled metadata resolution contract (DIP/ISP).
+#[allow(dead_code)]
+pub trait MetadataResolver {
+    fn name(&self) -> &str;
+    fn resolve(&self, query: &str) -> Option<FilmMetadata>;
+}
+
+
+/// Concrete OMDb metadata resolver implementation.
+#[derive(Debug, Default)]
+pub struct OmdbMetadataResolver;
+
+impl MetadataResolver for OmdbMetadataResolver {
+    fn name(&self) -> &str {
+        "OMDb API"
+    }
+
+    fn resolve(&self, query: &str) -> Option<FilmMetadata> {
+        lookup_omdb_details(query)
+    }
+}
+
 /// Queries OMDb API for movie title, release year, running time, plot summary, and poster image.
 pub fn lookup_omdb_details(query: &str) -> Option<FilmMetadata> {
+
     let client = get_http_client();
     let encoded_query = crate::utils::encode_url_query_value(query);
     let url = format!("https://www.omdbapi.com/?t={}&apikey=trilogy", encoded_query);

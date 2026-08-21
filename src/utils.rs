@@ -451,7 +451,39 @@ pub fn build_emby_refresh_url(base_url: &str, api_key: &str) -> String {
     format_media_server_refresh_url("emby", base_url, api_key)
 }
 
+/// Represents a generic notification payload event for solid provider abstractions.
+#[derive(Debug, Clone)]
+pub struct NotificationEvent {
+    pub title: String,
+    pub status: String,
+    pub message: String,
+}
+
+/// Trait defining a decoupled notification dispatch provider (OCP/DIP).
+#[allow(dead_code)]
+pub trait NotificationProvider {
+    fn name(&self) -> &str;
+    fn send_notification(&self, event: &NotificationEvent) -> anyhow::Result<()>;
+}
+
+
+/// Concrete webhook notification provider implementation.
+pub struct WebhookNotificationProvider {
+    pub webhook_url: String,
+}
+
+impl NotificationProvider for WebhookNotificationProvider {
+    fn name(&self) -> &str {
+        "Webhook"
+    }
+
+    fn send_notification(&self, event: &NotificationEvent) -> anyhow::Result<()> {
+        crate::mqtt::send_webhook_notification(&self.webhook_url, &event.title, &event.status, &event.message)
+    }
+}
+
 fn send_media_server_refresh_post(server_name: &str, base_url: &str, endpoint: &str) -> anyhow::Result<()> {
+
     println!("[Media Server] Requesting {} library refresh: {}", server_name, base_url);
     let client = get_http_client();
     let _ = client.post(endpoint).send();
