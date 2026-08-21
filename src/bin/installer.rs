@@ -65,7 +65,7 @@ fn main() -> Result<()> {
 
     // 3. Resolve installation destination directory
     let target_dir = resolve_target_dir(&args)?;
-    let binary_name = if cfg!(windows) { "dvd-ripper.exe" } else { "dvd-ripper" };
+    let binary_name = target_binary_name();
     let target_binary = target_dir.join(binary_name);
 
     println!("[+] Installation Target Path: {}\n", target_binary.display());
@@ -302,7 +302,7 @@ fn configure_system_services(args: &InstallerArgs) -> Result<()> {
 fn run_uninstall(args: &InstallerArgs) -> Result<()> {
     println!("=== DVD Ripper Uninstallation ===");
     let target_dir = resolve_target_dir(args)?;
-    let binary_name = if cfg!(windows) { "dvd-ripper.exe" } else { "dvd-ripper" };
+    let binary_name = target_binary_name();
     let target_binary = target_dir.join(binary_name);
 
     if target_binary.exists() {
@@ -343,7 +343,18 @@ fn run_uninstall(args: &InstallerArgs) -> Result<()> {
     Ok(())
 }
 
+
+fn target_binary_name() -> &'static str {
+
+    if cfg!(windows) {
+        "dvd-ripper.exe"
+    } else {
+        "dvd-ripper"
+    }
+}
+
 #[cfg(test)]
+
 mod tests {
     use super::*;
 
