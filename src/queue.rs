@@ -123,13 +123,17 @@ pub fn clear_queue() {
     }
 }
 
+fn normalize_show_key(show_name: &str) -> String {
+    crate::utils::sanitize_filename(show_name).to_lowercase()
+}
+
 /// Returns the next episode number to start with for a given show and season.
 pub fn get_next_boxset_episode(show_name: &str, season: u32) -> u32 {
     let handle = get_boxset_manager_handle();
     if let Ok(records) = handle.lock() {
-        let clean_show = crate::utils::sanitize_filename(show_name).to_lowercase();
+        let clean_show = normalize_show_key(show_name);
         for r in records.iter() {
-            if crate::utils::sanitize_filename(&r.show_name).to_lowercase() == clean_show && r.season == season {
+            if normalize_show_key(&r.show_name) == clean_show && r.season == season {
                 return r.last_episode + 1;
             }
         }
@@ -142,12 +146,12 @@ pub fn record_boxset_episodes_ripped(show_name: &str, season: u32, episode_count
     let handle = get_boxset_manager_handle();
     let mut new_last = episode_count;
     if let Ok(mut records) = handle.lock() {
-        let clean_show = crate::utils::sanitize_filename(show_name).to_lowercase();
+        let clean_show = normalize_show_key(show_name);
         let now = crate::utils::now_timestamp_str();
         let mut found = false;
 
         for r in records.iter_mut() {
-            if crate::utils::sanitize_filename(&r.show_name).to_lowercase() == clean_show && r.season == season {
+            if normalize_show_key(&r.show_name) == clean_show && r.season == season {
                 r.last_episode += episode_count;
                 r.total_discs_ripped += 1;
                 r.updated_at = now.clone();
@@ -176,9 +180,9 @@ pub fn record_boxset_episodes_ripped(show_name: &str, season: u32, episode_count
 pub fn reset_boxset_tracker(show_name: &str, season: u32) -> bool {
     let handle = get_boxset_manager_handle();
     if let Ok(mut records) = handle.lock() {
-        let clean_show = crate::utils::sanitize_filename(show_name).to_lowercase();
+        let clean_show = normalize_show_key(show_name);
         let initial_len = records.len();
-        records.retain(|r| !(crate::utils::sanitize_filename(&r.show_name).to_lowercase() == clean_show && r.season == season));
+        records.retain(|r| !(normalize_show_key(&r.show_name) == clean_show && r.season == season));
         let removed = records.len() < initial_len;
         if removed {
             let _ = save_boxsets(&records, None);
@@ -188,6 +192,7 @@ pub fn reset_boxset_tracker(show_name: &str, season: u32) -> bool {
         false
     }
 }
+
 
 /// Returns a copy of all tracked box set records.
 pub fn list_boxsets() -> Vec<BoxSetRecord> {
