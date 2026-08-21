@@ -116,3 +116,23 @@ dvd-ripper --input D:\ --benchmark
 ```bash
 dvd-ripper --daemon --mqtt-broker mqtt://192.168.1.50:1883 --min-free-gb 20
 ```
+
+---
+
+## 8. Standalone Installer CLI (`dvd-ripper-installer`)
+
+`dvd-ripper` provides a standalone cross-platform installer executable for setup, systemd service deployment, and udev auto-rip configuration.
+
+```bash
+dvd-ripper-installer [OPTIONS]
+```
+
+| Option | Flag | Description | Default |
+|---|---|---|---|
+| `--user` | | Install binary for current user | `true` |
+| `--system` | | Install binary system-wide (requires Administrator/root) | `false` |
+| `--dir <DIR>` | `-d` | Custom destination installation directory | *Auto* |
+| `--service` | | Install Linux systemd daemon service and udev disc rules | `false` |
+| `--uninstall` | `-u` | Uninstall DVD Ripper, clean binaries and PATH | `false` |
+| `--yes` | `-y` | Non-interactive mode (automatically answer yes) | `false` |
+

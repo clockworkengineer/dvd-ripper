@@ -24,8 +24,21 @@ dvd-ripper/
 │   ├── history.rs           # Rip history database (ripping_history.json)
 │   ├── utils.rs             # Formatting, disk space guard, & media triggers
 │   └── bin/
-│       └── installer.rs     # Cross-platform installer binary
-├── docs/                    # Technical & user documentation manuals
+│       └── installer.rs     # Cross-platform installer binary (dvd-ripper-installer)
+├── docs/                    # Technical & user documentation manuals (13 guides)
+│   ├── API_REFERENCE.md
+│   ├── ARCHITECTURE.md
+│   ├── CLI_GUIDE.md
+│   ├── CONFIGURATION.md
+│   ├── DAEMON_APPLIANCE_MODE.md
+│   ├── DEVELOPER_GUIDE.md
+│   ├── GUI_GUIDE.md
+│   ├── HARDWARE_ACCELERATION.md
+│   ├── INSTALLER_AND_SERVICE_GUIDE.md
+│   ├── MEDIA_SERVER_INTEGRATION.md
+│   ├── RIPPING_HISTORY_AND_LOGGING.md
+│   ├── TROUBLESHOOTING.md
+│   └── TV_BOXSET_GUIDE.md
 └── contrib/                 # Systemd service unit & udev rules
 ```
 
@@ -33,13 +46,16 @@ dvd-ripper/
 
 ## 2. Building & Running
 
-### Build Binaries
+### Build Application Binaries
 ```bash
-# Debug build
+# Debug build (dvd-ripper binary)
 cargo build
 
 # Release build with binary size optimizations
 cargo build --release
+
+# Build standalone cross-platform installer binary
+cargo build --release --bin dvd-ripper-installer
 ```
 
 ### Run Unit Test Suite
@@ -62,3 +78,10 @@ cargo test
 2. Add route matching logic inside `handle_http_connection()`.
 3. Use `send_json_response()` or `send_json_error()` to format outputs.
 4. Update `build_openapi_spec()` JSON string to keep the OpenAPI specification synchronized.
+
+### Adding a New Desktop GUI Control
+1. Open [`src/gui.rs`](file:///c:/Users/User/.gemini/antigravity-ide/scratch/dvd-ripper/src/gui.rs).
+2. Update state struct `DvdRipperApp` with new parameters.
+3. Implement `egui` UI widget controls inside `update()`.
+4. Update `GUI_GUIDE.md` manual.
+

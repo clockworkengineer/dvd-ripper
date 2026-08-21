@@ -28,6 +28,7 @@ graph TD
     FFmpeg --> History["src/history.rs (Rip History Log)"]
     FFmpeg --> MQTT["src/mqtt.rs (MQTT 3.1.1 & Webhooks)"]
     FFmpeg --> Utils["src/utils.rs (Hooks & Media Triggers)"]
+    Installer["src/bin/installer.rs (dvd-ripper-installer)"] --> Systemd["contrib/dvd-ripper.service & udev"]
 ```
 
 ### Module Breakdown
@@ -45,6 +46,7 @@ graph TD
 11. **`src/mqtt.rs`**: Binary MQTT 3.1.1 packet generator (`CONNECT`, `PUBLISH`), Home Assistant Auto-Discovery sensor payloads, and multi-service HTTP webhooks (Discord, Telegram, Ntfy, Gotify, Slack).
 12. **`src/utils.rs`**: Time duration formatting, filename sanitization, cover artwork extraction (`cover.jpg` / `folder.jpg`), Enterprise Disk Space Guard (`check_disk_space_guard`), post-processing script hook execution engine, and media server library refresh triggers (Plex, Jellyfin, Emby).
 13. **`src/history.rs`**: Persistent JSON ripping history database log (`ripping_history.json`).
+14. **`src/bin/installer.rs`**: Portable multi-OS installer binary (`dvd-ripper-installer`), handling binary installation, system PATH updates, FFmpeg auditing, systemd service deployment, and udev rule setup.
 
 ---
 
@@ -64,8 +66,29 @@ All long-running operations (FFmpeg execution, MQTT telemetry, SSE broadcasting,
 
 ## 4. Testing & Verification
 
-The codebase includes **64 automated unit tests** covering CLI defaults, route parsing, FFmpeg command generation, deinterlace filter graphs, disc fingerprinting, MQTT binary packet encoding, job queueing, box set managers, disk space guards, speed benchmarks, Prometheus metrics rendering, and TOML configuration loading:
+The codebase includes **66 automated unit tests** covering CLI defaults, route parsing, FFmpeg command generation, deinterlace filter graphs, disc fingerprinting, MQTT binary packet encoding, job queueing, box set managers, disk space guards, speed benchmarks, Prometheus metrics rendering, and TOML configuration loading:
 
 ```bash
 cargo test
 ```
+
+---
+
+## 5. Technical Documentation Index
+
+| Manual | Document Path | Focus Area |
+|---|---|---|
+| CLI User Manual | [`CLI_GUIDE.md`](file:///c:/Users/User/.gemini/antigravity-ide/scratch/dvd-ripper/docs/CLI_GUIDE.md) | Command line flags, syntax, preset profiles, & examples |
+| Desktop GUI Guide | [`GUI_GUIDE.md`](file:///c:/Users/User/.gemini/antigravity-ide/scratch/dvd-ripper/docs/GUI_GUIDE.md) | Desktop eframe/egui interface, search modal, & tab views |
+| Daemon Appliance Guide | [`DAEMON_APPLIANCE_MODE.md`](file:///c:/Users/User/.gemini/antigravity-ide/scratch/dvd-ripper/docs/DAEMON_APPLIANCE_MODE.md) | Headless watcher, Home Assistant MQTT, & webhooks |
+| Installer & Service Guide | [`INSTALLER_AND_SERVICE_GUIDE.md`](file:///c:/Users/User/.gemini/antigravity-ide/scratch/dvd-ripper/docs/INSTALLER_AND_SERVICE_GUIDE.md) | Cross-platform installer CLI, systemd, udev, & PATH |
+| Ripping History & Logging | [`RIPPING_HISTORY_AND_LOGGING.md`](file:///c:/Users/User/.gemini/antigravity-ide/scratch/dvd-ripper/docs/RIPPING_HISTORY_AND_LOGGING.md) | JSON database schema, log clearing, & library audits |
+| TV Box Set Guide | [`TV_BOXSET_GUIDE.md`](file:///c:/Users/User/.gemini/antigravity-ide/scratch/dvd-ripper/docs/TV_BOXSET_GUIDE.md) | Multi-disc box set auto-stitching & episode offsets |
+| Configuration Guide | [`CONFIGURATION.md`](file:///c:/Users/User/.gemini/antigravity-ide/scratch/dvd-ripper/docs/CONFIGURATION.md) | `dvd-ripper.toml` keys, defaults, & priority order |
+| REST API Reference | [`API_REFERENCE.md`](file:///c:/Users/User/.gemini/antigravity-ide/scratch/dvd-ripper/docs/API_REFERENCE.md) | HTTP endpoints, SSE live progress, OpenAPI, & metrics |
+| Media Server Integration | [`MEDIA_SERVER_INTEGRATION.md`](file:///c:/Users/User/.gemini/antigravity-ide/scratch/dvd-ripper/docs/MEDIA_SERVER_INTEGRATION.md) | Plex/Jellyfin/Emby refresh, NFO schema, & posters |
+| Hardware Acceleration | [`HARDWARE_ACCELERATION.md`](file:///c:/Users/User/.gemini/antigravity-ide/scratch/dvd-ripper/docs/HARDWARE_ACCELERATION.md) | NVENC, VAAPI, QSV, & V4L2 GPU hardware encoding |
+| Troubleshooting Guide | [`TROUBLESHOOTING.md`](file:///c:/Users/User/.gemini/antigravity-ide/scratch/dvd-ripper/docs/TROUBLESHOOTING.md) | RipLock bottlenecks, disk space guards, & CSS/CPPM |
+| System Architecture | [`ARCHITECTURE.md`](file:///c:/Users/User/.gemini/antigravity-ide/scratch/dvd-ripper/docs/ARCHITECTURE.md) | Rust crate module breakdown, threading, & diagrams |
+| Developer Guide | [`DEVELOPER_GUIDE.md`](file:///c:/Users/User/.gemini/antigravity-ide/scratch/dvd-ripper/docs/DEVELOPER_GUIDE.md) | Developer onboarding, adding features, & tests |
+

@@ -117,3 +117,10 @@ echo "File path: $DVD_OUTPUT_PATH"
 # Send desktop notification
 notify-send "DVD Ripper" "Backup completed for $DVD_TITLE"
 ```
+
+---
+
+## 5. Daemon Appliance & Home Automation Setup
+
+For complete instructions on configuring `dvd-ripper` in background appliance daemon mode, Home Assistant MQTT auto-discovery, HTTP Webhooks, and systemd service deployment, consult the [`DAEMON_APPLIANCE_MODE.md`](file:///c:/Users/User/.gemini/antigravity-ide/scratch/dvd-ripper/docs/DAEMON_APPLIANCE_MODE.md) guide.
+

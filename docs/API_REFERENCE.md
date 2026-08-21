@@ -244,3 +244,17 @@ dvd_ripper_queued_jobs 2
 # TYPE dvd_ripper_progress_percent gauge
 dvd_ripper_progress_percent 64.5
 ```
+
+---
+
+## 3. Appliance State Machine Transitions
+
+When running in daemon mode, `GET /api/status` transitions through the following status strings:
+
+- `"Idle"`: Drive is empty or awaiting disc insertion.
+- `"Detected - Search Required"`: Disc inserted. Auto-ripping is paused awaiting title selection via `/api/select`.
+- `"Ripping"`: Active extraction job running.
+- `"Completed"`: Job finished successfully.
+- `"Cancelled"`: Ripping process terminated by user via `/api/cancel`.
+
+For end-to-end appliance architecture details, consult [`DAEMON_APPLIANCE_MODE.md`](file:///c:/Users/User/.gemini/antigravity-ide/scratch/dvd-ripper/docs/DAEMON_APPLIANCE_MODE.md).

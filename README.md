@@ -259,6 +259,10 @@ src/
 Detailed user guides and technical architecture documents are available in the [`docs/`](file:///c:/Users/User/.gemini/antigravity-ide/scratch/dvd-ripper/docs) directory:
 
 - 📖 **[CLI User Manual](file:///c:/Users/User/.gemini/antigravity-ide/scratch/dvd-ripper/docs/CLI_GUIDE.md)**: Command-line syntax, modes, filters, and usage examples.
+- 💻 **[Desktop GUI Guide](file:///c:/Users/User/.gemini/antigravity-ide/scratch/dvd-ripper/docs/GUI_GUIDE.md)**: Desktop immediate-mode GUI interface (`eframe`/`egui`), tab controls, search modal, and benchmarks.
+- 🤖 **[Daemon Appliance Guide](file:///c:/Users/User/.gemini/antigravity-ide/scratch/dvd-ripper/docs/DAEMON_APPLIANCE_MODE.md)**: Headless multi-drive watcher, Home Assistant MQTT telemetry, and webhooks.
+- 📦 **[Installer & Service Guide](file:///c:/Users/User/.gemini/antigravity-ide/scratch/dvd-ripper/docs/INSTALLER_AND_SERVICE_GUIDE.md)**: `dvd-ripper-installer` CLI, systemd service setup, and udev rules.
+- 📜 **[Ripping History & Logging](file:///c:/Users/User/.gemini/antigravity-ide/scratch/dvd-ripper/docs/RIPPING_HISTORY_AND_LOGGING.md)**: JSON backup database schema, audit trails, and history management.
 - 📺 **[TV Series Box Set Guide](file:///c:/Users/User/.gemini/antigravity-ide/scratch/dvd-ripper/docs/TV_BOXSET_GUIDE.md)**: Multi-disc TV show season auto-stitching and cumulative episode tracking.
 - ⚙️ **[Configuration Guide](file:///c:/Users/User/.gemini/antigravity-ide/scratch/dvd-ripper/docs/CONFIGURATION.md)**: TOML configuration keys, defaults, and priority hierarchy.
 - 🌐 **[REST API Reference](file:///c:/Users/User/.gemini/antigravity-ide/scratch/dvd-ripper/docs/API_REFERENCE.md)**: HTTP REST endpoints, Bearer auth, SSE streaming, OpenAPI v3 spec, and Prometheus metrics.
