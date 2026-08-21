@@ -141,7 +141,7 @@ pub fn publish_mqtt_status(
         "status": status,
         "disc": disc_name,
         "progress": (progress * 10.0).round() / 10.0,
-        "timestamp": chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string()
+        "timestamp": crate::utils::now_timestamp_str()
     });
     let state_payload = serde_json::to_string(&state_obj).unwrap_or_default();
 
@@ -182,10 +182,11 @@ pub fn build_webhook_payload(disc_name: &str, status: &str, message: &str) -> St
         "content": text_message,
         "text": text_message,
         "title": "DVD Ripper Alert",
-        "timestamp": chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string()
+        "timestamp": crate::utils::now_timestamp_str()
     });
     serde_json::to_string(&payload_obj).unwrap_or_default()
 }
+
 
 pub fn send_webhook_notification(
     webhook_url: &str,

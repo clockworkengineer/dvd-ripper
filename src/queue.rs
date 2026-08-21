@@ -83,7 +83,7 @@ pub fn add_job(title: &str, media_type: &str, drive: &str) -> String {
         media_type: media_type.to_string(),
         drive: drive.to_string(),
         status: "Queued".to_string(),
-        timestamp: chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
+        timestamp: crate::utils::now_timestamp_str(),
     };
     let handle = get_job_queue_handle();
     if let Ok(mut queue) = handle.lock() {
@@ -114,6 +114,15 @@ pub fn remove_job(id: &str) -> bool {
     }
 }
 
+/// Clears all job items from the queue.
+#[allow(dead_code)]
+pub fn clear_queue() {
+    let handle = get_job_queue_handle();
+    if let Ok(mut queue) = handle.lock() {
+        queue.clear();
+    }
+}
+
 /// Returns the next episode number to start with for a given show and season.
 pub fn get_next_boxset_episode(show_name: &str, season: u32) -> u32 {
     let handle = get_boxset_manager_handle();
@@ -134,7 +143,7 @@ pub fn record_boxset_episodes_ripped(show_name: &str, season: u32, episode_count
     let mut new_last = episode_count;
     if let Ok(mut records) = handle.lock() {
         let clean_show = crate::utils::sanitize_filename(show_name).to_lowercase();
-        let now = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+        let now = crate::utils::now_timestamp_str();
         let mut found = false;
 
         for r in records.iter_mut() {

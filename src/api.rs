@@ -451,8 +451,7 @@ pub fn parse_query_param(path: &str, param_name: &str) -> Option<String> {
         let key = kv.next()?;
         if key == param_name {
             let val = kv.next().unwrap_or("");
-            let decoded = val.replace('+', " ").replace("%20", " ");
-            return Some(decoded);
+            return Some(crate::utils::decode_url_query_value(val));
         }
     }
     None
@@ -1010,8 +1009,7 @@ pub fn parse_query_map(url_path: &str) -> std::collections::HashMap<String, Stri
             let mut parts = pair.splitn(2, '=');
             if let (Some(k), Some(v)) = (parts.next(), parts.next()) {
                 if !k.is_empty() {
-                    let decoded_v = v.replace('+', " ").replace("%20", " ");
-                    map.insert(k.to_string(), decoded_v);
+                    map.insert(k.to_string(), crate::utils::decode_url_query_value(v));
                 }
             }
         }

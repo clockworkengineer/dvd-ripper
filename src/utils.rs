@@ -155,12 +155,22 @@ pub fn format_disk_space_warning(free_gb: f64, min_gb: u64) -> String {
     )
 }
 
+/// Returns current local timestamp formatted as "YYYY-MM-DD HH:MM:SS".
+pub fn now_timestamp_str() -> String {
+    chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string()
+}
+
+/// Decodes URL percent-encoding and plus-signs into plain text spaces.
+pub fn decode_url_query_value(encoded: &str) -> String {
+    encoded.replace('+', " ").replace("%20", " ")
+}
+
 /// Formats a log line with a timestamp and prefix tag (e.g. "[2026-08-18 17:15:14] [Daemon] Message").
 #[allow(dead_code)]
 pub fn format_timestamped_log(prefix: &str, msg: &str) -> String {
-    let now = chrono::Local::now().format("%Y-%m-%d %H:%M:%S");
-    format!("[{}] [{}] {}", now, prefix, msg)
+    format!("[{}] [{}] {}", now_timestamp_str(), prefix, msg)
 }
+
 
 /// Escapes special characters and ASCII control characters in a string to make it safe for insertion into JSON string literals.
 pub fn escape_json_str(input: &str) -> String {

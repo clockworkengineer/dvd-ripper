@@ -21,9 +21,8 @@ pub struct RipRecord {
 
 impl RipRecord {
     pub fn new(title: &str, media_type: &str, output_path: &str, status: &str) -> Self {
-        let now = chrono::Local::now();
         Self {
-            timestamp: now.format("%Y-%m-%d %H:%M:%S").to_string(),
+            timestamp: crate::utils::now_timestamp_str(),
             title: title.to_string(),
             media_type: media_type.to_string(),
             output_path: output_path.to_string(),
@@ -31,6 +30,7 @@ impl RipRecord {
         }
     }
 }
+
 
 /// Formats a clean user-facing media display title (e.g. "Aliens (1986)" or "The Office - S01E05").
 #[allow(dead_code)]
