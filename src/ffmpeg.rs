@@ -430,7 +430,7 @@ pub fn probe_dvd_titles(
     cancel_flag: Option<&std::sync::atomic::AtomicBool>,
 ) -> Vec<DvdTitleInfo> {
     let fast_results = probe_dvd_titles_fast(ffmpeg_path, dvd_path);
-    if !fast_results.is_empty() {
+    if fast_results.iter().any(|t| t.duration_secs >= 300.0) {
         return fast_results;
     }
 
@@ -489,7 +489,11 @@ pub fn probe_dvd_titles(
         }
     }
 
-    titles
+    if titles.is_empty() {
+        fast_results
+    } else {
+        titles
+    }
 }
 
 /// Probes all titles on the DVD drive and filters out intros/outros (<10m) and Play-All composite titles.
