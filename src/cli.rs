@@ -86,6 +86,7 @@ pub struct Args {
     pub auto_boxset: bool,
 
     /// Automatically rip all detected TV episode titles on the disc sequentially
+    #[arg(long = "all-episodes")]
     pub all_episodes: bool,
 
     /// Include all audio tracks from DVD title in output

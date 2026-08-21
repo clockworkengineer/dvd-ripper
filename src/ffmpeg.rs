@@ -845,6 +845,11 @@ pub fn run_ffmpeg_with_channel(
         let _ = sender.send(ProgressEvent::Log(rip_line));
     }
 
+    if absolute_output.exists() {
+        std::fs::remove_file(absolute_output)
+            .with_context(|| format!("Failed to remove existing output file {}", absolute_output.display()))?;
+    }
+
     cmd.stdout(std::process::Stdio::null());
     cmd.stderr(std::process::Stdio::piped());
 
@@ -858,6 +863,9 @@ pub fn run_ffmpeg_with_channel(
         .ok_or_else(|| anyhow!("Failed to capture FFmpeg stderr"))?;
 
     let mut total_seconds: Option<f64> = probed_duration.or(expected_runtime_secs);
+    let mut demux_error = false;
+    let mut empty_output = false;
+    let mut css_error = false;
 
     let mut buf = [0u8; 1024];
     let mut line_bytes = Vec::new();
@@ -913,6 +921,18 @@ pub fn run_ffmpeg_with_channel(
 
                     if let Some(ref sender) = tx {
                         let _ = sender.send(ProgressEvent::Log(line.clone()));
+                    }
+
+                    if line.contains("Error during demuxing") {
+                        demux_error = true;
+                    }
+                    if line.contains("Output file is empty") {
+                        empty_output = true;
+                    }
+                    if line.contains("Encrypted DVD support unavailable")
+                        || line.contains("No css library available")
+                    {
+                        css_error = true;
                     }
 
                     // Detect overall duration from initialization log or stream info
@@ -984,6 +1004,32 @@ pub fn run_ffmpeg_with_channel(
     let status = child.wait().context("Failed to wait on FFmpeg process")?;
 
     if status.success() {
+        let output_size = std::fs::metadata(absolute_output)
+            .map(|metadata| metadata.len())
+            .unwrap_or(0);
+        if output_size == 0 || demux_error || empty_output || css_error {
+            let err_msg = if css_error {
+                format!(
+                    "FFmpeg cannot rip this encrypted DVD because CSS support is unavailable. Install libdvdcss and retry (output: {}).",
+                    absolute_output.display()
+                )
+            } else {
+                format!(
+                    "FFmpeg did not produce a valid rip at {} (output size: {} bytes; DVD demux error: {})",
+                    absolute_output.display(),
+                    output_size,
+                    demux_error
+                )
+            };
+            crate::api::fail_appliance_status(display_title, "", &err_msg);
+            if let Some(ref sender) = tx {
+                let _ = sender.send(ProgressEvent::Error(err_msg.clone()));
+            } else {
+                eprintln!("\n{}", err_msg);
+            }
+            return Err(anyhow!(err_msg));
+        }
+
         crate::api::update_appliance_status("Completed", "", display_title, 100.0, "N/A", "N/A");
         if let Some(ref sender) = tx {
             let _ = sender.send(ProgressEvent::Progress {
@@ -1341,6 +1387,28 @@ mod tests {
         let line = "  Duration: 00:45:30.12, start: 0.000000, bitrate: 5500 kb/s";
         let parsed = parse_title_duration_line(line);
         assert_eq!(parsed, Some(2730.12));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_successful_ffmpeg_without_output_is_failure() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let temp = TestTempDir::new("missing_output");
+        let fake_ffmpeg = temp.0.join("fake-ffmpeg");
+        fs::write(&fake_ffmpeg, "#!/bin/sh\nexit 0\n").unwrap();
+        fs::set_permissions(&fake_ffmpeg, fs::Permissions::from_mode(0o755)).unwrap();
+
+        let output = temp.0.join("rip.mp4");
+        let args = Args {
+            ffmpeg: fake_ffmpeg.to_string_lossy().to_string(),
+            title: 1,
+            ..Default::default()
+        };
+
+        let result = run_ffmpeg_with_progress(&args, Path::new("/dev/null"), &output, "Test", None);
+        let error = result.expect_err("a successful process without an output must fail");
+        assert!(error.to_string().contains("did not produce a valid rip"));
     }
 
     #[test]
