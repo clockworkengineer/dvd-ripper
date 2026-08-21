@@ -195,9 +195,8 @@ pub fn send_webhook_notification(
 ) -> Result<()> {
     let payload = build_webhook_payload(disc_name, status, message);
 
-    let client = reqwest::blocking::Client::builder()
-        .timeout(Duration::from_secs(5))
-        .build()?;
+    let client = crate::utils::get_http_client();
+
 
     let resp = client
         .post(webhook_url)

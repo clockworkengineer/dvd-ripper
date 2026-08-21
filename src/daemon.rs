@@ -37,11 +37,9 @@ fn spawn_drive_watcher(drive_path_str: String, args: Args, poll_interval_secs: u
                     last_processed_label.clear();
                     let handle = crate::api::get_appliance_status_handle();
                     if let Ok(mut state) = handle.lock() {
-                        state.disc.clear();
-                        state.current_title.clear();
-                        state.has_selected_movie = false;
-                        state.status = "Idle".to_string();
+                        state.reset();
                     }
+
                 }
             }
 

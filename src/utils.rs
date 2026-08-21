@@ -96,6 +96,21 @@ pub fn get_app_data_dir() -> PathBuf {
         .unwrap_or_else(|_| PathBuf::from("."))
 }
 
+/// Resolves a file path inside the centralized application data directory.
+pub fn get_app_file_path(filename: &str) -> PathBuf {
+    get_app_data_dir().join(filename)
+}
+
+/// Returns a shared, pre-configured HTTP blocking client instance with standard timeout and user agent.
+pub fn get_http_client() -> reqwest::blocking::Client {
+    reqwest::blocking::Client::builder()
+        .timeout(std::time::Duration::from_secs(5))
+        .user_agent("dvd-ripper/0.1.0")
+        .build()
+        .unwrap_or_default()
+}
+
+
 /// Formats floating-point duration seconds into standardized HH:MM:SS format (e.g., 5432.0 -> "01:30:32").
 #[allow(dead_code)]
 pub fn format_duration_hhmmss(total_secs: f64) -> String {

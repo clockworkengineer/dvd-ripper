@@ -45,8 +45,18 @@ pub fn format_media_display_title(title: &str, year: Option<u32>, tv_info: Optio
 }
 
 fn resolve_history_path(path: Option<&Path>) -> PathBuf {
-    path.map(PathBuf::from).unwrap_or_else(|| PathBuf::from(HISTORY_FILE))
+    if let Some(p) = path {
+        PathBuf::from(p)
+    } else {
+        let local = PathBuf::from(HISTORY_FILE);
+        if local.exists() {
+            local
+        } else {
+            crate::utils::get_app_file_path(HISTORY_FILE)
+        }
+    }
 }
+
 
 /// Loads history records from disk (default: `ripping_history.json`).
 pub fn load_history(path: Option<&Path>) -> Vec<RipRecord> {

@@ -57,8 +57,9 @@ fn resolve_boxsets_path(custom_path: Option<&str>) -> PathBuf {
     if let Some(p) = custom_path {
         return PathBuf::from(p);
     }
-    crate::utils::get_app_data_dir().join("boxsets.json")
+    crate::utils::get_app_file_path("boxsets.json")
 }
+
 
 /// Loads persistent box set records from ~/.dvd-ripper/boxsets.json
 pub fn load_boxsets(custom_path: Option<&str>) -> Vec<BoxSetRecord> {

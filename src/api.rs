@@ -39,7 +39,38 @@ pub struct ApplianceStatusInfo {
     pub year: Option<u32>,
 }
 
+#[allow(dead_code)]
+impl ApplianceStatusInfo {
+    pub fn reset(&mut self) {
+        self.disc.clear();
+        self.current_title.clear();
+        self.has_selected_movie = false;
+        self.status = "Idle".to_string();
+        self.progress = 0.0;
+        self.fps = "0".to_string();
+        self.speed = "0x".to_string();
+    }
+
+    pub fn set_disc_detected(&mut self, disc_label: &str) {
+        self.disc = disc_label.to_string();
+        self.status = "Detected - Search Required".to_string();
+    }
+
+    pub fn set_ripping(&mut self, title: &str) {
+        self.current_title = title.to_string();
+        self.status = "Ripping".to_string();
+    }
+
+    pub fn update_progress(&mut self, progress: f64, fps: &str, speed: &str) {
+        self.progress = progress;
+        self.fps = fps.to_string();
+        self.speed = speed.to_string();
+    }
+}
+
+
 static APPLIANCE_STATUS: OnceLock<Arc<Mutex<ApplianceStatusInfo>>> = OnceLock::new();
+
 
 pub fn get_appliance_status_handle() -> Arc<Mutex<ApplianceStatusInfo>> {
     APPLIANCE_STATUS

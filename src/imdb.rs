@@ -160,17 +160,10 @@ pub fn fetch_imdb_runtime(_imdb_id: &str) -> Option<f64> {
     None
 }
 
-use std::sync::OnceLock;
-
-fn get_http_client() -> &'static reqwest::blocking::Client {
-    static CLIENT: OnceLock<reqwest::blocking::Client> = OnceLock::new();
-    CLIENT.get_or_init(|| {
-        reqwest::blocking::Client::builder()
-            .timeout(std::time::Duration::from_secs(10))
-            .build()
-            .unwrap_or_default()
-    })
+fn get_http_client() -> reqwest::blocking::Client {
+    crate::utils::get_http_client()
 }
+
 
 /// Helper: Constructs a reqwest::Url with query parameter tuples.
 #[allow(dead_code)]
@@ -685,10 +678,11 @@ pub fn fetch_tv_episode_title(show_name: &str, season: u32, episode_num: u32) ->
 }
 
 fn resolve_fingerprint_cache_path() -> PathBuf {
-    let base = crate::utils::get_app_data_dir().join("fingerprints.json");
+    let base = crate::utils::get_app_file_path("fingerprints.json");
     let _ = crate::utils::ensure_parent_dir(&base);
     base
 }
+
 
 /// Looks up cached metadata by disc fingerprint hash string.
 pub fn lookup_fingerprint_cache(hash: &str) -> Option<FilmMetadata> {
