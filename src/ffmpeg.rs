@@ -271,9 +271,31 @@ pub struct EncoderDefaults {
     pub audio_bitrate: &'static str,
 }
 
+/// Trait defining encoder profile configuration contract (OCP/ISP).
+#[allow(dead_code)]
+pub trait EncoderProfileProvider {
+    fn name(&self) -> &str;
+    fn get_defaults(&self, profile: &str) -> EncoderDefaults;
+}
+
+/// Concrete standard encoder profile provider implementation.
+#[derive(Debug, Default)]
+pub struct StandardEncoderProfileProvider;
+
+impl EncoderProfileProvider for StandardEncoderProfileProvider {
+    fn name(&self) -> &str {
+        "Standard FFmpeg Encoder Profile Provider"
+    }
+
+    fn get_defaults(&self, profile: &str) -> EncoderDefaults {
+        resolve_encoder_defaults(profile)
+    }
+}
+
 /// Resolves default encoder quality parameters (preset, CRF, audio bitrate) based on profile name.
 #[allow(dead_code)]
 pub fn resolve_encoder_defaults(profile: &str) -> EncoderDefaults {
+
     match profile.to_lowercase().as_str() {
         "mobile" => EncoderDefaults {
             preset: "fast",

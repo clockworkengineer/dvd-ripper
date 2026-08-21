@@ -496,6 +496,27 @@ pub struct DriveInspection {
     pub fingerprint: String,
 }
 
+/// Trait defining optical drive inspection contract (DIP/ISP).
+#[allow(dead_code)]
+pub trait DriveInspector {
+    fn name(&self) -> &str;
+    fn inspect(&self, drive_path: &str) -> DriveInspection;
+}
+
+/// Concrete platform-native optical drive inspector implementation.
+#[derive(Debug, Default)]
+pub struct NativeDriveInspector;
+
+impl DriveInspector for NativeDriveInspector {
+    fn name(&self) -> &str {
+        "Native Optical Drive Inspector"
+    }
+
+    fn inspect(&self, drive_path: &str) -> DriveInspection {
+        inspect_drive(drive_path)
+    }
+}
+
 /// Helper: Performs a complete initial drive inspection on a user-provided drive input.
 #[allow(dead_code)]
 pub fn inspect_drive(input: &str) -> DriveInspection {
