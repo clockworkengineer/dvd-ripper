@@ -88,6 +88,15 @@ pub fn detect_dvd_drives() -> Vec<String> {
     vec!["/dev/sr0".to_string()]
 }
 
+/// Returns the default primary optical DVD drive device path string for the target operating system.
+pub fn default_dvd_drive_path() -> &'static str {
+    if cfg!(target_os = "windows") {
+        "D:\\"
+    } else {
+        "/dev/sr0"
+    }
+}
+
 /// Automatically detects the active DVD drive containing an inserted disc, or the primary optical drive.
 pub fn auto_detect_dvd_drive() -> String {
     let drives = detect_dvd_drives();
@@ -96,14 +105,9 @@ pub fn auto_detect_dvd_drive() -> String {
             return drive.clone();
         }
     }
-    drives.into_iter().next().unwrap_or_else(|| {
-        if cfg!(target_os = "windows") {
-            "D:\\".to_string()
-        } else {
-            "/dev/sr0".to_string()
-        }
-    })
+    drives.into_iter().next().unwrap_or_else(|| default_dvd_drive_path().to_string())
 }
+
 
 /// Cleans an input drive string, returning a normalized drive letter (e.g. "D:\", "d:" -> "D:\").
 #[allow(dead_code)]

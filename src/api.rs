@@ -418,10 +418,11 @@ pub fn start_embedded_api_server(port: u16, drive_path: String) -> Result<()> {
 
     let handle = get_appliance_status_handle();
     if let Ok(mut state) = handle.lock() {
-        if state.drive == "auto" || state.drive == "D:\\" {
+        if state.drive == "auto" || state.drive == crate::dvd::default_dvd_drive_path() {
             state.drive = crate::dvd::auto_detect_dvd_drive();
         }
     }
+
 
     thread::spawn(move || {
         for stream in listener.incoming().flatten() {
