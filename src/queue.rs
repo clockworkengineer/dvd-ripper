@@ -74,8 +74,40 @@ pub fn save_boxsets(records: &[BoxSetRecord], custom_path: Option<&str>) -> anyh
 }
 
 
+/// Trait defining job queue repository contract (ISP/DIP).
+#[allow(dead_code)]
+pub trait JobQueueRepository {
+    fn name(&self) -> &str;
+    fn add_job(&self, title: &str, media_type: &str, drive: &str) -> String;
+    fn list_jobs(&self) -> Vec<JobItem>;
+    fn remove_job(&self, id: &str) -> bool;
+}
+
+/// Concrete in-memory job queue repository implementation.
+#[derive(Debug, Default)]
+pub struct InMemoryJobQueueRepository;
+
+impl JobQueueRepository for InMemoryJobQueueRepository {
+    fn name(&self) -> &str {
+        "In-Memory Job Queue Repository"
+    }
+
+    fn add_job(&self, title: &str, media_type: &str, drive: &str) -> String {
+        add_job(title, media_type, drive)
+    }
+
+    fn list_jobs(&self) -> Vec<JobItem> {
+        list_jobs()
+    }
+
+    fn remove_job(&self, id: &str) -> bool {
+        remove_job(id)
+    }
+}
+
 /// Enqueues a new ripping job item into the queue.
 pub fn add_job(title: &str, media_type: &str, drive: &str) -> String {
+
     let id = format!("job_{}", uuid_v4_short());
     let item = JobItem {
         id: id.clone(),

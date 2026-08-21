@@ -58,8 +58,35 @@ fn resolve_history_path(path: Option<&Path>) -> PathBuf {
 }
 
 
+/// Trait defining persistent history repository contract (SRP/DIP).
+#[allow(dead_code)]
+pub trait HistoryRepository {
+    fn name(&self) -> &str;
+    fn load(&self) -> Vec<RipRecord>;
+    fn save(&self, records: &[RipRecord]) -> Result<()>;
+}
+
+/// Concrete JSON file history repository implementation.
+#[derive(Debug, Default)]
+pub struct JsonFileHistoryRepository;
+
+impl HistoryRepository for JsonFileHistoryRepository {
+    fn name(&self) -> &str {
+        "JSON File History Repository"
+    }
+
+    fn load(&self) -> Vec<RipRecord> {
+        load_history(None)
+    }
+
+    fn save(&self, records: &[RipRecord]) -> Result<()> {
+        save_history(records, None)
+    }
+}
+
 /// Loads history records from disk (default: `ripping_history.json`).
 pub fn load_history(path: Option<&Path>) -> Vec<RipRecord> {
+
     let history_path = resolve_history_path(path);
     crate::utils::load_json_file(&history_path).unwrap_or_default()
 }
