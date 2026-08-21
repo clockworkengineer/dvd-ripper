@@ -278,7 +278,7 @@ pub fn fetch_search_candidates(query: &str) -> Vec<SearchResultItem> {
 
     let mut results = Vec::new();
     for term in search_terms {
-        let encoded = term.replace(' ', "+");
+        let encoded = crate::utils::encode_url_query_value(&term);
         let url = format!("https://www.omdbapi.com/?s={}&apikey=trilogy", encoded);
         if let Ok(resp) = client.get(&url).send() {
             if let Ok(text) = resp.text() {
@@ -395,7 +395,7 @@ pub fn lookup_omdb_search(query: &str) -> Option<FilmMetadata> {
 /// Queries OMDb API for movie title, release year, running time, plot summary, and poster image.
 pub fn lookup_omdb_details(query: &str) -> Option<FilmMetadata> {
     let client = get_http_client();
-    let encoded_query = query.replace(' ', "+");
+    let encoded_query = crate::utils::encode_url_query_value(query);
     let url = format!("https://www.omdbapi.com/?t={}&apikey=trilogy", encoded_query);
     let resp = client.get(&url).send().ok()?;
     let text = resp.text().ok()?;

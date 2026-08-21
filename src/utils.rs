@@ -165,6 +165,12 @@ pub fn decode_url_query_value(encoded: &str) -> String {
     encoded.replace('+', " ").replace("%20", " ")
 }
 
+/// Encodes spaces into URL query `+` syntax.
+pub fn encode_url_query_value(raw: &str) -> String {
+    raw.trim().replace(' ', "+")
+}
+
+
 /// Formats a log line with a timestamp and prefix tag (e.g. "[2026-08-18 17:15:14] [Daemon] Message").
 #[allow(dead_code)]
 pub fn format_timestamped_log(prefix: &str, msg: &str) -> String {
