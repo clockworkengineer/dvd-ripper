@@ -333,6 +333,7 @@ impl DvdRipperApp {
 
         self.detecting = true;
         self.detect_status = "Running 10-second optical drive throughput benchmark...".to_string();
+        self.status_message = "Running drive benchmark...".to_string();
 
         let ffmpeg_path = self.ffmpeg_path.clone();
         let drive = self.input_drive.clone();
@@ -347,6 +348,7 @@ impl DvdRipperApp {
                         report.read_speed_mbps, report.rating_summary, report.fps
                     );
                     let _ = tx.send(ProgressEvent::Log(msg));
+                    let _ = tx.send(ProgressEvent::BenchmarkFinished(report));
                 }
                 Err(e) => {
                     let _ = tx.send(ProgressEvent::Error(format!("Benchmark error: {}", e)));
@@ -628,6 +630,15 @@ impl DvdRipperApp {
                     self.detecting = false;
                     self.detect_status = format!("Found {} TV episode titles on disc.", self.detected_episodes.len());
                 }
+                ProgressEvent::BenchmarkFinished(report) => {
+                    self.detecting = false;
+                    let msg = format!(
+                        "Drive Benchmark: {:.2} MB/s throughput ({}, {} FPS)",
+                        report.read_speed_mbps, report.rating_summary, report.fps
+                    );
+                    self.detect_status = msg.clone();
+                    self.status_message = format!("Benchmark complete: {:.2} MB/s", report.read_speed_mbps);
+                }
                 ProgressEvent::Progress { percent, fps, speed } => {
                     self.progress_percent = (percent as f32) / 100.0;
                     self.fps = fps;
@@ -658,6 +669,7 @@ impl DvdRipperApp {
                 }
                 ProgressEvent::Error(msg) => {
                     self.is_ripping = false;
+                    self.detecting = false;
                     self.status_message = format!("Stopped: {}", msg);
                     self.cancel_tx = None;
                     self.cancel_flag = None;

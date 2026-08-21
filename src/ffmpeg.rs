@@ -770,6 +770,7 @@ pub enum ProgressEvent {
     Metadata(crate::imdb::FilmMetadata),
     SearchResults(Vec<crate::imdb::SearchResultItem>),
     TvEpisodesDetected(Vec<TvEpisodeInfo>),
+    BenchmarkFinished(crate::dvd::DriveBenchmarkReport),
     Progress {
         percent: f64,
         fps: String,

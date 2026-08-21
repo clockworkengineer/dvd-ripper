@@ -429,6 +429,7 @@ pub fn run_drive_benchmark(
 
     let mut cmd = Command::new(ffmpeg_path);
     cmd.arg("-y")
+       .arg("-nostdin")
        .arg("-f").arg("dvdvideo")
        .arg("-i").arg(&norm_path)
        .arg("-title").arg("1")
