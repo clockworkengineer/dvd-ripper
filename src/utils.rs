@@ -110,6 +110,24 @@ pub fn get_http_client() -> reqwest::blocking::Client {
         .unwrap_or_default()
 }
 
+/// Generic helper: Loads and deserializes a JSON file from disk into a typed data structure.
+pub fn load_json_file<T: serde::de::DeserializeOwned>(path: &Path) -> Option<T> {
+    if !path.exists() {
+        return None;
+    }
+    let content = std::fs::read_to_string(path).ok()?;
+    serde_json::from_str(&content).ok()
+}
+
+/// Generic helper: Serializes a typed data structure to pretty JSON and writes atomically to disk.
+pub fn save_json_file<T: serde::Serialize>(path: &Path, data: &T) -> Result<()> {
+    let json = serde_json::to_string_pretty(data)?;
+    atomic_write_file(path, json)?;
+    Ok(())
+}
+
+
+
 
 /// Formats floating-point duration seconds into standardized HH:MM:SS format (e.g., 5432.0 -> "01:30:32").
 #[allow(dead_code)]
@@ -332,11 +350,17 @@ pub fn format_title_folder_name(name: &str, year: Option<u32>) -> String {
     }
 }
 
+/// Formats a TV season and episode number into a standardized episode code string (e.g., "S01E05").
+pub fn format_episode_code(season: u32, episode: u32) -> String {
+    format!("S{:02}E{:02}", season, episode)
+}
+
 /// DRY helper: Formats a standard TV episode name (e.g. `Show Name - S01E02`), with sanitized path characters.
 pub fn format_episode_name(show_name: &str, season: u32, ep_num: u32) -> String {
     let clean_name = sanitize_filename(show_name);
-    format!("{} - S{:02}E{:02}", clean_name, season, ep_num)
+    format!("{} - {}", clean_name, format_episode_code(season, ep_num))
 }
+
 
 /// Saves poster artwork bytes to `cover.jpg` and `folder.jpg` in the parent directory of the ripped video file.
 pub fn save_cover_artworks(output_file: &std::path::Path, poster_bytes: &[u8]) -> anyhow::Result<()> {

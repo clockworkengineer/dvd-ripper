@@ -6,8 +6,8 @@
 use std::sync::{Arc, Mutex, OnceLock};
 use serde::{Deserialize, Serialize};
 
-use std::fs;
 use std::path::PathBuf;
+
 
 /// Represents a single queued ripping job item.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -64,23 +64,15 @@ fn resolve_boxsets_path(custom_path: Option<&str>) -> PathBuf {
 /// Loads persistent box set records from ~/.dvd-ripper/boxsets.json
 pub fn load_boxsets(custom_path: Option<&str>) -> Vec<BoxSetRecord> {
     let p = resolve_boxsets_path(custom_path);
-    if p.exists() {
-        if let Ok(content) = fs::read_to_string(&p) {
-            if let Ok(records) = serde_json::from_str::<Vec<BoxSetRecord>>(&content) {
-                return records;
-            }
-        }
-    }
-    Vec::new()
+    crate::utils::load_json_file(&p).unwrap_or_default()
 }
 
 /// Saves box set records to ~/.dvd-ripper/boxsets.json using atomic file writing.
 pub fn save_boxsets(records: &[BoxSetRecord], custom_path: Option<&str>) -> anyhow::Result<()> {
     let p = resolve_boxsets_path(custom_path);
-    let json = serde_json::to_string_pretty(records)?;
-    crate::utils::atomic_write_file(&p, json)?;
-    Ok(())
+    crate::utils::save_json_file(&p, &records)
 }
+
 
 /// Enqueues a new ripping job item into the queue.
 pub fn add_job(title: &str, media_type: &str, drive: &str) -> String {

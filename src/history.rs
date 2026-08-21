@@ -61,22 +61,15 @@ fn resolve_history_path(path: Option<&Path>) -> PathBuf {
 /// Loads history records from disk (default: `ripping_history.json`).
 pub fn load_history(path: Option<&Path>) -> Vec<RipRecord> {
     let history_path = resolve_history_path(path);
-    if !history_path.exists() {
-        return Vec::new();
-    }
-    match fs::read_to_string(history_path) {
-        Ok(content) => serde_json::from_str(&content).unwrap_or_default(),
-        Err(_) => Vec::new(),
-    }
+    crate::utils::load_json_file(&history_path).unwrap_or_default()
 }
 
 /// Saves history records to disk using atomic file writing.
 pub fn save_history(records: &[RipRecord], path: Option<&Path>) -> Result<()> {
     let history_path = resolve_history_path(path);
-    let json = serde_json::to_string_pretty(records)?;
-    crate::utils::atomic_write_file(&history_path, json)?;
-    Ok(())
+    crate::utils::save_json_file(&history_path, &records)
 }
+
 
 /// Clears history file on disk.
 pub fn clear_history(path: Option<&Path>) -> Result<()> {

@@ -14,14 +14,15 @@ use crate::utils::{extract_kv_field, format_episode_name, format_title_folder_na
 /// Formats a TV season and episode number into a standardized episode code string (e.g., "S01E05").
 #[allow(dead_code)]
 pub fn format_episode_code(season: u32, episode: u32) -> String {
-    format!("S{:02}E{:02}", season, episode)
+    crate::utils::format_episode_code(season, episode)
 }
 
 /// Formats a TV show name, season, and episode number into a standardized media filename (e.g., "The Office - S01E05").
 #[allow(dead_code)]
 pub fn format_episode_filename(show_name: &str, season: u32, episode: u32) -> String {
-    format!("{} - {}", show_name, format_episode_code(season, episode))
+    crate::utils::format_episode_name(show_name, season, episode)
 }
+
 
 /// Helper: Ensures parent directories exist and returns absolute path with optional collision incrementing.
 fn ensure_absolute_parent_dir(base_dir: &str, path: PathBuf, no_overwrite: bool) -> Result<PathBuf> {

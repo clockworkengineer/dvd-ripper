@@ -687,33 +687,19 @@ fn resolve_fingerprint_cache_path() -> PathBuf {
 /// Looks up cached metadata by disc fingerprint hash string.
 pub fn lookup_fingerprint_cache(hash: &str) -> Option<FilmMetadata> {
     let path = resolve_fingerprint_cache_path();
-    if !path.exists() {
-        return None;
-    }
-    if let Ok(content) = std::fs::read_to_string(&path) {
-        if let Ok(map) = serde_json::from_str::<std::collections::HashMap<String, FilmMetadata>>(&content) {
-            return map.get(hash).cloned();
-        }
-    }
-    None
+    let map: std::collections::HashMap<String, FilmMetadata> = crate::utils::load_json_file(&path)?;
+    map.get(hash).cloned()
 }
 
 /// Saves disc fingerprint metadata mapping to local JSON cache.
 pub fn save_fingerprint_cache(hash: &str, meta: &FilmMetadata) {
     let path = resolve_fingerprint_cache_path();
-    let mut map: std::collections::HashMap<String, FilmMetadata> = if path.exists() {
-        std::fs::read_to_string(&path)
-            .ok()
-            .and_then(|c| serde_json::from_str(&c).ok())
-            .unwrap_or_default()
-    } else {
-        std::collections::HashMap::new()
-    };
+    let mut map: std::collections::HashMap<String, FilmMetadata> =
+        crate::utils::load_json_file(&path).unwrap_or_default();
     map.insert(hash.to_string(), meta.clone());
-    if let Ok(json) = serde_json::to_string_pretty(&map) {
-        let _ = crate::utils::atomic_write_file(&path, json);
-    }
+    let _ = crate::utils::save_json_file(&path, &map);
 }
+
 
 #[cfg(test)]
 mod tests {
