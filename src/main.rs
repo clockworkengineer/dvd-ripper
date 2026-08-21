@@ -30,6 +30,7 @@ use ffmpeg::{
 use imdb::{fetch_search_candidates, lookup_film_details, lookup_omdb_by_id};
 use utils::sanitize_filename;
 
+/// Resolves film metadata, release year, running time, and cover poster bytes for CLI mode execution.
 fn resolve_cli_metadata(args: &mut Args, volume_label: Option<&str>) -> (Option<String>, Option<u32>, Option<f64>, Option<Vec<u8>>) {
     // 0. Disc Fingerprint Cache Auto-Match
     let fp_hash = dvd::compute_disc_fingerprint(&args.input);
@@ -181,6 +182,7 @@ fn resolve_cli_metadata(args: &mut Args, volume_label: Option<&str>) -> (Option<
     (None, None, None, None)
 }
 
+/// Main entry point executing GUI application or CLI transcoding process.
 fn main() -> Result<()> {
     #[cfg(feature = "gui")]
     {

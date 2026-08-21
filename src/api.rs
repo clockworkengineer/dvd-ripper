@@ -1,3 +1,8 @@
+/**
+ * @file api.rs
+ * @brief REST API web server, Prometheus metrics provider, and SSE event broadcast engine.
+ */
+
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -17,10 +22,12 @@ pub const MIME_APPLICATION_JSON: &str = "application/json";
 static CANCEL_FLAG: OnceLock<Arc<AtomicBool>> = OnceLock::new();
 static CANCEL_TX: OnceLock<Arc<Mutex<Option<Sender<()>>>>> = OnceLock::new();
 
+/// Returns the global atomic cancel flag handle for ongoing operations.
 pub fn get_cancel_flag_handle() -> Arc<AtomicBool> {
     CANCEL_FLAG.get_or_init(|| Arc::new(AtomicBool::new(false))).clone()
 }
 
+/// Returns the global thread-safe sender handle for process cancellation signals.
 pub fn get_cancel_tx_handle() -> Arc<Mutex<Option<Sender<()>>>> {
     CANCEL_TX.get_or_init(|| Arc::new(Mutex::new(None))).clone()
 }

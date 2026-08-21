@@ -1,6 +1,12 @@
+/**
+ * @file utils.rs
+ * @brief Common string manipulation, HTTP client pooling, atomic file I/O, NFO metadata generation, and system helper utilities.
+ */
+
 use anyhow::{anyhow, Result};
 use std::path::{Path, PathBuf};
 
+/// Queries remaining free disk space (bytes) for a given target directory path.
 #[cfg(target_os = "windows")]
 pub fn get_free_disk_space_bytes(dir_path: &Path) -> Result<u64> {
     use std::os::windows::ffi::OsStrExt;

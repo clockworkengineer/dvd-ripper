@@ -1,5 +1,10 @@
 #![cfg(feature = "gui")]
 
+/**
+ * @file gui.rs
+ * @brief Cross-platform desktop graphical user interface powered by eframe/egui.
+ */
+
 use std::collections::VecDeque;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
