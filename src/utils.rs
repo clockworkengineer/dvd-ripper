@@ -451,35 +451,28 @@ pub fn build_emby_refresh_url(base_url: &str, api_key: &str) -> String {
     format_media_server_refresh_url("emby", base_url, api_key)
 }
 
+fn send_media_server_refresh_post(server_name: &str, base_url: &str, endpoint: &str) -> anyhow::Result<()> {
+    println!("[Media Server] Requesting {} library refresh: {}", server_name, base_url);
+    let client = get_http_client();
+    let _ = client.post(endpoint).send();
+    Ok(())
+}
+
 pub fn trigger_plex_library_scan(url: &str, token: &str) -> anyhow::Result<()> {
     let endpoint = build_plex_refresh_url(url, token);
-    println!("[Media Server] Requesting Plex library refresh: {}", url);
-    let client = reqwest::blocking::Client::builder()
-        .timeout(std::time::Duration::from_secs(5))
-        .build()?;
-    let _ = client.post(&endpoint).send();
-    Ok(())
+    send_media_server_refresh_post("Plex", url, &endpoint)
 }
 
 pub fn trigger_jellyfin_library_scan(url: &str, api_key: &str) -> anyhow::Result<()> {
     let endpoint = build_jellyfin_refresh_url(url, api_key);
-    println!("[Media Server] Requesting Jellyfin library refresh: {}", url);
-    let client = reqwest::blocking::Client::builder()
-        .timeout(std::time::Duration::from_secs(5))
-        .build()?;
-    let _ = client.post(&endpoint).send();
-    Ok(())
+    send_media_server_refresh_post("Jellyfin", url, &endpoint)
 }
 
 pub fn trigger_emby_library_scan(url: &str, api_key: &str) -> anyhow::Result<()> {
     let endpoint = build_emby_refresh_url(url, api_key);
-    println!("[Media Server] Requesting Emby library refresh: {}", url);
-    let client = reqwest::blocking::Client::builder()
-        .timeout(std::time::Duration::from_secs(5))
-        .build()?;
-    let _ = client.post(&endpoint).send();
-    Ok(())
+    send_media_server_refresh_post("Emby", url, &endpoint)
 }
+
 
 pub fn trigger_media_server_scans(args: &crate::cli::Args) {
     if let (Some(url), Some(token)) = (args.plex_url.as_deref(), args.plex_token.as_deref()) {
