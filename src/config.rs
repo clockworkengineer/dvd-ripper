@@ -32,42 +32,38 @@ pub struct AppConfig {
     pub min_free_gb: Option<u64>,
 }
 
+fn try_load_config_file(path: &Path) -> Option<AppConfig> {
+    if path.exists() {
+        if let Ok(content) = fs::read_to_string(path) {
+            if let Ok(cfg) = parse_config_toml(&content) {
+                println!("[Config] Loaded configuration from '{}'", path.display());
+                return Some(cfg);
+            }
+        }
+    }
+    None
+}
+
 /// Loads configuration from custom path, ./dvd-ripper.toml, or ~/.dvd-ripper/config.toml
 pub fn load_config(custom_path: Option<&str>) -> AppConfig {
     if let Some(path_str) = custom_path {
-        let p = Path::new(path_str);
-        if p.exists() {
-            if let Ok(content) = fs::read_to_string(p) {
-                if let Ok(cfg) = parse_config_toml(&content) {
-                    println!("[Config] Loaded configuration from '{}'", p.display());
-                    return cfg;
-                }
-            }
+        if let Some(cfg) = try_load_config_file(Path::new(path_str)) {
+            return cfg;
         }
     }
 
-    let local_config = Path::new("dvd-ripper.toml");
-    if local_config.exists() {
-        if let Ok(content) = fs::read_to_string(local_config) {
-            if let Ok(cfg) = parse_config_toml(&content) {
-                println!("[Config] Loaded configuration from 'dvd-ripper.toml'");
-                return cfg;
-            }
-        }
+    if let Some(cfg) = try_load_config_file(Path::new("dvd-ripper.toml")) {
+        return cfg;
     }
 
     let home_config = crate::utils::get_app_data_dir().join("config.toml");
-    if home_config.exists() {
-        if let Ok(content) = fs::read_to_string(&home_config) {
-            if let Ok(cfg) = parse_config_toml(&content) {
-                println!("[Config] Loaded configuration from '~/.dvd-ripper/config.toml'");
-                return cfg;
-            }
-        }
+    if let Some(cfg) = try_load_config_file(&home_config) {
+        return cfg;
     }
 
     AppConfig::default()
 }
+
 
 /// Saves an AppConfig struct to TOML file using atomic file write.
 #[allow(dead_code)]
