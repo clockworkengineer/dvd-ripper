@@ -236,6 +236,26 @@ pub struct Args {
     /// Custom metadata title tag for output audio stream (e.g. "Director's Commentary")
     #[arg(long = "audio-title")]
     pub audio_title: Option<String>,
+
+    /// Path to JSON-Lines structured audit log file (e.g. audit.jsonl)
+    #[arg(long = "audit-log")]
+    pub audit_log: Option<String>,
+
+    /// Issue optical drive motor spindown signal upon rip completion
+    #[arg(long = "spindown")]
+    pub spindown: bool,
+
+    /// Flag extracted subtitle stream as default in output media container
+    #[arg(long = "sub-default")]
+    pub sub_default: bool,
+
+    /// Comma-separated list of custom metadata tags to include in NFO XML sidecar file
+    #[arg(long = "tags")]
+    pub tags: Option<String>,
+
+    /// Generate SHA-256 integrity checksum sidecar file (.sha256) alongside converted media
+    #[arg(long = "checksum")]
+    pub checksum: bool,
 }
 
 impl Default for Args {
@@ -297,6 +317,11 @@ impl Default for Args {
             audio_track: None,
             hwaccel_fallback: false,
             audio_title: None,
+            audit_log: None,
+            spindown: false,
+            sub_default: false,
+            tags: None,
+            checksum: false,
         }
     }
 }
@@ -327,6 +352,11 @@ pub struct EncodingOptions {
     pub audio_track: Option<u32>,
     pub hwaccel_fallback: bool,
     pub audio_title: Option<String>,
+    pub audit_log: Option<String>,
+    pub spindown: bool,
+    pub sub_default: bool,
+    pub tags: Option<String>,
+    pub checksum: bool,
 }
 
 impl Args {
@@ -355,6 +385,11 @@ impl Args {
         self.audio_track = opts.audio_track;
         self.hwaccel_fallback = opts.hwaccel_fallback;
         self.audio_title = opts.audio_title;
+        self.audit_log = opts.audit_log;
+        self.spindown = opts.spindown;
+        self.sub_default = opts.sub_default;
+        self.tags = opts.tags;
+        self.checksum = opts.checksum;
     }
 
     pub fn new_movie(

@@ -405,8 +405,24 @@ fn main() -> Result<()> {
         if let Some(ref out_file) = last_output_file {
             let media_type = if args.tv { "TV Series" } else { "Movie" };
             let title = title_name.as_deref().unwrap_or("DVD Rip");
-            let _ = utils::generate_nfo_file(out_file, title, title_year, None, None, None, media_type);
+            let _ = utils::generate_nfo_file(out_file, title, title_year, None, None, None, media_type, args.tags.as_deref());
         }
+    }
+
+    if args.checksum {
+        if let Some(ref out_file) = last_output_file {
+            let _ = utils::generate_checksum_file(out_file);
+        }
+    }
+
+    if let Some(ref audit_path) = args.audit_log {
+        let details = serde_json::json!({
+            "title": title_name,
+            "year": title_year,
+            "dvd_path": dvd_path,
+            "output_file": last_output_file
+        });
+        let _ = utils::append_audit_log_entry(std::path::Path::new(audit_path), "RipCompleted", &details);
     }
 
     if let (Some(script), Some(out_file)) = (args.post_script.as_deref(), last_output_file.as_ref()) {
@@ -420,6 +436,9 @@ fn main() -> Result<()> {
     if !args.no_eject {
         println!("\nEjecting DVD disc from drive...");
         let _ = dvd::eject_disc(&dvd_path.to_string_lossy());
+    } else if args.spindown {
+        println!("\nIssuing optical drive motor spindown signal...");
+        let _ = dvd::spindown_drive(&dvd_path.to_string_lossy());
     }
 
     Ok(())

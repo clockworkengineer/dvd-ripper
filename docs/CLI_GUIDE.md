@@ -59,10 +59,15 @@ By default, launching `dvd-ripper` without arguments opens the graphical desktop
 | `--subtitles` | `false` | Extract DVD subtitle tracks into output container. |
 | `--sub-forced-only` | `false` | Extract forced-only subtitle streams (alien/foreign dialogue markers). |
 | `--sub-external-srt` | `false` | Extract subtitle stream into a standalone external `.srt` sidecar file. |
+| `--sub-default` | `false` | Flag extracted subtitle stream as default in media players (`-disposition:s:0 default`). |
 | `--sub-lang <LANG>` | *Auto* | Preferred subtitle language code (e.g. `eng`, `fre`, `spa`). |
 | `--sub-format <FMT>` | `dvdsub` | Subtitle stream format: `dvdsub` (bitmap) or `subrip` (`.srt` text format). |
 | `--no-eject` | `false` | Do not eject optical disc tray upon successful rip completion (ideal for disc autoloaders). |
+| `--spindown` | `false` | Issue optical drive motor spindown signal upon rip completion to reduce platter noise & wear. |
 | `--nfo` | `false` | Generate Kodi/Jellyfin/Plex XML `.nfo` metadata sidecar file. |
+| `--tags <CSV>` | *None* | Comma-separated custom metadata tags (e.g. `4K Remaster,Director Cut`) to embed in `.nfo` XML. |
+| `--checksum` | `false` | Generate SHA-256 integrity verification sidecar file (`.sha256`) alongside converted media. |
+| `--audit-log <PATH>`| *None* | Write structured JSON-Lines (`.jsonl`) audit event log file for enterprise logging (Splunk, Elastic). |
 | `--chapters` | `true` | Extract and preserve DVD chapter timestamp markers into container metadata. |
 | `--search <QUERY>` | *None* | Perform online IMDb/OMDb metadata candidate search. |
 | `--imdb-id <ID>` | *None* | Explicitly select IMDb ID for metadata resolution (e.g. `tt0090605`). |

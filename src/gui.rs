@@ -216,6 +216,11 @@ impl DvdRipperApp {
             hwaccel_fallback: false,
             audio_title: None,
             webhook_secret: None,
+            audit_log: None,
+            spindown: false,
+            sub_default: false,
+            tags: None,
+            checksum: false,
         }
     }
 

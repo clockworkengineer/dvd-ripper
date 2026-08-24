@@ -34,6 +34,11 @@ pub struct AppConfig {
     pub sub_forced_only: Option<bool>,
     pub sub_external_srt: Option<bool>,
     pub audio_track: Option<u32>,
+    pub audit_log: Option<String>,
+    pub spindown: Option<bool>,
+    pub sub_default: Option<bool>,
+    pub tags: Option<String>,
+    pub checksum: Option<bool>,
 }
 
 fn try_load_config_file(path: &Path) -> Option<AppConfig> {
@@ -175,6 +180,27 @@ pub fn apply_config_defaults(args: &mut Args, config: &AppConfig) {
     }
     if args.audio_track.is_none() {
         args.audio_track = config.audio_track;
+    }
+    if args.audit_log.is_none() {
+        args.audit_log = config.audit_log.clone();
+    }
+    if let Some(val) = config.spindown {
+        if !args.spindown {
+            args.spindown = val;
+        }
+    }
+    if let Some(val) = config.sub_default {
+        if !args.sub_default {
+            args.sub_default = val;
+        }
+    }
+    if args.tags.is_none() {
+        args.tags = config.tags.clone();
+    }
+    if let Some(val) = config.checksum {
+        if !args.checksum {
+            args.checksum = val;
+        }
     }
 }
 

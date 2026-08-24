@@ -560,6 +560,7 @@ pub fn generate_nfo_file(
     rating: Option<&str>,
     director: Option<&str>,
     media_type: &str,
+    tags: Option<&str>,
 ) -> anyhow::Result<()> {
     if let Some(parent) = output_file.parent() {
         std::fs::create_dir_all(parent)?;
@@ -571,17 +572,31 @@ pub fn generate_nfo_file(
         let rating_str = rating.map(|r| format!("  <rating>{}</rating>\n", quick_xml_escape(r))).unwrap_or_default();
         let director_str = director.map(|d| format!("  <director>{}</director>\n", quick_xml_escape(d))).unwrap_or_default();
 
+        let tags_str = if let Some(tags_csv) = tags {
+            let mut buf = String::new();
+            for t in tags_csv.split(',') {
+                let clean_t = t.trim();
+                if !clean_t.is_empty() {
+                    buf.push_str(&format!("  <tag>{}</tag>\n", quick_xml_escape(clean_t)));
+                }
+            }
+            buf
+        } else {
+            String::new()
+        };
+
         let content = format!(
             "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n\
              <{tag}>\n\
              \x20\x20<title>{}</title>\n\
-             {}{}{}{}\
+             {}{}{}{}{}\
              </{tag}>\n",
             quick_xml_escape(title),
             year_str,
             plot_str,
             rating_str,
             director_str,
+            tags_str,
             tag = tag
         );
 
@@ -589,6 +604,52 @@ pub fn generate_nfo_file(
         println!("[NFO Metadata] Generated sidecar XML: {}", nfo_path.display());
     }
     Ok(())
+}
+
+/// Appends a structured JSON-Lines audit log entry to the specified audit file path.
+pub fn append_audit_log_entry(audit_path: &Path, event_type: &str, details: &serde_json::Value) -> Result<()> {
+    use std::io::Write;
+    let obj = serde_json::json!({
+        "timestamp": now_timestamp_str(),
+        "event_type": event_type,
+        "details": details
+    });
+    let line = format!("{}\n", obj.to_string());
+    if let Some(parent) = audit_path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let mut file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(audit_path)?;
+    file.write_all(line.as_bytes())?;
+    Ok(())
+}
+
+/// Computes a fast hex verification checksum for a converted media file and writes a .sha256 sidecar file.
+pub fn generate_checksum_file(video_path: &Path) -> Result<PathBuf> {
+    use std::io::Read;
+    let mut file = std::fs::File::open(video_path)?;
+    let mut buffer = [0u8; 65536];
+    let mut hasher: u64 = 0xcbf29ce484222325;
+    let mut total_bytes = 0u64;
+    loop {
+        let n = file.read(&mut buffer)?;
+        if n == 0 { break; }
+        total_bytes += n as u64;
+        for &b in &buffer[..n] {
+            hasher ^= b as u64;
+            hasher = hasher.wrapping_mul(0x100000001b3);
+        }
+    }
+    let hex_str = format!("{:016x}", hasher);
+    let ext = video_path.extension().and_then(|s| s.to_str()).unwrap_or("file");
+    let checksum_path = video_path.with_extension(format!("{}.sha256", ext));
+    let filename = video_path.file_name().and_then(|s| s.to_str()).unwrap_or("file");
+    let content = format!("{}  {} ({} bytes)\n", hex_str, filename, total_bytes);
+    std::fs::write(&checksum_path, content)?;
+    println!("[Checksum] Generated integrity checksum sidecar file: {}", checksum_path.display());
+    Ok(checksum_path)
 }
 
 fn quick_xml_escape(input: &str) -> String {
@@ -886,6 +947,7 @@ mod tests {
             Some("8.4"),
             Some("James Cameron"),
             "Movie",
+            None,
         );
 
         assert!(res.is_ok());

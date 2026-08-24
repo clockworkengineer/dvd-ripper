@@ -335,6 +335,21 @@ pub fn eject_disc(root_path: &str) -> bool {
     }
 }
 
+/// Spindown / idle power management for optical drive platter motor.
+pub fn spindown_drive(root_path: &str) -> bool {
+    #[cfg(target_os = "windows")]
+    {
+        let _ = root_path;
+        true
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        use std::process::Command;
+        let dev_path = resolve_device_path(root_path);
+        Command::new("eject").arg("-i").arg("1").arg(&dev_path).status().map_or(false, |s| s.success())
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DiscProtectionReport {
     pub has_css_indicators: bool,

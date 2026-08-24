@@ -413,6 +413,9 @@ pub fn apply_subtitle_options(cmd: &mut Command, args: &Args) {
         }
         let sub_codec = resolve_subtitle_codec(args.sub_format.as_deref());
         cmd.arg("-c:s").arg(sub_codec);
+        if args.sub_default {
+            cmd.arg("-disposition:s:0").arg("default");
+        }
     }
 }
 

@@ -947,6 +947,8 @@ fn handle_client(mut stream: TcpStream, drive_path: &str) -> Result<()> {
         send_json_response(&mut stream, "200 OK", &resp_obj.to_string())?;
     } else if method_str == "GET" && (path_str == "/" || path_str == "/dashboard" || path_str.starts_with("/dashboard")) {
         send_http_response(&mut stream, "200 OK", "text/html", render_web_dashboard_html())?;
+    } else if method_str == "GET" && (path_str == "/docs" || path_str.starts_with("/docs")) {
+        send_http_response(&mut stream, "200 OK", "text/html", render_swagger_docs_html())?;
     } else if method_str == "GET" && path_str.starts_with("/api/drives") {
         let drives = crate::dvd::detect_dvd_drives();
         let resp_obj = serde_json::json!({
@@ -1078,6 +1080,21 @@ fn render_web_dashboard_html() -> &'static str {
         updateDashboard();
         setInterval(updateDashboard, 3000);
     </script>
+</body>
+</html>"#
+}
+
+/// Renders an embedded interactive Swagger API documentation UI interface.
+fn render_swagger_docs_html() -> &'static str {
+    r#"<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>DVD Ripper REST API Documentation</title>
+    <script type="module" src="https://unpkg.com/rapidoc/dist/rapidoc-min.js"></script>
+</head>
+<body style="margin:0; padding:0; background:#0f172a;">
+    <rapi-doc spec-url="/api/openapi.json" theme="dark" render-style="read" show-header="false"></rapi-doc>
 </body>
 </html>"#
 }
