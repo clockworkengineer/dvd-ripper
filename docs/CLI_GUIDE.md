@@ -43,6 +43,7 @@ By default, launching `dvd-ripper` without arguments opens the graphical desktop
 | `--deinterlace-algo <ALGO>`| `bwdif` | Deinterlacing algorithm selection: `bwdif` (best quality), `yadif`, or `w3fdif`. |
 | `--denoise` | `false` | Apply 3D spatial/temporal denoising filter (`-vf hqdn3d`) to reduce film grain and analog noise. |
 | `--sub-burnin` | `false` | Hard-burn subtitle text overlay directly onto video frames (`-vf subtitles=...`) for maximum compatibility. |
+| `--tonemap <ALGO>` | *None* | Video SDR tonemapping curve selection (`mobius`, `hable`, `reinhard`) for HDR content conversion. |
 | `--mkv` | `false` | Force Matroska (`.mkv`) output container format instead of MP4 (`.mp4`). |
 
 ---
@@ -54,6 +55,7 @@ By default, launching `dvd-ripper` without arguments opens the graphical desktop
 | `--all-audio` | `false` | Include all audio streams present on the DVD title track. |
 | `--normalize-audio` | `false` | Apply EBU R128 loudness normalization (`-filter:a loudnorm=I=<TARGET>:TP=-1.5:LRA=11`). |
 | `--norm-target <LUFS>` | `-16` | Configurable target LUFS loudness value (e.g. `-16`, `-14`, `-23 LUFS`). |
+| `--audio-downmix <MODE>`| *None* | Audio downmix channel matrix filter (`stereo`, `dolphylogic`, `headphone`, `mono`). |
 | `--dual-audio` | `false` | Generate dual audio streams (Track 1: AAC Stereo Normalized, Track 2: 5.1 Surround Passthrough). |
 | `--audio-track <INDEX>` | *Auto* | Select specific audio stream track by 1-based index (e.g. `1` for Commentary, `2` for 5.1). |
 | `--audio-lang <LANG>` | *Auto* | Preferred audio track language code (e.g. `eng`, `fre`, `spa`). |
@@ -68,6 +70,9 @@ By default, launching `dvd-ripper` without arguments opens the graphical desktop
 | `--no-eject` | `false` | Do not eject optical disc tray upon successful rip completion (ideal for disc autoloaders). |
 | `--eject-autoclose <SECS>`| *None* | Delay in seconds before automatically closing optical disc tray after ejection. |
 | `--spindown` | `false` | Issue optical drive motor spindown signal upon rip completion to reduce platter noise & wear. |
+| `--drive-pool <CSV>` | *Auto* | Comma-separated list of optical drive paths for multi-drive appliance pool monitoring. |
+| `--auto-cleanup-days <N>` | *None* | Retention days threshold after which old rip records & temporary artifacts are purged. |
+| `--label-regex-replace` | *None* | Custom regex replacement pattern (e.g. `PATTERN:REPLACEMENT`) for automated volume label cleaning. |
 | `--nfo` | `false` | Generate Kodi/Jellyfin/Plex XML `.nfo` metadata sidecar file. |
 | `--tags <CSV>` | *None* | Comma-separated custom metadata tags (e.g. `4K Remaster,Director Cut`) to embed in `.nfo` XML. |
 | `--checksum` | `false` | Generate SHA-256 integrity verification sidecar file (`.sha256`) alongside converted media. |

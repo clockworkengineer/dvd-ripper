@@ -986,6 +986,13 @@ fn handle_client(mut stream: TcpStream, drive_path: &str) -> Result<()> {
         set_disc_detected(&label);
         let resp_obj = serde_json::json!({ "success": true, "disc": label });
         send_json_response(&mut stream, "200 OK", &resp_obj.to_string())?;
+    } else if method_str == "GET" && path_str.starts_with("/api/ws") {
+        let response = "HTTP/1.1 101 Switching Protocols\r\n\
+                        Upgrade: websocket\r\n\
+                        Connection: Upgrade\r\n\
+                        Sec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=\r\n\r\n";
+        stream.write_all(response.as_bytes())?;
+        return Ok(());
     } else {
         send_http_response(&mut stream, "404 Not Found", "text/plain", "404 Not Found")?;
     }

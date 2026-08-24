@@ -43,6 +43,11 @@ pub struct AppConfig {
     pub sub_burnin: Option<bool>,
     pub norm_target: Option<i32>,
     pub eject_autoclose: Option<u64>,
+    pub label_regex_replace: Option<String>,
+    pub audio_downmix: Option<String>,
+    pub auto_cleanup_days: Option<u64>,
+    pub drive_pool: Option<String>,
+    pub tonemap: Option<String>,
 }
 
 fn try_load_config_file(path: &Path) -> Option<AppConfig> {
@@ -219,6 +224,21 @@ pub fn apply_config_defaults(args: &mut Args, config: &AppConfig) {
     }
     if args.eject_autoclose.is_none() {
         args.eject_autoclose = config.eject_autoclose;
+    }
+    if args.label_regex_replace.is_none() {
+        args.label_regex_replace = config.label_regex_replace.clone();
+    }
+    if args.audio_downmix.is_none() {
+        args.audio_downmix = config.audio_downmix.clone();
+    }
+    if args.auto_cleanup_days.is_none() {
+        args.auto_cleanup_days = config.auto_cleanup_days;
+    }
+    if args.drive_pool.is_none() {
+        args.drive_pool = config.drive_pool.clone();
+    }
+    if args.tonemap.is_none() {
+        args.tonemap = config.tonemap.clone();
     }
 }
 

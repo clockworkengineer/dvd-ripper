@@ -114,6 +114,31 @@ pub fn record_rip_event(title: &str, media_type: &str, output_path: &str, status
     save_history(&history, None)
 }
 
+/// Purges history records older than max_days retention limit.
+pub fn purge_expired_rip_records(max_days: u64, path: Option<&Path>) -> Result<usize> {
+    let mut history = load_history(path);
+    let original_len = history.len();
+    if max_days == 0 { return Ok(0); }
+    let cutoff_sec = max_days * 86400;
+    let now = chrono::Utc::now().timestamp() as u64;
+
+    history.retain(|r| {
+        if let Ok(ts) = chrono::NaiveDateTime::parse_from_str(&r.timestamp, "%Y-%m-%d %H:%M:%S") {
+            let record_time = ts.and_utc().timestamp() as u64;
+            (now.saturating_sub(record_time)) <= cutoff_sec
+        } else {
+            true
+        }
+    });
+
+    let removed = original_len.saturating_sub(history.len());
+    if removed > 0 {
+        save_history(&history, path)?;
+        println!("[Auto-Cleanup] Purged {} expired rip history records older than {} days.", removed, max_days);
+    }
+    Ok(removed)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

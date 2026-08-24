@@ -272,6 +272,26 @@ pub struct Args {
     /// Delay in seconds before automatically closing optical disc tray after ejection
     #[arg(long = "eject-autoclose")]
     pub eject_autoclose: Option<u64>,
+
+    /// Custom regex replacement pattern for automated volume label cleaning (e.g. "PATTERN:REPLACEMENT")
+    #[arg(long = "label-regex-replace")]
+    pub label_regex_replace: Option<String>,
+
+    /// Audio downmix channel matrix selection (stereo, dolphylogic, headphone, mono)
+    #[arg(long = "audio-downmix")]
+    pub audio_downmix: Option<String>,
+
+    /// Number of retention days after which old rip history records and artifacts are automatically purged
+    #[arg(long = "auto-cleanup-days")]
+    pub auto_cleanup_days: Option<u64>,
+
+    /// Comma-separated list of optical drive paths for multi-drive appliance pool monitoring
+    #[arg(long = "drive-pool")]
+    pub drive_pool: Option<String>,
+
+    /// Video SDR tonemapping algorithm curve (mobius, hable, reinhard)
+    #[arg(long = "tonemap")]
+    pub tonemap: Option<String>,
 }
 
 impl Default for Args {
@@ -342,6 +362,11 @@ impl Default for Args {
             sub_burnin: false,
             norm_target: None,
             eject_autoclose: None,
+            label_regex_replace: None,
+            audio_downmix: None,
+            auto_cleanup_days: None,
+            drive_pool: None,
+            tonemap: None,
         }
     }
 }
@@ -381,6 +406,11 @@ pub struct EncodingOptions {
     pub sub_burnin: bool,
     pub norm_target: Option<i32>,
     pub eject_autoclose: Option<u64>,
+    pub label_regex_replace: Option<String>,
+    pub audio_downmix: Option<String>,
+    pub auto_cleanup_days: Option<u64>,
+    pub drive_pool: Option<String>,
+    pub tonemap: Option<String>,
 }
 
 impl Args {
@@ -418,6 +448,11 @@ impl Args {
         self.sub_burnin = opts.sub_burnin;
         self.norm_target = opts.norm_target;
         self.eject_autoclose = opts.eject_autoclose;
+        self.label_regex_replace = opts.label_regex_replace;
+        self.audio_downmix = opts.audio_downmix;
+        self.auto_cleanup_days = opts.auto_cleanup_days;
+        self.drive_pool = opts.drive_pool;
+        self.tonemap = opts.tonemap;
     }
 
     pub fn new_movie(

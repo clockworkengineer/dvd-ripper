@@ -88,6 +88,22 @@ pub fn detect_dvd_drives() -> Vec<String> {
     vec!["/dev/sr0".to_string()]
 }
 
+/// Resolves optical drive pool handles from a comma-separated drive pool list or auto-detection.
+#[allow(dead_code)]
+pub fn resolve_drive_pool_handles(pool_csv: Option<&str>) -> Vec<String> {
+    if let Some(csv) = pool_csv {
+        let items: Vec<String> = csv
+            .split(',')
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect();
+        if !items.is_empty() {
+            return items;
+        }
+    }
+    detect_dvd_drives()
+}
+
 /// Returns the default primary optical DVD drive device path string for the target operating system.
 pub fn default_dvd_drive_path() -> &'static str {
     if cfg!(target_os = "windows") {

@@ -105,6 +105,18 @@ pub fn normalize_volume_label_title(label: &str) -> String {
     }
 }
 
+/// Applies optional string replacement pattern (e.g. "PATTERN:REPLACEMENT") before volume label title normalization.
+#[allow(dead_code)]
+pub fn normalize_volume_label_title_with_regex(label: &str, regex_pattern: Option<&str>) -> String {
+    let mut working = label.to_string();
+    if let Some(pat) = regex_pattern {
+        if let Some((target, replacement)) = pat.split_once(':') {
+            working = working.replace(target, replacement);
+        }
+    }
+    normalize_volume_label_title(&working)
+}
+
 /// Ensures that the parent directory for a target file path exists on disk.
 pub fn ensure_parent_dir(path: &Path) -> Result<()> {
     if let Some(parent) = path.parent() {

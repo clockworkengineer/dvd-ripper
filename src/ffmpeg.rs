@@ -357,6 +357,16 @@ pub fn apply_audio_options(cmd: &mut Command, args: &Args) {
     let target_lufs = args.norm_target.unwrap_or(-16);
     let norm_filter = format!("loudnorm=I={}:TP=-1.5:LRA=11", target_lufs);
 
+    if let Some(ref downmix_mode) = args.audio_downmix {
+        let filter_str = match downmix_mode.to_lowercase().as_str() {
+            "mono" => "pan=mono|c0=c0",
+            "dolphylogic" => "pan=stereo|FL=0.5*c0+0.707*c2+0.5*c4|FR=0.5*c1+0.707*c2+0.5*c5",
+            "headphone" => "pan=stereo|FL=0.4*c0+0.4*c2+0.2*c4|FR=0.4*c1+0.4*c2+0.2*c5",
+            _ => "pan=stereo|c0=c0|c1=c1",
+        };
+        cmd.arg("-af").arg(filter_str);
+    }
+
     if let Some(track_idx) = args.audio_track {
         let stream_idx = if track_idx > 0 { track_idx - 1 } else { 0 };
         cmd.arg("-map").arg(format!("0:a:{}", stream_idx));
@@ -441,6 +451,14 @@ pub fn build_video_filter_chain(args: &Args, profile: &str) -> Vec<String> {
     }
     if args.sub_burnin {
         vf_filters.push("subtitles=0:s=0".to_string());
+    }
+    if let Some(ref algo) = args.tonemap {
+        let curve = match algo.to_lowercase().as_str() {
+            "hable" => "hable",
+            "reinhard" => "reinhard",
+            _ => "mobius",
+        };
+        vf_filters.push(format!("zscale=transfer=linear,tonemap=tonemap={}:desat=0", curve));
     }
     vf_filters
 }

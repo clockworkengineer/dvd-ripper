@@ -225,6 +225,11 @@ impl DvdRipperApp {
             sub_burnin: false,
             norm_target: None,
             eject_autoclose: None,
+            label_regex_replace: None,
+            audio_downmix: None,
+            auto_cleanup_days: None,
+            drive_pool: None,
+            tonemap: None,
         }
     }
 

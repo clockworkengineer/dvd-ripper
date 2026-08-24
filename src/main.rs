@@ -427,6 +427,10 @@ fn main() -> Result<()> {
         let _ = utils::append_audit_log_entry(std::path::Path::new(audit_path), "RipCompleted", &details);
     }
 
+    if let Some(days) = args.auto_cleanup_days {
+        let _ = crate::history::purge_expired_rip_records(days, None);
+    }
+
     if let (Some(script), Some(out_file)) = (args.post_script.as_deref(), last_output_file.as_ref()) {
         let media_type = if args.tv { "TV Series" } else { "Movie" };
         let title = title_name.as_deref().unwrap_or("DVD Rip");
