@@ -414,6 +414,30 @@ impl MetadataResolver for OmdbMetadataResolver {
     }
 }
 
+/// Interface Segregation (ISP/SOLID): Segregated trait for online metadata candidate search operations.
+#[allow(dead_code)]
+pub trait MetadataSearchEngine {
+    fn search_candidates(&self, title: &str) -> Vec<SearchResultItem>;
+}
+
+/// Interface Segregation (ISP/SOLID): Segregated trait for detailed film metadata record fetching.
+#[allow(dead_code)]
+pub trait MetadataDetailFetcher {
+    fn fetch_details(&self, query: &str) -> Option<FilmMetadata>;
+}
+
+impl MetadataSearchEngine for OmdbMetadataResolver {
+    fn search_candidates(&self, title: &str) -> Vec<SearchResultItem> {
+        fetch_search_candidates(title)
+    }
+}
+
+impl MetadataDetailFetcher for OmdbMetadataResolver {
+    fn fetch_details(&self, query: &str) -> Option<FilmMetadata> {
+        lookup_omdb_details(query)
+    }
+}
+
 /// Queries OMDb API for movie title, release year, running time, plot summary, and poster image.
 pub fn lookup_omdb_details(query: &str) -> Option<FilmMetadata> {
 

@@ -572,6 +572,19 @@ pub fn trigger_media_server_scans(args: &crate::cli::Args) {
     }
 }
 
+/// Dependency Inversion (DIP/SOLID): High-level trait abstraction for media server library scan triggers.
+#[allow(dead_code)]
+pub trait MediaServerNotifier {
+    fn trigger_scans(&self, args: &crate::cli::Args);
+}
+
+pub struct DefaultMediaServerNotifier;
+impl MediaServerNotifier for DefaultMediaServerNotifier {
+    fn trigger_scans(&self, args: &crate::cli::Args) {
+        trigger_media_server_scans(args);
+    }
+}
+
 /// Resolves sidecar artwork image file path (e.g. "cover.jpg" or "folder.jpg") relative to target directory.
 #[allow(dead_code)]
 pub fn resolve_artwork_path(target_dir: &Path, filename: &str) -> PathBuf {

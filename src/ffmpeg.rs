@@ -463,27 +463,63 @@ pub fn build_video_filter_chain(args: &Args, profile: &str) -> Vec<String> {
     vf_filters
 }
 
+/// Trait defining a strategy provider for GPU hardware accelerated video encoding (OCP/SOLID).
+pub trait HwAccelProvider {
+    fn name(&self) -> &str;
+    fn apply(&self, cmd: &mut Command, preset: &str);
+}
+
+pub struct NvencHwAccelProvider;
+impl HwAccelProvider for NvencHwAccelProvider {
+    fn name(&self) -> &str { "nvenc" }
+    fn apply(&self, cmd: &mut Command, preset: &str) {
+        cmd.arg("-c:v").arg("h264_nvenc");
+        cmd.arg("-preset").arg(preset);
+    }
+}
+
+pub struct QsvHwAccelProvider;
+impl HwAccelProvider for QsvHwAccelProvider {
+    fn name(&self) -> &str { "qsv" }
+    fn apply(&self, cmd: &mut Command, preset: &str) {
+        cmd.arg("-c:v").arg("h264_qsv");
+        cmd.arg("-preset").arg(preset);
+    }
+}
+
+pub struct VaapiHwAccelProvider;
+impl HwAccelProvider for VaapiHwAccelProvider {
+    fn name(&self) -> &str { "vaapi" }
+    fn apply(&self, cmd: &mut Command, _preset: &str) {
+        cmd.arg("-vaapi_device").arg("/dev/dri/renderD128");
+        cmd.arg("-c:v").arg("h264_vaapi");
+    }
+}
+
+pub struct V4l2HwAccelProvider;
+impl HwAccelProvider for V4l2HwAccelProvider {
+    fn name(&self) -> &str { "v4l2" }
+    fn apply(&self, cmd: &mut Command, _preset: &str) {
+        cmd.arg("-c:v").arg("h264_v4l2m2m");
+        cmd.arg("-b:v").arg("4M");
+    }
+}
+
 /// Configures hardware-accelerated video encoder command arguments for supported GPUs (NVENC, QSV, VAAPI, V4L2).
 #[allow(dead_code)]
 pub fn apply_hwaccel_encoder(cmd: &mut Command, hwaccel: &str, preset: &str) {
-    match hwaccel.to_lowercase().as_str() {
-        "nvenc" => {
-            cmd.arg("-c:v").arg("h264_nvenc");
-            cmd.arg("-preset").arg(preset);
+    let providers: Vec<Box<dyn HwAccelProvider>> = vec![
+        Box::new(NvencHwAccelProvider),
+        Box::new(QsvHwAccelProvider),
+        Box::new(VaapiHwAccelProvider),
+        Box::new(V4l2HwAccelProvider),
+    ];
+    let mode = hwaccel.to_lowercase();
+    for provider in providers {
+        if provider.name() == mode || (mode == "v4l2m2m" && provider.name() == "v4l2") {
+            provider.apply(cmd, preset);
+            break;
         }
-        "qsv" => {
-            cmd.arg("-c:v").arg("h264_qsv");
-            cmd.arg("-preset").arg(preset);
-        }
-        "v4l2" | "v4l2m2m" => {
-            cmd.arg("-c:v").arg("h264_v4l2m2m");
-            cmd.arg("-b:v").arg("4M");
-        }
-        "vaapi" => {
-            cmd.arg("-vaapi_device").arg("/dev/dri/renderD128");
-            cmd.arg("-c:v").arg("h264_vaapi");
-        }
-        _ => {}
     }
 }
 

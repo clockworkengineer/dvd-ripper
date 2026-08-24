@@ -396,6 +396,21 @@ pub fn close_disc_tray(root_path: &str) -> bool {
     }
 }
 
+/// Dependency Inversion (DIP/SOLID): High-level trait abstraction for drive power management.
+#[allow(dead_code)]
+pub trait DrivePowerController {
+    fn eject(&self, root_path: &str) -> bool;
+    fn spindown(&self, root_path: &str) -> bool;
+    fn close_tray(&self, root_path: &str) -> bool;
+}
+
+pub struct DefaultDrivePowerController;
+impl DrivePowerController for DefaultDrivePowerController {
+    fn eject(&self, root_path: &str) -> bool { eject_disc(root_path) }
+    fn spindown(&self, root_path: &str) -> bool { spindown_drive(root_path) }
+    fn close_tray(&self, root_path: &str) -> bool { close_disc_tray(root_path) }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DiscProtectionReport {
     pub has_css_indicators: bool,
@@ -403,6 +418,19 @@ pub struct DiscProtectionReport {
     pub ifo_count: usize,
     pub total_bytes: u64,
     pub diagnostic_notes: Vec<String>,
+}
+
+/// Trait defining optical drive protection and metadata inspection (LSP/SOLID).
+#[allow(dead_code)]
+pub trait OpticalDriveInspector {
+    fn inspect_copy_protection(&self, dvd_path: &std::path::Path) -> DiscProtectionReport;
+}
+
+pub struct PhysicalDriveInspector;
+impl OpticalDriveInspector for PhysicalDriveInspector {
+    fn inspect_copy_protection(&self, dvd_path: &std::path::Path) -> DiscProtectionReport {
+        inspect_disc_copy_protection(dvd_path)
+    }
 }
 
 pub fn inspect_disc_copy_protection(dvd_path: &std::path::Path) -> DiscProtectionReport {
