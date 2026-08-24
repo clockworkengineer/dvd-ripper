@@ -454,7 +454,48 @@ impl Args {
         self.drive_pool = opts.drive_pool;
         self.tonemap = opts.tonemap;
     }
+}
 
+/// Interface Segregation (ISP/SOLID): Segregated trait for encoding options resolution.
+#[allow(dead_code)]
+pub trait EncodingOptionProvider {
+    fn build_encoding_options(&self) -> EncodingOptions;
+}
+
+impl EncodingOptionProvider for Args {
+    fn build_encoding_options(&self) -> EncodingOptions {
+        EncodingOptions {
+            deinterlace: self.deinterlace,
+            deinterlace_algo: self.deinterlace_algo.clone(),
+            denoise: self.denoise,
+            min_free_gb: self.min_free_gb,
+            no_eject: self.no_eject,
+            sub_forced_only: self.sub_forced_only,
+            sub_external_srt: self.sub_external_srt,
+            audio_track: self.audio_track,
+            hwaccel_fallback: self.hwaccel_fallback,
+            audio_title: self.audio_title.clone(),
+            webhook_secret: self.webhook_secret.clone(),
+            audit_log: self.audit_log.clone(),
+            spindown: self.spindown,
+            sub_default: self.sub_default,
+            tags: self.tags.clone(),
+            checksum: self.checksum,
+            fallback_out_dir: self.fallback_out_dir.clone(),
+            sub_burnin: self.sub_burnin,
+            norm_target: self.norm_target,
+            eject_autoclose: self.eject_autoclose,
+            label_regex_replace: self.label_regex_replace.clone(),
+            audio_downmix: self.audio_downmix.clone(),
+            auto_cleanup_days: self.auto_cleanup_days,
+            drive_pool: self.drive_pool.clone(),
+            tonemap: self.tonemap.clone(),
+            ..Default::default()
+        }
+    }
+}
+
+impl Args {
     pub fn new_movie(
         input: String,
         out_dir: String,

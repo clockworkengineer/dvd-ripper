@@ -19,7 +19,7 @@ use clap::Parser;
     version,
     about = "Cross-Platform Installer for DVD Ripper (Windows, Linux, macOS)"
 )]
-struct InstallerArgs {
+pub struct InstallerArgs {
     /// Install system-wide (requires Administrator/root privileges)
     #[arg(long)]
     system: bool,
@@ -43,6 +43,18 @@ struct InstallerArgs {
     /// Non-interactive mode (automatically answer yes to prompts)
     #[arg(short = 'y', long)]
     yes: bool,
+}
+
+/// Dependency Inversion (DIP/SOLID): High-level trait abstraction for installer environment operations.
+pub trait InstallerEnvironment {
+    fn resolve_target_dir(&self, args: &InstallerArgs) -> Result<PathBuf>;
+}
+
+pub struct SystemInstallerEnvironment;
+impl InstallerEnvironment for SystemInstallerEnvironment {
+    fn resolve_target_dir(&self, args: &InstallerArgs) -> Result<PathBuf> {
+        resolve_target_dir(args)
+    }
 }
 
 fn main() -> Result<()> {

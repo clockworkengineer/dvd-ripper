@@ -467,15 +467,50 @@ pub fn run_post_processing_hook(
     Ok(())
 }
 
+/// Open/Closed Principle (OCP/SOLID): Trait contract for media server URL strategies.
+pub trait MediaServerUrlStrategy {
+    fn name(&self) -> &str;
+    fn format_url(&self, base_url: &str, key: &str) -> String;
+}
+
+pub struct PlexUrlStrategy;
+impl MediaServerUrlStrategy for PlexUrlStrategy {
+    fn name(&self) -> &str { "plex" }
+    fn format_url(&self, base_url: &str, key: &str) -> String {
+        format!("{}/library/sections/all/refresh?X-Plex-Token={}", base_url.trim_end_matches('/'), key)
+    }
+}
+
+pub struct JellyfinUrlStrategy;
+impl MediaServerUrlStrategy for JellyfinUrlStrategy {
+    fn name(&self) -> &str { "jellyfin" }
+    fn format_url(&self, base_url: &str, key: &str) -> String {
+        format!("{}/Items/Root/Refresh?api_key={}", base_url.trim_end_matches('/'), key)
+    }
+}
+
+pub struct EmbyUrlStrategy;
+impl MediaServerUrlStrategy for EmbyUrlStrategy {
+    fn name(&self) -> &str { "emby" }
+    fn format_url(&self, base_url: &str, key: &str) -> String {
+        format!("{}/Library/Refresh?api_key={}", base_url.trim_end_matches('/'), key)
+    }
+}
+
 /// Helper: Builds a media server library refresh URL (Plex, Jellyfin, or Emby).
 pub fn format_media_server_refresh_url(server_type: &str, base_url: &str, key: &str) -> String {
-    let clean_base = base_url.trim_end_matches('/');
-    match server_type.to_lowercase().as_str() {
-        "plex" => format!("{}/library/sections/all/refresh?X-Plex-Token={}", clean_base, key),
-        "jellyfin" => format!("{}/Items/Root/Refresh?api_key={}", clean_base, key),
-        "emby" => format!("{}/Library/Refresh?api_key={}", clean_base, key),
-        _ => format!("{}/Library/Refresh?api_key={}", clean_base, key),
+    let strategies: Vec<Box<dyn MediaServerUrlStrategy>> = vec![
+        Box::new(PlexUrlStrategy),
+        Box::new(JellyfinUrlStrategy),
+        Box::new(EmbyUrlStrategy),
+    ];
+    let mode = server_type.to_lowercase();
+    for strategy in strategies {
+        if strategy.name() == mode {
+            return strategy.format_url(base_url, key);
+        }
     }
+    format!("{}/Library/Refresh?api_key={}", base_url.trim_end_matches('/'), key)
 }
 
 pub fn build_plex_refresh_url(base_url: &str, token: &str) -> String {

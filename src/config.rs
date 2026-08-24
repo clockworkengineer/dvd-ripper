@@ -62,6 +62,21 @@ fn try_load_config_file(path: &Path) -> Option<AppConfig> {
     None
 }
 
+/// Liskov Substitution Principle (LSP/SOLID): Trait contract for configuration file persistence.
+#[allow(dead_code)]
+pub trait ConfigRepository {
+    fn load_config(&self, custom_path: Option<&str>) -> AppConfig;
+}
+
+#[derive(Debug, Default)]
+pub struct FileConfigRepository;
+
+impl ConfigRepository for FileConfigRepository {
+    fn load_config(&self, custom_path: Option<&str>) -> AppConfig {
+        load_config(custom_path)
+    }
+}
+
 /// Loads configuration from custom path, ./dvd-ripper.toml, or ~/.dvd-ripper/config.toml
 pub fn load_config(custom_path: Option<&str>) -> AppConfig {
     if let Some(path_str) = custom_path {

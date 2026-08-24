@@ -22,6 +22,15 @@ use crate::history::{clear_history, load_history, record_rip_event, save_history
 use crate::imdb::lookup_film_details;
 use crate::utils::{format_episode_name, sanitize_filename};
 
+/// Single Responsibility (SRP/SOLID): Encapsulates GUI state mutation & management.
+#[allow(dead_code)]
+#[derive(Debug, Default)]
+pub struct GuiStateStore {
+    pub is_ripping: bool,
+    pub progress_percent: f32,
+    pub detecting: bool,
+}
+
 /// Main application state for the eframe GUI.
 pub struct DvdRipperApp {
     input_drive: String,
