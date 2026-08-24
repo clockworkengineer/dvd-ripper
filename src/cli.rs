@@ -157,6 +157,10 @@ pub struct Args {
     #[arg(long = "webhook-url")]
     pub webhook_url: Option<String>,
 
+    /// Secret authorization token included in outbound HTTP POST webhook headers
+    #[arg(long = "webhook-secret")]
+    pub webhook_secret: Option<String>,
+
     /// Do not overwrite existing destination files (auto-append incremental numeric suffix)
     #[arg(long = "no-overwrite")]
     pub no_overwrite: bool,
@@ -224,6 +228,14 @@ pub struct Args {
     /// Select specific audio stream track by 1-based index (e.g. 1 for Director's Commentary, 2 for 5.1 Surround)
     #[arg(long = "audio-track")]
     pub audio_track: Option<u32>,
+
+    /// Automatically fallback to software CPU encoding if hardware acceleration fails
+    #[arg(long = "hwaccel-fallback")]
+    pub hwaccel_fallback: bool,
+
+    /// Custom metadata title tag for output audio stream (e.g. "Director's Commentary")
+    #[arg(long = "audio-title")]
+    pub audio_title: Option<String>,
 }
 
 impl Default for Args {
@@ -265,6 +277,7 @@ impl Default for Args {
             check_protection: false,
             benchmark: false,
             webhook_url: None,
+            webhook_secret: None,
             no_overwrite: false,
             post_script: None,
             api_key: None,
@@ -282,6 +295,8 @@ impl Default for Args {
             sub_forced_only: false,
             sub_external_srt: false,
             audio_track: None,
+            hwaccel_fallback: false,
+            audio_title: None,
         }
     }
 }
@@ -299,6 +314,7 @@ pub struct EncodingOptions {
     pub sub_lang: Option<String>,
     pub sub_format: Option<String>,
     pub webhook_url: Option<String>,
+    pub webhook_secret: Option<String>,
     pub no_overwrite: bool,
     pub auto_boxset: bool,
     pub deinterlace: bool,
@@ -309,6 +325,8 @@ pub struct EncodingOptions {
     pub sub_forced_only: bool,
     pub sub_external_srt: bool,
     pub audio_track: Option<u32>,
+    pub hwaccel_fallback: bool,
+    pub audio_title: Option<String>,
 }
 
 impl Args {
@@ -324,6 +342,7 @@ impl Args {
         self.sub_lang = opts.sub_lang;
         self.sub_format = opts.sub_format;
         self.webhook_url = opts.webhook_url;
+        self.webhook_secret = opts.webhook_secret;
         self.no_overwrite = opts.no_overwrite;
         self.auto_boxset = opts.auto_boxset;
         self.deinterlace = opts.deinterlace;
@@ -334,6 +353,8 @@ impl Args {
         self.sub_forced_only = opts.sub_forced_only;
         self.sub_external_srt = opts.sub_external_srt;
         self.audio_track = opts.audio_track;
+        self.hwaccel_fallback = opts.hwaccel_fallback;
+        self.audio_title = opts.audio_title;
     }
 
     pub fn new_movie(

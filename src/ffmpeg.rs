@@ -397,6 +397,10 @@ pub fn apply_audio_options(cmd: &mut Command, args: &Args) {
             cmd.arg("-filter:a").arg("loudnorm=I=-16:TP=-1.5:LRA=11");
         }
     }
+
+    if let Some(ref title) = args.audio_title {
+        cmd.arg("-metadata:s:a").arg(format!("title={}", title));
+    }
 }
 
 /// Applies subtitle stream mapping and codec configuration to an FFmpeg command.

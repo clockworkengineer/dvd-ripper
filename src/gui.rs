@@ -213,6 +213,9 @@ impl DvdRipperApp {
             sub_forced_only: self.sub_forced_only,
             sub_external_srt: self.sub_external_srt,
             audio_track: self.audio_track_str.trim().parse::<u32>().ok(),
+            hwaccel_fallback: false,
+            audio_title: None,
+            webhook_secret: None,
         }
     }
 

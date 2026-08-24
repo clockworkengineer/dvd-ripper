@@ -700,6 +700,22 @@ fn handle_client(mut stream: TcpStream, drive_path: &str) -> Result<()> {
         let id = crate::queue::add_job(&title, &media_type, drive_path);
         let resp_obj = serde_json::json!({ "success": true, "job_id": id });
         send_http_response(&mut stream, "200 OK", "application/json", &resp_obj.to_string())?;
+    } else if method_str == "POST" && path_str.starts_with("/api/queue/batch") {
+        let body_str = extract_body(req_bytes).unwrap_or_default();
+        let mut added_ids = Vec::new();
+        if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(body_str) {
+            if let Some(arr) = parsed.as_array() {
+                for item in arr {
+                    let title = item.get("title").and_then(|v| v.as_str()).unwrap_or("Unknown");
+                    let media_type = item.get("media_type").and_then(|v| v.as_str()).unwrap_or("Movie");
+                    let drive = item.get("drive").and_then(|v| v.as_str()).unwrap_or(drive_path);
+                    let id = crate::queue::add_job(title, media_type, drive);
+                    added_ids.push(id);
+                }
+            }
+        }
+        let resp_obj = serde_json::json!({ "success": true, "job_ids": added_ids, "count": added_ids.len() });
+        send_http_response(&mut stream, "200 OK", "application/json", &resp_obj.to_string())?;
     } else if method_str == "POST" && path_str.starts_with("/api/queue/remove") {
         let id = parse_query_param(&path_str, "id").unwrap_or_default();
         let ok = crate::queue::remove_job(&id);

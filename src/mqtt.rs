@@ -193,17 +193,23 @@ pub fn send_webhook_notification(
     disc_name: &str,
     status: &str,
     message: &str,
+    webhook_secret: Option<&str>,
 ) -> Result<()> {
     let payload = build_webhook_payload(disc_name, status, message);
-
     let client = crate::utils::get_http_client();
 
-
-    let resp = client
+    let mut req = client
         .post(webhook_url)
-        .header("Content-Type", "application/json")
-        .body(payload)
-        .send()?;
+        .header("Content-Type", "application/json");
+
+    if let Some(secret) = webhook_secret {
+        if !secret.trim().is_empty() {
+            req = req.header("Authorization", format!("Bearer {}", secret.trim()));
+            req = req.header("X-Webhook-Secret", secret.trim());
+        }
+    }
+
+    let resp = req.body(payload).send()?;
 
     println!("[Webhook Telemetry] Sent notification to {} (HTTP {})", webhook_url, resp.status());
     Ok(())

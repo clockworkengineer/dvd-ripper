@@ -27,7 +27,7 @@ fn spawn_drive_watcher(drive_path_str: String, args: Args, poll_interval_secs: u
                             let _ = crate::mqtt::publish_mqtt_status(broker, &label, "Detected - Search Required", 0.0);
                         }
                         if let Some(ref webhook) = args.webhook_url {
-                            let _ = crate::mqtt::send_webhook_notification(webhook, &label, "Detected", "New DVD disc inserted. Search and select movie to begin ripping.");
+                            let _ = crate::mqtt::send_webhook_notification(webhook, &label, "Detected", "New DVD disc inserted. Search and select movie to begin ripping.", args.webhook_secret.as_deref());
                         }
                         println!("[Daemon Drive '{}'] Disc inserted: '{}'. Awaiting movie search & selection to enable ripping.", drive_path_str, label);
                     }

@@ -476,6 +476,7 @@ pub trait NotificationProvider {
 /// Concrete webhook notification provider implementation.
 pub struct WebhookNotificationProvider {
     pub webhook_url: String,
+    pub webhook_secret: Option<String>,
 }
 
 impl NotificationProvider for WebhookNotificationProvider {
@@ -484,15 +485,28 @@ impl NotificationProvider for WebhookNotificationProvider {
     }
 
     fn send_notification(&self, event: &NotificationEvent) -> anyhow::Result<()> {
-        crate::mqtt::send_webhook_notification(&self.webhook_url, &event.title, &event.status, &event.message)
+        crate::mqtt::send_webhook_notification(&self.webhook_url, &event.title, &event.status, &event.message, self.webhook_secret.as_deref())
     }
 }
 
 fn send_media_server_refresh_post(server_name: &str, base_url: &str, endpoint: &str) -> anyhow::Result<()> {
-
     println!("[Media Server] Requesting {} library refresh: {}", server_name, base_url);
     let client = get_http_client();
-    let _ = client.post(endpoint).send();
+    let mut success = false;
+
+    for attempt in 1..=3 {
+        if client.post(endpoint).send().is_ok() {
+            success = true;
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(300 * attempt));
+    }
+
+    if success {
+        println!("[Media Server] Successfully triggered {} scan.", server_name);
+    } else {
+        println!("[Media Server Warning] Could not reach {} at {}", server_name, base_url);
+    }
     Ok(())
 }
 

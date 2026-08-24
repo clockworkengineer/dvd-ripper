@@ -158,6 +158,12 @@ pub fn get_volume_label(root_path: &str) -> Option<String> {
         root_path.to_string()
     };
 
+    if target_path.to_lowercase().ends_with(".iso") || target_path.to_lowercase().ends_with(".img") {
+        if let Some(stem) = std::path::Path::new(&target_path).file_stem() {
+            return Some(clean_volume_label(&stem.to_string_lossy()));
+        }
+    }
+
     let mut path_wide = [0u16; 260];
     let mut len = 0;
     for c in target_path.encode_utf16() {
@@ -212,6 +218,12 @@ pub fn get_volume_label(root_path: &str) -> Option<String> {
     use std::io::{Read, Seek, SeekFrom};
 
     let dev_path = resolve_device_path(root_path);
+
+    if dev_path.to_lowercase().ends_with(".iso") || dev_path.to_lowercase().ends_with(".img") {
+        if let Some(stem) = std::path::Path::new(&dev_path).file_stem() {
+            return Some(clean_volume_label(&stem.to_string_lossy()));
+        }
+    }
 
     if let Ok(mut file) = File::open(&dev_path) {
         // Sector 16 is at offset 32768 (16 * 2048) in ISO-9660 Primary Volume Descriptor
