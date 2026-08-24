@@ -939,10 +939,15 @@ fn handle_client(mut stream: TcpStream, drive_path: &str) -> Result<()> {
         });
         send_json_response(&mut stream, "200 OK", &resp_obj.to_string())?;
     } else if method_str == "GET" && path_str.starts_with("/api/health") {
+        let handle = get_appliance_status_handle();
+        let current_status = if let Ok(state) = handle.lock() {
+            state.status.clone()
+        } else {
+            "Idle".to_string()
+        };
         let resp_obj = serde_json::json!({
             "status": "healthy",
-            "uptime_seconds": get_uptime_seconds(),
-            "active_transcodes": get_metrics().active_transcodes.load(Ordering::SeqCst)
+            "appliance_state": current_status
         });
         send_json_response(&mut stream, "200 OK", &resp_obj.to_string())?;
     } else if method_str == "POST" && path_str.starts_with("/api/benchmark") {

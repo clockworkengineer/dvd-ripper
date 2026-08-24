@@ -278,6 +278,10 @@ impl Default for Args {
             search: None,
             imdb_id: None,
             select_index: None,
+            no_eject: false,
+            sub_forced_only: false,
+            sub_external_srt: false,
+            audio_track: None,
         }
     }
 }
