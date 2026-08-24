@@ -83,15 +83,18 @@ pub trait JobQueueRepository {
     fn remove_job(&self, id: &str) -> bool;
 }
 
+/// Resolves the absolute path to job_queue.json in the user's application data directory.
 fn resolve_queue_path() -> PathBuf {
     crate::utils::get_app_file_path("job_queue.json")
 }
 
+/// Loads persistent queued ripping job items from job_queue.json.
 pub fn load_job_queue() -> Vec<JobItem> {
     let p = resolve_queue_path();
     crate::utils::load_json_file(&p).unwrap_or_default()
 }
 
+/// Saves queued ripping job items to job_queue.json using atomic JSON persistence.
 pub fn save_job_queue(jobs: &[JobItem]) -> anyhow::Result<()> {
     let p = resolve_queue_path();
     crate::utils::save_json_file(&p, &jobs)

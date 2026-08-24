@@ -489,6 +489,7 @@ impl NotificationProvider for WebhookNotificationProvider {
     }
 }
 
+/// Sends an HTTP POST request to trigger media server library scans with a 3-attempt exponential backoff retry loop.
 fn send_media_server_refresh_post(server_name: &str, base_url: &str, endpoint: &str) -> anyhow::Result<()> {
     println!("[Media Server] Requesting {} library refresh: {}", server_name, base_url);
     let client = get_http_client();
