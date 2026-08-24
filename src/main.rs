@@ -271,8 +271,10 @@ fn main() -> Result<()> {
 
     let mut last_output_file: Option<PathBuf> = None;
 
-    // Check disk space threshold guard
-    crate::utils::check_disk_space_guard(std::path::Path::new(&args.out_dir), args.min_free_gb)?;
+    // Check disk space threshold guard with optional fallback directory
+    let fb_dir = args.fallback_out_dir.as_deref().map(std::path::Path::new);
+    let resolved_out_dir = crate::utils::check_disk_space_guard_with_fallback(std::path::Path::new(&args.out_dir), fb_dir, args.min_free_gb)?;
+    args.out_dir = resolved_out_dir.to_string_lossy().to_string();
 
     // 3. Execution path for TV series vs Movie
     if args.tv {
@@ -436,6 +438,11 @@ fn main() -> Result<()> {
     if !args.no_eject {
         println!("\nEjecting DVD disc from drive...");
         let _ = dvd::eject_disc(&dvd_path.to_string_lossy());
+        if let Some(secs) = args.eject_autoclose {
+            println!("[Drive Tray] Waiting {} seconds before auto-closing drive tray...", secs);
+            std::thread::sleep(std::time::Duration::from_secs(secs));
+            let _ = dvd::close_disc_tray(&dvd_path.to_string_lossy());
+        }
     } else if args.spindown {
         println!("\nIssuing optical drive motor spindown signal...");
         let _ = dvd::spindown_drive(&dvd_path.to_string_lossy());

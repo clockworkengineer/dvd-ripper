@@ -980,6 +980,12 @@ fn handle_client(mut stream: TcpStream, drive_path: &str) -> Result<()> {
                 send_json_error(&mut stream, "500 Internal Server Error", &e.to_string())?;
             }
         }
+    } else if method_str == "POST" && path_str.starts_with("/api/trigger") {
+        let drive = parse_query_param(&path_str, "drive").unwrap_or_else(|| drive_path.to_string());
+        let label = crate::dvd::get_volume_label(&drive).unwrap_or_else(|| "DVD_DISC".to_string());
+        set_disc_detected(&label);
+        let resp_obj = serde_json::json!({ "success": true, "disc": label });
+        send_json_response(&mut stream, "200 OK", &resp_obj.to_string())?;
     } else {
         send_http_response(&mut stream, "404 Not Found", "text/plain", "404 Not Found")?;
     }
@@ -1025,10 +1031,15 @@ fn render_web_dashboard_html() -> &'static str {
                 <div class="stat" id="current-disc">No Disc Detected</div>
                 <div id="current-stage" style="color: var(--muted); font-size: 0.9rem;">Waiting for insertion</div>
                 <div class="progress-bar"><div class="progress-fill" id="progress-fill"></div></div>
-                <div style="display: flex; justify-content: space-between; font-size: 0.85rem; color: var(--muted);">
+                <div style="display: flex; justify-content: space-between; font-size: 0.85rem; color: var(--muted); margin-bottom: 10px;">
                     <span id="stat-fps">FPS: --</span>
                     <span id="stat-speed">Speed: --</span>
                 </div>
+                <div style="display: flex; gap: 8px;">
+                    <button onclick="triggerRip()" style="background:#0284c7; color:#fff; border:none; padding:6px 12px; border-radius:6px; cursor:pointer; font-weight:600;">▶ Start Rip</button>
+                    <button onclick="fetch('/docs')" style="background:#334155; color:#fff; border:none; padding:6px 12px; border-radius:6px; cursor:pointer;">📖 API Docs</button>
+                </div>
+            </div>
             </div>
             <div class="card">
                 <h2>Appliance Hardware</h2>
@@ -1076,6 +1087,12 @@ fn render_web_dashboard_html() -> &'static str {
                     document.getElementById('history-rows').innerHTML = html || '<tr><td colspan="4">No history records</td></tr>';
                 }
             } catch(e) {}
+        }
+        async function triggerRip() {
+            try {
+                const res = await fetch('/api/trigger', { method: 'POST' });
+                if (res.ok) alert('Rip triggered successfully!');
+            } catch(e) { alert('Failed to trigger rip: ' + e); }
         }
         updateDashboard();
         setInterval(updateDashboard, 3000);

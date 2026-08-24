@@ -42,6 +42,7 @@ By default, launching `dvd-ripper` without arguments opens the graphical desktop
 | `--deinterlace` | `false` | Apply motion-adaptive video deinterlacing filter (`-vf bwdif/yadif`) to eliminate comb artifacts. |
 | `--deinterlace-algo <ALGO>`| `bwdif` | Deinterlacing algorithm selection: `bwdif` (best quality), `yadif`, or `w3fdif`. |
 | `--denoise` | `false` | Apply 3D spatial/temporal denoising filter (`-vf hqdn3d`) to reduce film grain and analog noise. |
+| `--sub-burnin` | `false` | Hard-burn subtitle text overlay directly onto video frames (`-vf subtitles=...`) for maximum compatibility. |
 | `--mkv` | `false` | Force Matroska (`.mkv`) output container format instead of MP4 (`.mp4`). |
 
 ---
@@ -51,7 +52,8 @@ By default, launching `dvd-ripper` without arguments opens the graphical desktop
 | Flag / Option | Default | Description |
 |---|---|---|
 | `--all-audio` | `false` | Include all audio streams present on the DVD title track. |
-| `--normalize-audio` | `false` | Apply EBU R128 loudness normalization (`-filter:a loudnorm=I=-16:TP=-1.5:LRA=11`). |
+| `--normalize-audio` | `false` | Apply EBU R128 loudness normalization (`-filter:a loudnorm=I=<TARGET>:TP=-1.5:LRA=11`). |
+| `--norm-target <LUFS>` | `-16` | Configurable target LUFS loudness value (e.g. `-16`, `-14`, `-23 LUFS`). |
 | `--dual-audio` | `false` | Generate dual audio streams (Track 1: AAC Stereo Normalized, Track 2: 5.1 Surround Passthrough). |
 | `--audio-track <INDEX>` | *Auto* | Select specific audio stream track by 1-based index (e.g. `1` for Commentary, `2` for 5.1). |
 | `--audio-lang <LANG>` | *Auto* | Preferred audio track language code (e.g. `eng`, `fre`, `spa`). |
@@ -62,7 +64,9 @@ By default, launching `dvd-ripper` without arguments opens the graphical desktop
 | `--sub-default` | `false` | Flag extracted subtitle stream as default in media players (`-disposition:s:0 default`). |
 | `--sub-lang <LANG>` | *Auto* | Preferred subtitle language code (e.g. `eng`, `fre`, `spa`). |
 | `--sub-format <FMT>` | `dvdsub` | Subtitle stream format: `dvdsub` (bitmap) or `subrip` (`.srt` text format). |
+| `--fallback-out-dir <DIR>`| *None* | Secondary storage fallback directory path if primary storage lacks free space. |
 | `--no-eject` | `false` | Do not eject optical disc tray upon successful rip completion (ideal for disc autoloaders). |
+| `--eject-autoclose <SECS>`| *None* | Delay in seconds before automatically closing optical disc tray after ejection. |
 | `--spindown` | `false` | Issue optical drive motor spindown signal upon rip completion to reduce platter noise & wear. |
 | `--nfo` | `false` | Generate Kodi/Jellyfin/Plex XML `.nfo` metadata sidecar file. |
 | `--tags <CSV>` | *None* | Comma-separated custom metadata tags (e.g. `4K Remaster,Director Cut`) to embed in `.nfo` XML. |

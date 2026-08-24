@@ -39,6 +39,10 @@ pub struct AppConfig {
     pub sub_default: Option<bool>,
     pub tags: Option<String>,
     pub checksum: Option<bool>,
+    pub fallback_out_dir: Option<String>,
+    pub sub_burnin: Option<bool>,
+    pub norm_target: Option<i32>,
+    pub eject_autoclose: Option<u64>,
 }
 
 fn try_load_config_file(path: &Path) -> Option<AppConfig> {
@@ -201,6 +205,20 @@ pub fn apply_config_defaults(args: &mut Args, config: &AppConfig) {
         if !args.checksum {
             args.checksum = val;
         }
+    }
+    if args.fallback_out_dir.is_none() {
+        args.fallback_out_dir = config.fallback_out_dir.clone();
+    }
+    if let Some(val) = config.sub_burnin {
+        if !args.sub_burnin {
+            args.sub_burnin = val;
+        }
+    }
+    if args.norm_target.is_none() {
+        args.norm_target = config.norm_target;
+    }
+    if args.eject_autoclose.is_none() {
+        args.eject_autoclose = config.eject_autoclose;
     }
 }
 

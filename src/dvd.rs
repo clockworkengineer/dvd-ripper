@@ -350,6 +350,36 @@ pub fn spindown_drive(root_path: &str) -> bool {
     }
 }
 
+/// Closes the optical drive tray on motorized drives.
+#[allow(dead_code)]
+pub fn close_disc_tray(root_path: &str) -> bool {
+    #[cfg(target_os = "windows")]
+    {
+        use std::process::Command;
+        let resolved = if root_path.is_empty() || root_path.eq_ignore_ascii_case("auto") {
+            auto_detect_dvd_drive()
+        } else {
+            root_path.to_string()
+        };
+        let drive_letter = resolved
+            .chars()
+            .find(|c| c.is_ascii_alphabetic())
+            .unwrap_or('D')
+            .to_ascii_uppercase();
+        let ps_cmd = format!(
+            "(New-Object -ComObject Shell.Application).NameSpace(17).ParseName('{}:').InvokeVerb('Eject')",
+            drive_letter
+        );
+        Command::new("powershell").args(["-NoProfile", "-Command", &ps_cmd]).output().map_or(false, |out| out.status.success())
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        use std::process::Command;
+        let dev_path = resolve_device_path(root_path);
+        Command::new("eject").arg("-t").arg(&dev_path).status().map_or(false, |s| s.success())
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DiscProtectionReport {
     pub has_css_indicators: bool,

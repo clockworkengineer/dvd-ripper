@@ -60,6 +60,27 @@ pub fn check_disk_space_guard(target_dir: &Path, min_free_gb: u64) -> Result<u64
     Ok(free_bytes)
 }
 
+/// Verifies available disk space, falling back to secondary fallback_dir if primary space is below min_free_gb threshold.
+pub fn check_disk_space_guard_with_fallback(
+    primary_dir: &Path,
+    fallback_dir: Option<&Path>,
+    min_free_gb: u64,
+) -> Result<PathBuf> {
+    match check_disk_space_guard(primary_dir, min_free_gb) {
+        Ok(_) => Ok(primary_dir.to_path_buf()),
+        Err(e) => {
+            if let Some(fb) = fallback_dir {
+                println!("[Storage Guard Warning] Primary path '{}' low on space. Attempting fallback path: '{}'...", primary_dir.display(), fb.display());
+                if check_disk_space_guard(fb, min_free_gb).is_ok() {
+                    println!("[Storage Guard] Switched output destination to fallback path: {}", fb.display());
+                    return Ok(fb.to_path_buf());
+                }
+            }
+            Err(e)
+        }
+    }
+}
+
 /// Cleans raw optical DVD volume labels (e.g. "KILL_BILL_VOL1_D1" -> "Kill Bill Vol1 D1").
 #[allow(dead_code)]
 pub fn normalize_volume_label_title(label: &str) -> String {

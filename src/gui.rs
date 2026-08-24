@@ -221,6 +221,10 @@ impl DvdRipperApp {
             sub_default: false,
             tags: None,
             checksum: false,
+            fallback_out_dir: None,
+            sub_burnin: false,
+            norm_target: None,
+            eject_autoclose: None,
         }
     }
 

@@ -354,11 +354,14 @@ pub fn is_mkv_output(args: &Args, output_path: &Path) -> bool {
 
 /// Applies audio mapping and audio normalization flags to an FFmpeg command.
 pub fn apply_audio_options(cmd: &mut Command, args: &Args) {
+    let target_lufs = args.norm_target.unwrap_or(-16);
+    let norm_filter = format!("loudnorm=I={}:TP=-1.5:LRA=11", target_lufs);
+
     if let Some(track_idx) = args.audio_track {
         let stream_idx = if track_idx > 0 { track_idx - 1 } else { 0 };
         cmd.arg("-map").arg(format!("0:a:{}", stream_idx));
         if args.normalize_audio {
-            cmd.arg("-filter:a").arg("loudnorm=I=-16:TP=-1.5:LRA=11");
+            cmd.arg("-filter:a").arg(&norm_filter);
         }
     } else if args.dual_audio {
         cmd.arg("-map").arg("0:a:0?");
@@ -366,7 +369,7 @@ pub fn apply_audio_options(cmd: &mut Command, args: &Args) {
         cmd.arg("-b:a:0").arg("192k");
         cmd.arg("-ac:a:0").arg("2");
         if args.normalize_audio {
-            cmd.arg("-filter:a:0").arg("loudnorm=I=-16:TP=-1.5:LRA=11");
+            cmd.arg("-filter:a:0").arg(&norm_filter);
         }
         cmd.arg("-metadata:s:a:0").arg("title=Stereo AAC (Normalized)");
 
@@ -376,12 +379,12 @@ pub fn apply_audio_options(cmd: &mut Command, args: &Args) {
     } else if args.all_audio {
         cmd.arg("-map").arg("0:a");
         if args.normalize_audio {
-            cmd.arg("-filter:a").arg("loudnorm=I=-16:TP=-1.5:LRA=11");
+            cmd.arg("-filter:a").arg(&norm_filter);
         }
     } else if let Some(ref lang) = args.audio_lang {
         cmd.arg("-map").arg(format!("0:a:m:language:{}", lang));
         if args.normalize_audio {
-            cmd.arg("-filter:a").arg("loudnorm=I=-16:TP=-1.5:LRA=11");
+            cmd.arg("-filter:a").arg(&norm_filter);
         }
     } else if let Some(ref pref) = args.auto_audio_pref {
         let langs = parse_ranked_audio_languages(pref);
@@ -389,12 +392,12 @@ pub fn apply_audio_options(cmd: &mut Command, args: &Args) {
             cmd.arg("-map").arg(format!("0:a:m:language:{}?", lang));
         }
         if args.normalize_audio {
-            cmd.arg("-filter:a").arg("loudnorm=I=-16:TP=-1.5:LRA=11");
+            cmd.arg("-filter:a").arg(&norm_filter);
         }
     } else {
         cmd.arg("-map").arg("0:a?");
         if args.normalize_audio {
-            cmd.arg("-filter:a").arg("loudnorm=I=-16:TP=-1.5:LRA=11");
+            cmd.arg("-filter:a").arg(&norm_filter);
         }
     }
 
@@ -435,6 +438,9 @@ pub fn build_video_filter_chain(args: &Args, profile: &str) -> Vec<String> {
     }
     if args.denoise {
         vf_filters.push("hqdn3d=4:3:6:4.5".to_string());
+    }
+    if args.sub_burnin {
+        vf_filters.push("subtitles=0:s=0".to_string());
     }
     vf_filters
 }

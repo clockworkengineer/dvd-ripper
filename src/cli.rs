@@ -256,6 +256,22 @@ pub struct Args {
     /// Generate SHA-256 integrity checksum sidecar file (.sha256) alongside converted media
     #[arg(long = "checksum")]
     pub checksum: bool,
+
+    /// Secondary storage fallback directory path if primary storage lacks free space
+    #[arg(long = "fallback-out-dir")]
+    pub fallback_out_dir: Option<String>,
+
+    /// Hard-burn subtitle text overlay directly onto video frames (-vf subtitles=...)
+    #[arg(long = "sub-burnin")]
+    pub sub_burnin: bool,
+
+    /// Audio loudness normalization target LUFS value (e.g. -16, -14, -23)
+    #[arg(long = "norm-target")]
+    pub norm_target: Option<i32>,
+
+    /// Delay in seconds before automatically closing optical disc tray after ejection
+    #[arg(long = "eject-autoclose")]
+    pub eject_autoclose: Option<u64>,
 }
 
 impl Default for Args {
@@ -322,6 +338,10 @@ impl Default for Args {
             sub_default: false,
             tags: None,
             checksum: false,
+            fallback_out_dir: None,
+            sub_burnin: false,
+            norm_target: None,
+            eject_autoclose: None,
         }
     }
 }
@@ -357,6 +377,10 @@ pub struct EncodingOptions {
     pub sub_default: bool,
     pub tags: Option<String>,
     pub checksum: bool,
+    pub fallback_out_dir: Option<String>,
+    pub sub_burnin: bool,
+    pub norm_target: Option<i32>,
+    pub eject_autoclose: Option<u64>,
 }
 
 impl Args {
@@ -390,6 +414,10 @@ impl Args {
         self.sub_default = opts.sub_default;
         self.tags = opts.tags;
         self.checksum = opts.checksum;
+        self.fallback_out_dir = opts.fallback_out_dir;
+        self.sub_burnin = opts.sub_burnin;
+        self.norm_target = opts.norm_target;
+        self.eject_autoclose = opts.eject_autoclose;
     }
 
     pub fn new_movie(
