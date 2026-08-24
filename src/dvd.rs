@@ -411,6 +411,21 @@ impl DrivePowerController for DefaultDrivePowerController {
     fn close_tray(&self, root_path: &str) -> bool { close_disc_tray(root_path) }
 }
 
+/// Dependency Inversion (DIP/SOLID): High-level trait abstraction for disc fingerprint calculation.
+#[allow(dead_code)]
+pub trait DiscFingerprintReader {
+    fn compute_fingerprint(&self, dvd_path: &str) -> String;
+}
+
+#[derive(Debug, Default)]
+pub struct FileSystemDiscFingerprintReader;
+
+impl DiscFingerprintReader for FileSystemDiscFingerprintReader {
+    fn compute_fingerprint(&self, dvd_path: &str) -> String {
+        compute_disc_fingerprint(dvd_path)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DiscProtectionReport {
     pub has_css_indicators: bool,

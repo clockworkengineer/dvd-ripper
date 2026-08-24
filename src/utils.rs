@@ -467,6 +467,33 @@ pub fn run_post_processing_hook(
     Ok(())
 }
 
+/// Open/Closed Principle (OCP/SOLID): Strategy pattern trait for post-rip processing hooks.
+#[allow(dead_code)]
+pub trait PostProcessingHook {
+    fn execute(
+        &self,
+        script_path: &str,
+        output_path: &std::path::Path,
+        title: &str,
+        media_type: &str,
+        year: Option<u32>,
+    ) -> anyhow::Result<()>;
+}
+
+pub struct ScriptPostProcessingHook;
+impl PostProcessingHook for ScriptPostProcessingHook {
+    fn execute(
+        &self,
+        script_path: &str,
+        output_path: &std::path::Path,
+        title: &str,
+        media_type: &str,
+        year: Option<u32>,
+    ) -> anyhow::Result<()> {
+        run_post_processing_hook(script_path, output_path, title, media_type, year)
+    }
+}
+
 /// Open/Closed Principle (OCP/SOLID): Trait contract for media server URL strategies.
 pub trait MediaServerUrlStrategy {
     fn name(&self) -> &str;

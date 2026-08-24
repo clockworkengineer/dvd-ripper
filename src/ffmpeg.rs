@@ -211,6 +211,18 @@ pub fn probe_dvd_titles_fast(
     titles
 }
 
+/// Interface Segregation (ISP/SOLID): Segregated trait for DVD title duration queries.
+#[allow(dead_code)]
+pub trait TitleDurationProvider {
+    fn duration_secs(&self) -> f64;
+}
+
+impl TitleDurationProvider for DvdTitleInfo {
+    fn duration_secs(&self) -> f64 {
+        self.duration_secs
+    }
+}
+
 /// Parses a single line of FFmpeg probe output for Duration patterns (e.g., "Duration: 01:23:45.67").
 #[allow(dead_code)]
 pub fn parse_title_duration_line(line: &str) -> Option<f64> {

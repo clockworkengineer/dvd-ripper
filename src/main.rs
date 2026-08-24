@@ -30,6 +30,18 @@ use ffmpeg::{
 use imdb::{fetch_search_candidates, lookup_film_details, lookup_omdb_by_id};
 use utils::sanitize_filename;
 
+/// Single Responsibility (SRP/SOLID): Encapsulates application startup and configuration bootstrapping.
+#[derive(Debug, Default)]
+pub struct AppInitializer;
+
+impl AppInitializer {
+    pub fn bootstrap(&self, args: &mut Args) -> config::AppConfig {
+        let app_cfg = config::load_config(args.config.as_deref());
+        config::apply_config_defaults(args, &app_cfg);
+        app_cfg
+    }
+}
+
 /// Resolves film metadata, release year, running time, and cover poster bytes for CLI mode execution.
 fn resolve_cli_metadata(args: &mut Args, volume_label: Option<&str>) -> (Option<String>, Option<u32>, Option<f64>, Option<Vec<u8>>) {
     // 0. Disc Fingerprint Cache Auto-Match

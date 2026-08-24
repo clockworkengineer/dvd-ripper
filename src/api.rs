@@ -32,6 +32,30 @@ pub fn get_cancel_tx_handle() -> Arc<Mutex<Option<Sender<()>>>> {
     CANCEL_TX.get_or_init(|| Arc::new(Mutex::new(None))).clone()
 }
 
+/// Liskov Substitution Principle (LSP/SOLID): Trait contract for telemetry metrics rendering.
+#[allow(dead_code)]
+pub trait MetricsExporter {
+    fn render_metrics(&self) -> String;
+}
+
+#[derive(Debug, Default)]
+pub struct PrometheusMetricsExporter;
+
+impl MetricsExporter for PrometheusMetricsExporter {
+    fn render_metrics(&self) -> String {
+        let handle = get_appliance_status_handle();
+        let (status, progress) = if let Ok(state) = handle.lock() {
+            (state.status.clone(), state.progress)
+        } else {
+            ("Idle".to_string(), 0.0)
+        };
+        format!(
+            "# HELP dvd_ripper_status Status of the DVD ripper appliance\n# TYPE dvd_ripper_status gauge\ndvd_ripper_status{{status=\"{}\"}} 1\n# HELP dvd_ripper_progress Ripping progress percentage\n# TYPE dvd_ripper_progress gauge\ndvd_ripper_progress {}\n",
+            status, progress
+        )
+    }
+}
+
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct ApplianceStatusInfo {
     pub status: String,
