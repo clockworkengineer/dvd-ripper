@@ -1000,6 +1000,27 @@ fn handle_client(mut stream: TcpStream, drive_path: &str) -> Result<()> {
     Ok(())
 }
 
+/// Dependency Inversion (DIP/SOLID): High-level trait abstraction for drive diagnostics and detection.
+#[allow(dead_code)]
+pub trait DriveDiagnosticProvider {
+    fn detect_drives(&self) -> Vec<String>;
+    fn benchmark(&self, drive: &str) -> anyhow::Result<crate::dvd::DriveBenchmarkReport>;
+}
+
+#[derive(Debug, Default)]
+pub struct DefaultDriveDiagnosticProvider;
+
+impl DriveDiagnosticProvider for DefaultDriveDiagnosticProvider {
+    fn detect_drives(&self) -> Vec<String> {
+        crate::dvd::detect_dvd_drives()
+    }
+
+    fn benchmark(&self, drive: &str) -> anyhow::Result<crate::dvd::DriveBenchmarkReport> {
+        let dvd_path = crate::dvd::normalize_dvd_path(drive);
+        crate::dvd::run_drive_benchmark("ffmpeg", &dvd_path, 10)
+    }
+}
+
 /// Renders embedded HTML5/CSS3 Web Dashboard interface for headless appliances.
 fn render_web_dashboard_html() -> &'static str {
     r#"<!DOCTYPE html>

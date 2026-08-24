@@ -215,6 +215,41 @@ pub fn send_webhook_notification(
     Ok(())
 }
 
+/// Interface Segregation (ISP/SOLID): Segregated trait for MQTT packet binary encoding.
+#[allow(dead_code)]
+pub trait MqttPacketEncoder {
+    fn encode_connect(&self, client_id: &str) -> Vec<u8>;
+    fn encode_publish(&self, topic: &str, payload: &str) -> Vec<u8>;
+}
+
+/// Interface Segregation (ISP/SOLID): Segregated trait for webhook JSON payload formatting.
+#[allow(dead_code)]
+pub trait WebhookPayloadFormatter {
+    fn build_payload(&self, title: &str, status: &str, message: &str) -> String;
+}
+
+#[derive(Debug, Default)]
+pub struct DefaultMqttPacketEncoder;
+
+impl MqttPacketEncoder for DefaultMqttPacketEncoder {
+    fn encode_connect(&self, client_id: &str) -> Vec<u8> {
+        build_mqtt_connect_packet(client_id)
+    }
+
+    fn encode_publish(&self, topic: &str, payload: &str) -> Vec<u8> {
+        build_mqtt_publish_packet(topic, payload)
+    }
+}
+
+#[derive(Debug, Default)]
+pub struct DefaultWebhookPayloadFormatter;
+
+impl WebhookPayloadFormatter for DefaultWebhookPayloadFormatter {
+    fn build_payload(&self, title: &str, status: &str, message: &str) -> String {
+        build_webhook_payload(title, status, message)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

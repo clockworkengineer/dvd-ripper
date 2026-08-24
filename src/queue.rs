@@ -258,6 +258,31 @@ pub fn list_boxsets() -> Vec<BoxSetRecord> {
     }
 }
 
+/// Liskov Substitution Principle (LSP/SOLID): Trait contract for box set episode progress tracking.
+#[allow(dead_code)]
+pub trait BoxSetEpisodeTracker {
+    fn get_next_episode(&self, show_name: &str, season: u32) -> u32;
+    fn record_episodes(&self, show_name: &str, season: u32, count: usize) -> u32;
+    fn reset_show(&self, show_name: &str, season: u32) -> bool;
+}
+
+#[derive(Debug, Default)]
+pub struct FileBoxSetEpisodeTracker;
+
+impl BoxSetEpisodeTracker for FileBoxSetEpisodeTracker {
+    fn get_next_episode(&self, show_name: &str, season: u32) -> u32 {
+        get_next_boxset_episode(show_name, season)
+    }
+
+    fn record_episodes(&self, show_name: &str, season: u32, count: usize) -> u32 {
+        record_boxset_episodes_ripped(show_name, season, count as u32)
+    }
+
+    fn reset_show(&self, show_name: &str, season: u32) -> bool {
+        reset_boxset_tracker(show_name, season)
+    }
+}
+
 fn uuid_v4_short() -> String {
     use std::time::{SystemTime, UNIX_EPOCH};
     let nanos = SystemTime::now()

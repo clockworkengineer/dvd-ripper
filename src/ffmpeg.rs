@@ -342,6 +342,19 @@ pub fn resolve_video_codec_name(codec: &str) -> &'static str {
     }
 }
 
+/// Open/Closed Principle (OCP/SOLID): Trait contract for video codec strategy resolvers.
+#[allow(dead_code)]
+pub trait VideoCodecResolver {
+    fn resolve(&self, codec: &str) -> &'static str;
+}
+
+pub struct DefaultVideoCodecResolver;
+impl VideoCodecResolver for DefaultVideoCodecResolver {
+    fn resolve(&self, codec: &str) -> &'static str {
+        resolve_video_codec_name(codec)
+    }
+}
+
 /// Determines whether output target should use Matroska MKV container format.
 pub fn is_mkv_output(args: &Args, output_path: &Path) -> bool {
     let profile = args.profile.to_lowercase();
