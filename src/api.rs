@@ -1036,6 +1036,52 @@ fn handle_client(mut stream: TcpStream, drive_path: &str) -> Result<()> {
     Ok(())
 }
 
+/// Interface Segregation (ISP/SOLID): Segregated trait for REST status endpoint queries.
+#[allow(dead_code)]
+pub trait ApiStatusEndpoint {
+    fn query_status(&self) -> ApplianceStatusInfo;
+}
+
+/// Interface Segregation (ISP/SOLID): Segregated trait for REST optical drives endpoint queries.
+#[allow(dead_code)]
+pub trait ApiDrivesEndpoint {
+    fn query_drives(&self) -> Vec<String>;
+}
+
+#[derive(Debug, Default)]
+pub struct DefaultApiStatusEndpoint;
+
+impl ApiStatusEndpoint for DefaultApiStatusEndpoint {
+    fn query_status(&self) -> ApplianceStatusInfo {
+        let handle = get_appliance_status_handle();
+        if let Ok(state) = handle.lock() {
+            state.clone()
+        } else {
+            ApplianceStatusInfo {
+                status: "Idle".to_string(),
+                drive: "auto".to_string(),
+                disc: String::new(),
+                current_title: String::new(),
+                progress: 0.0,
+                fps: "0".to_string(),
+                speed: "0x".to_string(),
+                has_selected_movie: false,
+                is_series: false,
+                year: None,
+            }
+        }
+    }
+}
+
+#[derive(Debug, Default)]
+pub struct DefaultApiDrivesEndpoint;
+
+impl ApiDrivesEndpoint for DefaultApiDrivesEndpoint {
+    fn query_drives(&self) -> Vec<String> {
+        crate::dvd::detect_dvd_drives()
+    }
+}
+
 /// Dependency Inversion (DIP/SOLID): High-level trait abstraction for drive diagnostics and detection.
 #[allow(dead_code)]
 pub trait DriveDiagnosticProvider {

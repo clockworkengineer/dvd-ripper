@@ -283,6 +283,31 @@ impl BoxSetEpisodeTracker for FileBoxSetEpisodeTracker {
     }
 }
 
+/// Liskov Substitution Principle (LSP/SOLID): Trait contract for job queue storage.
+#[allow(dead_code)]
+pub trait JobQueueStore {
+    fn enqueue(&self, title: &str, media_type: &str, input_drive: &str) -> String;
+    fn list(&self) -> Vec<JobItem>;
+    fn remove(&self, id: &str) -> bool;
+}
+
+#[derive(Debug, Default)]
+pub struct MemoryJobQueueStore;
+
+impl JobQueueStore for MemoryJobQueueStore {
+    fn enqueue(&self, title: &str, media_type: &str, input_drive: &str) -> String {
+        add_job(title, media_type, input_drive)
+    }
+
+    fn list(&self) -> Vec<JobItem> {
+        list_jobs()
+    }
+
+    fn remove(&self, id: &str) -> bool {
+        remove_job(id)
+    }
+}
+
 fn uuid_v4_short() -> String {
     use std::time::{SystemTime, UNIX_EPOCH};
     let nanos = SystemTime::now()

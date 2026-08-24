@@ -410,6 +410,27 @@ pub fn format_episode_code(season: u32, episode: u32) -> String {
     format!("S{:02}E{:02}", season, episode)
 }
 
+/// Open/Closed Principle (OCP/SOLID): Trait contract for NFO XML metadata template strategies.
+#[allow(dead_code)]
+pub trait NfoTemplateStrategy {
+    fn root_element(&self) -> &str;
+    fn format_title_tag(&self, title: &str) -> String {
+        format!("  <title>{}</title>", title.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;"))
+    }
+}
+
+#[derive(Debug, Default)]
+pub struct MovieNfoStrategy;
+impl NfoTemplateStrategy for MovieNfoStrategy {
+    fn root_element(&self) -> &str { "movie" }
+}
+
+#[derive(Debug, Default)]
+pub struct TvShowNfoStrategy;
+impl NfoTemplateStrategy for TvShowNfoStrategy {
+    fn root_element(&self) -> &str { "tvshow" }
+}
+
 /// DRY helper: Formats a standard TV episode name (e.g. `Show Name - S01E02`), with sanitized path characters.
 pub fn format_episode_name(show_name: &str, season: u32, ep_num: u32) -> String {
     let clean_name = sanitize_filename(show_name);

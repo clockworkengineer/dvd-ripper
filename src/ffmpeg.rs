@@ -235,6 +235,18 @@ pub fn parse_title_duration_line(line: &str) -> Option<f64> {
     }
 }
 
+/// Single Responsibility (SRP/SOLID): Encapsulates line-by-line FFmpeg progress output parsing.
+#[allow(dead_code)]
+#[derive(Debug, Default)]
+pub struct FfmpegProgressParser;
+
+impl FfmpegProgressParser {
+    #[allow(dead_code)]
+    pub fn parse_line(&self, line: &str) -> Option<crate::utils::FfmpegProgressMetrics> {
+        crate::utils::parse_ffmpeg_progress_line(line)
+    }
+}
+
 /// Formats video filter strings for specific hardware acceleration modes (e.g. VAAPI format=nv12,hwupload).
 #[allow(dead_code)]
 pub fn format_hwaccel_vf_chain(hwaccel: &str, vf_filters: &[String]) -> Option<String> {

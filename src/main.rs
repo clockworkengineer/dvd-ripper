@@ -42,6 +42,21 @@ impl AppInitializer {
     }
 }
 
+/// Dependency Inversion (DIP/SOLID): High-level trait abstraction for DVD path normalization.
+#[allow(dead_code)]
+pub trait PathResolver {
+    fn resolve_path(&self, raw_path: &str) -> PathBuf;
+}
+
+#[derive(Debug, Default)]
+pub struct DefaultPathResolver;
+
+impl PathResolver for DefaultPathResolver {
+    fn resolve_path(&self, raw_path: &str) -> PathBuf {
+        normalize_dvd_path(raw_path)
+    }
+}
+
 /// Resolves film metadata, release year, running time, and cover poster bytes for CLI mode execution.
 fn resolve_cli_metadata(args: &mut Args, volume_label: Option<&str>) -> (Option<String>, Option<u32>, Option<f64>, Option<Vec<u8>>) {
     // 0. Disc Fingerprint Cache Auto-Match
