@@ -411,6 +411,27 @@ impl DrivePowerController for DefaultDrivePowerController {
     fn close_tray(&self, root_path: &str) -> bool { close_disc_tray(root_path) }
 }
 
+/// Interface Segregation (ISP/SOLID): Segregated trait for optical drive speed ratings.
+#[allow(dead_code)]
+pub trait SpeedRatingProvider {
+    fn speed_rating(&self, speed_mbps: f64) -> &'static str;
+}
+
+#[derive(Debug, Default)]
+pub struct DefaultSpeedRatingProvider;
+
+impl SpeedRatingProvider for DefaultSpeedRatingProvider {
+    fn speed_rating(&self, speed_mbps: f64) -> &'static str {
+        if speed_mbps >= 15.0 {
+            "12x+ (High Speed)"
+        } else if speed_mbps >= 8.0 {
+            "6x-8x (Standard Speed)"
+        } else {
+            "1x-4x (Low Speed)"
+        }
+    }
+}
+
 /// Dependency Inversion (DIP/SOLID): High-level trait abstraction for disc fingerprint calculation.
 #[allow(dead_code)]
 pub trait DiscFingerprintReader {

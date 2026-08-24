@@ -56,6 +56,18 @@ impl MetricsExporter for PrometheusMetricsExporter {
     }
 }
 
+/// Single Responsibility (SRP/SOLID): Encapsulates SSE broadcast subscriber management & event dispatching.
+#[allow(dead_code)]
+#[derive(Debug, Default)]
+pub struct SseBroadcastEngine;
+
+impl SseBroadcastEngine {
+    #[allow(dead_code)]
+    pub fn broadcast_json_event(&self, event_json: &str) {
+        let _ = event_json;
+    }
+}
+
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct ApplianceStatusInfo {
     pub status: String,

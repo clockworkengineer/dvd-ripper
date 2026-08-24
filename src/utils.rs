@@ -417,6 +417,25 @@ pub fn format_episode_name(show_name: &str, season: u32, ep_num: u32) -> String 
 }
 
 
+/// Open/Closed Principle (OCP/SOLID): Trait contract for sidecar artwork filename strategies.
+#[allow(dead_code)]
+pub trait ArtworkNamingStrategy {
+    fn primary_filename(&self) -> &str;
+    fn secondary_filename(&self) -> &str;
+}
+
+pub struct DefaultArtworkNamingStrategy;
+impl ArtworkNamingStrategy for DefaultArtworkNamingStrategy {
+    fn primary_filename(&self) -> &str { "cover.jpg" }
+    fn secondary_filename(&self) -> &str { "folder.jpg" }
+}
+
+pub struct PlexArtworkNamingStrategy;
+impl ArtworkNamingStrategy for PlexArtworkNamingStrategy {
+    fn primary_filename(&self) -> &str { "poster.jpg" }
+    fn secondary_filename(&self) -> &str { "background.jpg" }
+}
+
 /// Saves poster artwork bytes to `cover.jpg` and `folder.jpg` in the parent directory of the ripped video file.
 pub fn save_cover_artworks(output_file: &std::path::Path, poster_bytes: &[u8]) -> anyhow::Result<()> {
     if poster_bytes.is_empty() {

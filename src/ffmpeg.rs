@@ -548,6 +548,23 @@ pub fn apply_hwaccel_encoder(cmd: &mut Command, hwaccel: &str, preset: &str) {
     }
 }
 
+/// Liskov Substitution Principle (LSP/SOLID): Trait contract for media process runner execution.
+#[allow(dead_code)]
+pub trait MediaProcessRunner {
+    fn run_process(&self, cmd: &mut Command) -> Result<std::process::ExitStatus>;
+}
+
+#[derive(Debug, Default)]
+pub struct SystemMediaProcessRunner;
+
+impl MediaProcessRunner for SystemMediaProcessRunner {
+    fn run_process(&self, cmd: &mut Command) -> Result<std::process::ExitStatus> {
+        let mut child = cmd.spawn()?;
+        let status = child.wait()?;
+        Ok(status)
+    }
+}
+
 /// Probes all titles on the DVD drive, using fast single-pass probing with fallback to sequential probing.
 pub fn probe_dvd_titles(
     ffmpeg_path: &str,

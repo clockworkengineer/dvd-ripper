@@ -438,6 +438,21 @@ impl MetadataDetailFetcher for OmdbMetadataResolver {
     }
 }
 
+/// Dependency Inversion (DIP/SOLID): High-level trait abstraction for HTTP client creation.
+#[allow(dead_code)]
+pub trait HttpClientProvider {
+    fn create_client(&self) -> reqwest::blocking::Client;
+}
+
+#[derive(Debug, Default)]
+pub struct DefaultHttpClientProvider;
+
+impl HttpClientProvider for DefaultHttpClientProvider {
+    fn create_client(&self) -> reqwest::blocking::Client {
+        get_http_client()
+    }
+}
+
 /// Queries OMDb API for movie title, release year, running time, plot summary, and poster image.
 pub fn lookup_omdb_details(query: &str) -> Option<FilmMetadata> {
 
