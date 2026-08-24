@@ -208,6 +208,22 @@ pub struct Args {
     /// Select 1-based index candidate directly from search results
     #[arg(long = "select-index")]
     pub select_index: Option<usize>,
+
+    /// Do not eject optical disc tray upon successful rip completion
+    #[arg(long = "no-eject")]
+    pub no_eject: bool,
+
+    /// Extract forced-only subtitle streams (foreign dialogue markers)
+    #[arg(long = "sub-forced-only")]
+    pub sub_forced_only: bool,
+
+    /// Save extracted subtitle stream as a standalone external .srt sidecar file
+    #[arg(long = "sub-external-srt")]
+    pub sub_external_srt: bool,
+
+    /// Select specific audio stream track by 1-based index (e.g. 1 for Director's Commentary, 2 for 5.1 Surround)
+    #[arg(long = "audio-track")]
+    pub audio_track: Option<u32>,
 }
 
 impl Default for Args {
@@ -285,6 +301,10 @@ pub struct EncodingOptions {
     pub deinterlace_algo: Option<String>,
     pub denoise: bool,
     pub min_free_gb: u64,
+    pub no_eject: bool,
+    pub sub_forced_only: bool,
+    pub sub_external_srt: bool,
+    pub audio_track: Option<u32>,
 }
 
 impl Args {
@@ -306,6 +326,10 @@ impl Args {
         self.deinterlace_algo = opts.deinterlace_algo;
         self.denoise = opts.denoise;
         self.min_free_gb = opts.min_free_gb;
+        self.no_eject = opts.no_eject;
+        self.sub_forced_only = opts.sub_forced_only;
+        self.sub_external_srt = opts.sub_external_srt;
+        self.audio_track = opts.audio_track;
     }
 
     pub fn new_movie(

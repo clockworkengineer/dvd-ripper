@@ -53,11 +53,15 @@ By default, launching `dvd-ripper` without arguments opens the graphical desktop
 | `--all-audio` | `false` | Include all audio streams present on the DVD title track. |
 | `--normalize-audio` | `false` | Apply EBU R128 loudness normalization (`-filter:a loudnorm=I=-16:TP=-1.5:LRA=11`). |
 | `--dual-audio` | `false` | Generate dual audio streams (Track 1: AAC Stereo Normalized, Track 2: 5.1 Surround Passthrough). |
+| `--audio-track <INDEX>` | *Auto* | Select specific audio stream track by 1-based index (e.g. `1` for Commentary, `2` for 5.1). |
 | `--audio-lang <LANG>` | *Auto* | Preferred audio track language code (e.g. `eng`, `fre`, `spa`). |
 | `--auto-audio-pref <LIST>`| *Auto* | Comma-separated ranked language preference list (e.g. `eng,fre,spa`). |
 | `--subtitles` | `false` | Extract DVD subtitle tracks into output container. |
+| `--sub-forced-only` | `false` | Extract forced-only subtitle streams (alien/foreign dialogue markers). |
+| `--sub-external-srt` | `false` | Extract subtitle stream into a standalone external `.srt` sidecar file. |
 | `--sub-lang <LANG>` | *Auto* | Preferred subtitle language code (e.g. `eng`, `fre`, `spa`). |
 | `--sub-format <FMT>` | `dvdsub` | Subtitle stream format: `dvdsub` (bitmap) or `subrip` (`.srt` text format). |
+| `--no-eject` | `false` | Do not eject optical disc tray upon successful rip completion (ideal for disc autoloaders). |
 | `--nfo` | `false` | Generate Kodi/Jellyfin/Plex XML `.nfo` metadata sidecar file. |
 | `--chapters` | `true` | Extract and preserve DVD chapter timestamp markers into container metadata. |
 | `--search <QUERY>` | *None* | Perform online IMDb/OMDb metadata candidate search. |

@@ -354,7 +354,13 @@ pub fn is_mkv_output(args: &Args, output_path: &Path) -> bool {
 
 /// Applies audio mapping and audio normalization flags to an FFmpeg command.
 pub fn apply_audio_options(cmd: &mut Command, args: &Args) {
-    if args.dual_audio {
+    if let Some(track_idx) = args.audio_track {
+        let stream_idx = if track_idx > 0 { track_idx - 1 } else { 0 };
+        cmd.arg("-map").arg(format!("0:a:{}", stream_idx));
+        if args.normalize_audio {
+            cmd.arg("-filter:a").arg("loudnorm=I=-16:TP=-1.5:LRA=11");
+        }
+    } else if args.dual_audio {
         cmd.arg("-map").arg("0:a:0?");
         cmd.arg("-c:a:0").arg("aac");
         cmd.arg("-b:a:0").arg("192k");
@@ -396,7 +402,11 @@ pub fn apply_audio_options(cmd: &mut Command, args: &Args) {
 /// Applies subtitle stream mapping and codec configuration to an FFmpeg command.
 pub fn apply_subtitle_options(cmd: &mut Command, args: &Args) {
     if args.subtitles {
-        cmd.arg("-map").arg("0:s?");
+        if args.sub_forced_only {
+            cmd.arg("-map").arg("0:s:m:disposition:forced?");
+        } else {
+            cmd.arg("-map").arg("0:s?");
+        }
         let sub_codec = resolve_subtitle_codec(args.sub_format.as_deref());
         cmd.arg("-c:s").arg(sub_codec);
     }

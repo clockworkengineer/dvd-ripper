@@ -30,6 +30,10 @@ pub struct AppConfig {
     pub deinterlace_algo: Option<String>,
     pub denoise: Option<bool>,
     pub min_free_gb: Option<u64>,
+    pub no_eject: Option<bool>,
+    pub sub_forced_only: Option<bool>,
+    pub sub_external_srt: Option<bool>,
+    pub audio_track: Option<u32>,
 }
 
 fn try_load_config_file(path: &Path) -> Option<AppConfig> {
@@ -153,6 +157,24 @@ pub fn apply_config_defaults(args: &mut Args, config: &AppConfig) {
         if args.min_free_gb == 10 {
             args.min_free_gb = val;
         }
+    }
+    if let Some(val) = config.no_eject {
+        if !args.no_eject {
+            args.no_eject = val;
+        }
+    }
+    if let Some(val) = config.sub_forced_only {
+        if !args.sub_forced_only {
+            args.sub_forced_only = val;
+        }
+    }
+    if let Some(val) = config.sub_external_srt {
+        if !args.sub_external_srt {
+            args.sub_external_srt = val;
+        }
+    }
+    if args.audio_track.is_none() {
+        args.audio_track = config.audio_track;
     }
 }
 

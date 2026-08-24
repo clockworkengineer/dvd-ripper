@@ -45,7 +45,7 @@ static BOXSET_MANAGER: OnceLock<Arc<Mutex<Vec<BoxSetRecord>>>> = OnceLock::new()
 
 /// Returns a reference to the global thread-safe job queue instance.
 pub fn get_job_queue_handle() -> &'static Arc<Mutex<Vec<JobItem>>> {
-    JOB_QUEUE.get_or_init(|| Arc::new(Mutex::new(Vec::new())))
+    JOB_QUEUE.get_or_init(|| Arc::new(Mutex::new(load_job_queue())))
 }
 
 /// Returns a reference to the global thread-safe box set manager instance.
@@ -83,13 +83,27 @@ pub trait JobQueueRepository {
     fn remove_job(&self, id: &str) -> bool;
 }
 
-/// Concrete in-memory job queue repository implementation.
-#[derive(Debug, Default)]
-pub struct InMemoryJobQueueRepository;
+fn resolve_queue_path() -> PathBuf {
+    crate::utils::get_app_file_path("job_queue.json")
+}
 
-impl JobQueueRepository for InMemoryJobQueueRepository {
+pub fn load_job_queue() -> Vec<JobItem> {
+    let p = resolve_queue_path();
+    crate::utils::load_json_file(&p).unwrap_or_default()
+}
+
+pub fn save_job_queue(jobs: &[JobItem]) -> anyhow::Result<()> {
+    let p = resolve_queue_path();
+    crate::utils::save_json_file(&p, &jobs)
+}
+
+/// Concrete file-persistent job queue repository implementation (SOLID/DIP).
+#[derive(Debug, Default)]
+pub struct FileJobQueueRepository;
+
+impl JobQueueRepository for FileJobQueueRepository {
     fn name(&self) -> &str {
-        "In-Memory Job Queue Repository"
+        "File-Persistent Job Queue Repository"
     }
 
     fn add_job(&self, title: &str, media_type: &str, drive: &str) -> String {
@@ -120,6 +134,7 @@ pub fn add_job(title: &str, media_type: &str, drive: &str) -> String {
     let handle = get_job_queue_handle();
     if let Ok(mut queue) = handle.lock() {
         queue.push(item);
+        let _ = save_job_queue(&queue);
     }
     id
 }
@@ -140,7 +155,11 @@ pub fn remove_job(id: &str) -> bool {
     if let Ok(mut queue) = handle.lock() {
         let initial_len = queue.len();
         queue.retain(|j| j.id != id);
-        queue.len() < initial_len
+        let removed = queue.len() < initial_len;
+        if removed {
+            let _ = save_job_queue(&queue);
+        }
+        removed
     } else {
         false
     }

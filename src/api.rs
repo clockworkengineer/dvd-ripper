@@ -929,6 +929,22 @@ fn handle_client(mut stream: TcpStream, drive_path: &str) -> Result<()> {
             "season": query_season
         });
         send_json_response(&mut stream, "200 OK", &resp_obj.to_string())?;
+    } else if method_str == "GET" && (path_str == "/" || path_str == "/dashboard" || path_str.starts_with("/dashboard")) {
+        send_http_response(&mut stream, "200 OK", "text/html", render_web_dashboard_html())?;
+    } else if method_str == "GET" && path_str.starts_with("/api/drives") {
+        let drives = crate::dvd::detect_dvd_drives();
+        let resp_obj = serde_json::json!({
+            "drives": drives,
+            "count": drives.len()
+        });
+        send_json_response(&mut stream, "200 OK", &resp_obj.to_string())?;
+    } else if method_str == "GET" && path_str.starts_with("/api/health") {
+        let resp_obj = serde_json::json!({
+            "status": "healthy",
+            "uptime_seconds": get_uptime_seconds(),
+            "active_transcodes": get_metrics().active_transcodes.load(Ordering::SeqCst)
+        });
+        send_json_response(&mut stream, "200 OK", &resp_obj.to_string())?;
     } else if method_str == "POST" && path_str.starts_with("/api/benchmark") {
         let drive = parse_query_param(&path_str, "drive").unwrap_or_else(|| "auto".to_string());
         let dvd_path = crate::dvd::normalize_dvd_path(&drive);
@@ -946,6 +962,103 @@ fn handle_client(mut stream: TcpStream, drive_path: &str) -> Result<()> {
     }
 
     Ok(())
+}
+
+/// Renders embedded HTML5/CSS3 Web Dashboard interface for headless appliances.
+fn render_web_dashboard_html() -> &'static str {
+    r#"<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DVD Ripper Appliance Web Dashboard</title>
+    <style>
+        :root { --bg: #0f172a; --card: #1e293b; --accent: #38bdf8; --text: #f8fafc; --muted: #94a3b8; --border: #334155; }
+        body { font-family: system-ui, -apple-system, sans-serif; background: var(--bg); color: var(--text); margin: 0; padding: 20px; }
+        .container { max-width: 1000px; margin: 0 auto; }
+        .header { display: flex; align-items: center; justify-content: space-between; padding-bottom: 15px; border-bottom: 1px solid var(--border); margin-bottom: 20px; }
+        h1 { margin: 0; font-size: 1.6rem; color: var(--accent); }
+        .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; margin-bottom: 20px; }
+        .card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 18px; }
+        .card h2 { font-size: 1.1rem; margin-top: 0; color: var(--accent); }
+        .stat { font-size: 1.4rem; font-weight: bold; margin: 5px 0; }
+        .badge { background: #0284c7; padding: 4px 8px; border-radius: 6px; font-size: 0.8rem; font-weight: 600; }
+        .progress-bar { width: 100%; background: var(--border); border-radius: 6px; height: 16px; overflow: hidden; margin: 10px 0; }
+        .progress-fill { height: 100%; background: linear-gradient(90deg, #0284c7, #38bdf8); width: 0%; transition: width 0.3s; }
+        table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+        th, td { padding: 8px 12px; text-align: left; border-bottom: 1px solid var(--border); font-size: 0.9rem; }
+        th { color: var(--muted); }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>📀 DVD Ripper Appliance</h1>
+            <span class="badge" id="appliance-status">STATUS: IDLE</span>
+        </div>
+        <div class="grid">
+            <div class="card">
+                <h2>Current Disc / Activity</h2>
+                <div class="stat" id="current-disc">No Disc Detected</div>
+                <div id="current-stage" style="color: var(--muted); font-size: 0.9rem;">Waiting for insertion</div>
+                <div class="progress-bar"><div class="progress-fill" id="progress-fill"></div></div>
+                <div style="display: flex; justify-content: space-between; font-size: 0.85rem; color: var(--muted);">
+                    <span id="stat-fps">FPS: --</span>
+                    <span id="stat-speed">Speed: --</span>
+                </div>
+            </div>
+            <div class="card">
+                <h2>Appliance Hardware</h2>
+                <div id="hardware-drives">Detecting optical drives...</div>
+            </div>
+        </div>
+        <div class="card">
+            <h2>Recent Ripping History</h2>
+            <table>
+                <thead><tr><th>Time</th><th>Title</th><th>Type</th><th>Status</th></tr></thead>
+                <tbody id="history-rows"><tr><td colspan="4">Loading history...</td></tr></tbody>
+            </table>
+        </div>
+    </div>
+    <script>
+        async function updateDashboard() {
+            try {
+                const statusRes = await fetch('/api/status');
+                if (statusRes.ok) {
+                    const data = await statusRes.json();
+                    document.getElementById('appliance-status').innerText = 'STATUS: ' + (data.status || 'IDLE').toUpperCase();
+                    document.getElementById('current-disc').innerText = data.disc_detected || 'No Disc';
+                    document.getElementById('current-stage').innerText = data.status || 'Idle';
+                    const pct = data.progress_percent || 0;
+                    document.getElementById('progress-fill').style.width = pct + '%';
+                    document.getElementById('stat-fps').innerText = 'FPS: ' + (data.fps || '--');
+                    document.getElementById('stat-speed').innerText = 'Speed: ' + (data.speed || '--');
+                }
+                const drivesRes = await fetch('/api/drives');
+                if (drivesRes.ok) {
+                    const drivesData = await drivesRes.json();
+                    let html = '<strong>Optical Drives:</strong><br>';
+                    (drivesData.drives || []).forEach(d => {
+                        html += '• 💿 ' + d + '<br>';
+                    });
+                    document.getElementById('hardware-drives').innerHTML = html || 'No optical drives found';
+                }
+                const histRes = await fetch('/api/history');
+                if (histRes.ok) {
+                    const histData = await histRes.json();
+                    let html = '';
+                    (histData || []).slice(0, 5).forEach(r => {
+                        html += `<tr><td>${r.timestamp || ''}</td><td>${r.title || ''}</td><td>${r.media_type || ''}</td><td>${r.status || ''}</td></tr>`;
+                    });
+                    document.getElementById('history-rows').innerHTML = html || '<tr><td colspan="4">No history records</td></tr>';
+                }
+            } catch(e) {}
+        }
+        updateDashboard();
+        setInterval(updateDashboard, 3000);
+    </script>
+</body>
+</html>"#
 }
 
 /// Helper: Extracts a case-insensitive header value from an HTTP header vector without heap allocations.

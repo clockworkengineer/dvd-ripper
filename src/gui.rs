@@ -69,6 +69,10 @@ pub struct DvdRipperApp {
     deinterlace_algo: String,
     denoise: bool,
     min_free_gb: u64,
+    no_eject: bool,
+    sub_forced_only: bool,
+    sub_external_srt: bool,
+    audio_track_str: String,
 
     // Search Modal Popup state
     show_search_modal: bool,
@@ -130,6 +134,10 @@ impl Default for DvdRipperApp {
             deinterlace_algo: "bwdif".to_string(),
             denoise: false,
             min_free_gb: 10,
+            no_eject: false,
+            sub_forced_only: false,
+            sub_external_srt: false,
+            audio_track_str: String::new(),
 
             plot: String::new(),
             genre: String::new(),
@@ -201,6 +209,10 @@ impl DvdRipperApp {
             deinterlace_algo: Some(self.deinterlace_algo.clone()),
             denoise: self.denoise,
             min_free_gb: self.min_free_gb,
+            no_eject: self.no_eject,
+            sub_forced_only: self.sub_forced_only,
+            sub_external_srt: self.sub_external_srt,
+            audio_track: self.audio_track_str.trim().parse::<u32>().ok(),
         }
     }
 
@@ -670,7 +682,9 @@ impl DvdRipperApp {
                         let _ = crate::utils::save_cover_artworks(&path, bytes);
                     }
 
-                    let _ = crate::dvd::eject_disc(&self.input_drive);
+                    if !self.no_eject {
+                        let _ = crate::dvd::eject_disc(&self.input_drive);
+                    }
                 }
                 ProgressEvent::Error(msg) => {
                     self.is_ripping = false;
@@ -1003,6 +1017,8 @@ impl eframe::App for DvdRipperApp {
 
                     ui.horizontal(|ui| {
                         ui.checkbox(&mut self.subtitles, "Subtitles");
+                        ui.checkbox(&mut self.sub_forced_only, "Forced Only");
+                        ui.checkbox(&mut self.sub_external_srt, "External .srt");
                         ui.label("Sub Lang:");
                         ui.add(egui::TextEdit::singleline(&mut self.sub_lang).hint_text("eng").desired_width(40.0));
                         ui.label("Sub Format:");
@@ -1015,8 +1031,11 @@ impl eframe::App for DvdRipperApp {
                     });
 
                     ui.horizontal(|ui| {
+                        ui.checkbox(&mut self.no_eject, "🔒 Keep Disc Ejected (No-Eject)");
+                        ui.label("Audio Track #:");
+                        ui.add(egui::TextEdit::singleline(&mut self.audio_track_str).hint_text("Auto").desired_width(40.0));
                         ui.label("Webhook URL:");
-                        ui.add(egui::TextEdit::singleline(&mut self.webhook_url).hint_text("https://discord.com/api/webhooks/...").desired_width(280.0));
+                        ui.add(egui::TextEdit::singleline(&mut self.webhook_url).hint_text("https://discord.com/api/webhooks/...").desired_width(220.0));
                     });
                 });
             });

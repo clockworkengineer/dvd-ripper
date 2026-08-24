@@ -417,8 +417,10 @@ fn main() -> Result<()> {
 
     utils::trigger_media_server_scans(&args);
 
-    println!("\nEjecting DVD disc from drive...");
-    let _ = dvd::eject_disc(&dvd_path.to_string_lossy());
+    if !args.no_eject {
+        println!("\nEjecting DVD disc from drive...");
+        let _ = dvd::eject_disc(&dvd_path.to_string_lossy());
+    }
 
     Ok(())
 }
