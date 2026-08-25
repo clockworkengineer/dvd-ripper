@@ -285,11 +285,23 @@ Detailed user guides and technical architecture documents are available in the [
 
 ## 🧪 Testing
 
-Run the full test suite (66 unit tests):
+Run the full test suite (128 unit tests):
 ```bash
 cargo test
 ```
 All unit tests use RAII temporary directory guards to ensure test files leave zero footprint on disk.
+
+---
+
+## ☕ Support the Project
+
+If you find `dvd-ripper` helpful for backing up your optical media collection, managing home server appliances, or automating your media library workflow, consider supporting ongoing development!
+
+[![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-Donate-yellow.svg?style=for-the-badge&logo=buy-me-a-coffee)](https://buymeacoffee.com/roberttizz1)
+
+👉 **[buymeacoffee.com/roberttizz1](https://buymeacoffee.com/roberttizz1)**
+
+Your support helps maintain hardware compatibility, add new features, and keep the project open-source and free for everyone. Thank you!
 
 ---
 
