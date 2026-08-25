@@ -32,6 +32,15 @@ A fast, portable DVD backup utility written in Rust featuring both a **Portable 
 
 ---
 
+## 🛠️ Prerequisites & Installation
+
+`dvd-ripper` requires **FFmpeg** and **libdvdcss** (for encrypted DVD decryption).
+
+For detailed platform-specific installation instructions (macOS Homebrew, Linux package managers, Windows Chocolatey/Scoop/Winget), refer to the dedicated guide:
+👉 **[FFmpeg & libdvdcss Installation Guide](docs/DEPENDENCIES_INSTALLATION.md)**
+
+---
+
 ## 📁 Output Destination Directories
 
 By default, ripped files are output relative to your current working directory using a clean, Plex/Jellyfin-compatible media hierarchy:

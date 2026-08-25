@@ -27,7 +27,20 @@ dvd-ripper --input D:\ --benchmark
 
 ---
 
-## 2. Copy Protection (CSS/CPPM) & Bad Sectors
+## 2. Copy Protection (CSS/CPPM) & libdvdcss Errors
+
+### Symptom: FFmpeg cannot rip encrypted DVD ("CSS support is unavailable")
+Commercial encrypted DVDs require `libdvdcss` to decrypt scrambled sector keys during extraction.
+
+### Solution:
+Install `libdvdcss` using your operating system package manager:
+- **macOS**: `brew install libdvdcss`
+- **Linux (Debian/Ubuntu)**: `sudo apt install libdvd-pkg && sudo dpkg-reconfigure libdvd-pkg`
+- **Windows**: `choco install libdvdcss` or place `libdvdcss-2.dll` in your system `PATH`.
+
+For full cross-platform instructions, see **[FFmpeg & libdvdcss Installation Guide](DEPENDENCIES_INSTALLATION.md)**.
+
+---
 
 ### Symptom: Ripping hangs or produces I/O Errors at specific chapters
 Commercial DVDs use Content Scramble System (CSS), CPPM, or deliberate bad sector structure (ArccOS / Macrovision) to block digital extraction.
