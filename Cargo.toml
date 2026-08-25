@@ -3,6 +3,12 @@ name = "dvd-ripper"
 version = "0.1.0"
 edition = "2024"
 default-run = "dvd-ripper"
+description = "A fast, portable DVD backup utility written in Rust featuring both a Portable Native Desktop GUI (eframe/egui) and CLI/Daemon modes."
+license = "MIT OR Apache-2.0"
+readme = "README.md"
+repository = "https://github.com/roberttizz1/dvd-ripper"
+keywords = ["dvd", "ripper", "backup", "media", "ffmpeg"]
+categories = ["command-line-utilities", "multimedia::video"]
 
 [[bin]]
 name = "dvd-ripper"
