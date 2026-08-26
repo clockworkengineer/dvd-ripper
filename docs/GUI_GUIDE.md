@@ -23,7 +23,7 @@ The desktop interface is organized into **6 core workflow sections and tab views
 
 ```text
 ┌────────────────────────────────────────────────────────────────────────┐
-│ 📀 DVD Ripper Desktop                                                  │
+│ 📀 DVD Ripper Desktop                                        [ℹ️ About]│
 ├────────────────────────────────────────────────────────────────────────┤
 │ [Main Rip Tab] [Box Set Manager] [Benchmark] [History Log] [Settings]  │
 ├────────────────────────────────────────────────────────────────────────┤
@@ -37,6 +37,17 @@ The desktop interface is organized into **6 core workflow sections and tab views
 │ Console:  [16:04:12] [INFO] FFmpeg demuxer initialized...              │
 └────────────────────────────────────────────────────────────────────────┘
 ```
+
+---
+
+## 2.1 ℹ️ About Box Modal
+
+Clicking the **`ℹ️ About`** button in the top-right header opens the application info dialog displaying:
+- Application version (`v0.1.1`) and description.
+- Dual open-source licenses (`MIT OR Apache-2.0`).
+- Direct hyperlink to the **[GitHub Repository](https://github.com/roberttizz1/dvd-ripper)**.
+- Direct hyperlink to **[Buy Me a Coffee](https://buymeacoffee.com/roberttizz1)** support page.
+- Configured system FFmpeg executable path.
 
 ---
 

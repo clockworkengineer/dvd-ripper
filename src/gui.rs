@@ -87,6 +87,9 @@ pub struct DvdRipperApp {
     show_search_modal: bool,
     search_candidates: Vec<crate::imdb::SearchResultItem>,
 
+    // About Box Popup state
+    show_about_modal: bool,
+
     detecting: bool,
     detect_status: String,
 
@@ -158,6 +161,7 @@ impl Default for DvdRipperApp {
 
             show_search_modal: false,
             search_candidates: Vec::new(),
+            show_about_modal: false,
 
             detecting: false,
             detect_status: String::new(),
@@ -785,6 +789,69 @@ impl DvdRipperApp {
             self.select_candidate_by_id(&imdb_id);
         }
     }
+
+    fn render_about_modal(&mut self, ctx: &egui::Context) {
+        if !self.show_about_modal {
+            return;
+        }
+
+        egui::Window::new("ℹ️ About DVD Ripper")
+            .collapsible(false)
+            .resizable(false)
+            .default_size([440.0, 340.0])
+            .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+            .show(ctx, |ui| {
+                ui.vertical_centered(|ui| {
+                    ui.add_space(4.0);
+                    ui.heading("📀 DVD Ripper");
+                    ui.label(egui::RichText::new("Version 0.1.1").strong().color(egui::Color32::LIGHT_BLUE));
+                    ui.add_space(4.0);
+                    ui.label(
+                        "A fast, portable DVD backup utility written in Rust featuring an immediate-mode \
+                        desktop GUI (eframe/egui), headless appliance daemon, embedded HTTP REST API & Web Dashboard, \
+                        and FFmpeg hardware acceleration."
+                    );
+                });
+
+                ui.add_space(8.0);
+                ui.separator();
+                ui.add_space(6.0);
+
+                egui::Grid::new("about_info_grid")
+                    .num_columns(2)
+                    .spacing([12.0, 6.0])
+                    .show(ui, |ui| {
+                        ui.label(egui::RichText::new("License:").strong());
+                        ui.label("MIT OR Apache-2.0");
+                        ui.end_row();
+
+                        ui.label(egui::RichText::new("GitHub:").strong());
+                        ui.hyperlink_to("github.com/roberttizz1/dvd-ripper", "https://github.com/roberttizz1/dvd-ripper");
+                        ui.end_row();
+
+                        ui.label(egui::RichText::new("Support:").strong());
+                        ui.hyperlink_to("buymeacoffee.com/roberttizz1", "https://buymeacoffee.com/roberttizz1");
+                        ui.end_row();
+
+                        ui.label(egui::RichText::new("FFmpeg Path:").strong());
+                        ui.label(&self.ffmpeg_path);
+                        ui.end_row();
+                    });
+
+                ui.add_space(8.0);
+                ui.separator();
+                ui.add_space(6.0);
+
+                ui.horizontal(|ui| {
+                    ui.hyperlink_to("☕ Buy Me a Coffee", "https://buymeacoffee.com/roberttizz1");
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if ui.button("Close").clicked() {
+                            self.show_about_modal = false;
+                        }
+                    });
+                });
+            });
+    }
 }
 
 impl eframe::App for DvdRipperApp {
@@ -798,7 +865,14 @@ impl eframe::App for DvdRipperApp {
         let is_busy = self.is_ripping || self.detecting;
 
         egui::CentralPanel::default().show(ctx, |ui| {
-            ui.heading("📀 DVD Ripper Desktop Utility");
+            ui.horizontal(|ui| {
+                ui.heading("📀 DVD Ripper Desktop Utility");
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if ui.button("ℹ️ About").clicked() {
+                        self.show_about_modal = true;
+                    }
+                });
+            });
             ui.add_space(8.0);
 
             ui.add_enabled_ui(!is_busy, |ui| {
@@ -1173,6 +1247,7 @@ impl eframe::App for DvdRipperApp {
         });
 
         self.render_search_modal(ctx);
+        self.render_about_modal(ctx);
     }
 }
 
