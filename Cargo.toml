@@ -1,6 +1,6 @@
 [package]
 name = "dvd-ripper"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2024"
 default-run = "dvd-ripper"
 description = "A fast, portable DVD backup utility written in Rust featuring both a Portable Native Desktop GUI (eframe/egui) and CLI/Daemon modes."

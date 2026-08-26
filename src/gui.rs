@@ -804,7 +804,7 @@ impl DvdRipperApp {
                 ui.vertical_centered(|ui| {
                     ui.add_space(4.0);
                     ui.heading("📀 DVD Ripper");
-                    ui.label(egui::RichText::new("Version 0.1.1").strong().color(egui::Color32::LIGHT_BLUE));
+                    ui.label(egui::RichText::new("Version 0.1.2").strong().color(egui::Color32::LIGHT_BLUE));
                     ui.add_space(4.0);
                     ui.label(
                         "A fast, portable DVD backup utility written in Rust featuring an immediate-mode \
