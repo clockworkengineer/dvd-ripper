@@ -121,15 +121,19 @@ fn main() -> Result<()> {
     println!("      [+] Installed {}", target_binary.display());
 
     // 5. Configure PATH Environment
-    println!("\n[2/4] Configuring System PATH...");
+    println!("\n[2/5] Configuring System PATH...");
     configure_path(&target_dir)?;
 
-    // 6. Linux Systemd / Udev Integration (if requested or running as root)
-    println!("\n[3/4] Checking System Appliance Integration...");
+    // 6. Register Start Menu and Desktop Shortcuts
+    println!("\n[3/5] Registering Application Shortcuts...");
+    create_shortcuts(&target_binary)?;
+
+    // 7. Linux Systemd / Udev Integration (if requested or running as root)
+    println!("\n[4/5] Checking System Appliance Integration...");
     configure_system_services(&args)?;
 
-    // 7. Verification Summary
-    println!("\n[4/4] Finalizing Installation...");
+    // 8. Verification Summary
+    println!("\n[5/5] Finalizing Installation...");
     println!("\n🎉 DVD Ripper installation successfully completed!");
     println!("     Executable path : {}", target_binary.display());
     println!("     To run GUI      : {}", binary_name);
@@ -351,10 +355,123 @@ fn run_uninstall(args: &InstallerArgs) -> Result<()> {
         }
     }
 
+    remove_shortcuts();
+
     println!("\n✨ DVD Ripper has been successfully uninstalled.");
     Ok(())
 }
 
+/// Creates Start Menu and Desktop shortcuts for the installed binary.
+fn create_shortcuts(target_exe: &Path) -> Result<()> {
+    #[cfg(windows)]
+    {
+        let script = format!(
+            "$ws = New-Object -ComObject WScript.Shell; \
+             $programs = [Environment]::GetFolderPath('Programs'); \
+             if ($programs -and (Test-Path $programs)) {{ \
+                 $s1 = $ws.CreateShortcut(\"$programs\\DVD Ripper.lnk\"); \
+                 $s1.TargetPath = '{target}'; \
+                 $s1.WorkingDirectory = '{workdir}'; \
+                 $s1.Description = 'Fast, automated DVD & TV Series backup tool'; \
+                 $s1.IconLocation = '{target},0'; \
+                 $s1.Save(); \
+                 Write-Output 'StartMenu:OK'; \
+             }} \
+             $desktop = [Environment]::GetFolderPath('Desktop'); \
+             if ($desktop -and (Test-Path $desktop)) {{ \
+                 $s2 = $ws.CreateShortcut(\"$desktop\\DVD Ripper.lnk\"); \
+                 $s2.TargetPath = '{target}'; \
+                 $s2.WorkingDirectory = '{workdir}'; \
+                 $s2.Description = 'Fast, automated DVD & TV Series backup tool'; \
+                 $s2.IconLocation = '{target},0'; \
+                 $s2.Save(); \
+                 Write-Output 'Desktop:OK'; \
+             }}",
+            target = target_exe.display(),
+            workdir = target_exe.parent().unwrap_or(Path::new("")).display(),
+        );
+
+        let output = Command::new("powershell")
+            .args(["-NoProfile", "-NonInteractive", "-Command", &script])
+            .output();
+
+        match output {
+            Ok(out) if out.status.success() => {
+                let stdout = String::from_utf8_lossy(&out.stdout);
+                if stdout.contains("StartMenu:OK") {
+                    println!("      [+] Registered Start Menu shortcut ('DVD Ripper')");
+                }
+                if stdout.contains("Desktop:OK") {
+                    println!("      [+] Created Desktop shortcut ('DVD Ripper')");
+                }
+            }
+            Ok(out) => {
+                let err = String::from_utf8_lossy(&out.stderr);
+                println!("      [!] Notice: Could not register shortcuts: {}", err.trim());
+            }
+            Err(e) => {
+                println!("      [!] Notice: PowerShell not available to create shortcuts: {}", e);
+            }
+        }
+    }
+
+    #[cfg(unix)]
+    {
+        if let Ok(home) = std::env::var("HOME") {
+            let app_dir = PathBuf::from(home).join(".local/share/applications");
+            let _ = fs::create_dir_all(&app_dir);
+            let desktop_file = app_dir.join("dvd-ripper.desktop");
+            let content = format!(
+                "[Desktop Entry]\n\
+                 Name=DVD Ripper\n\
+                 Comment=Fast, automated DVD & TV Series backup tool\n\
+                 Exec={}\n\
+                 Terminal=false\n\
+                 Type=Application\n\
+                 Categories=AudioVideo;Video;\n",
+                target_exe.display()
+            );
+            if fs::write(&desktop_file, content).is_ok() {
+                println!("      [+] Created desktop launcher: {}", desktop_file.display());
+            }
+        }
+    }
+
+    Ok(())
+}
+
+/// Removes Start Menu and Desktop shortcuts during uninstallation.
+fn remove_shortcuts() {
+    #[cfg(windows)]
+    {
+        let script = "\
+            $programs = [Environment]::GetFolderPath('Programs'); \
+            if ($programs) { \
+                $lnk1 = \"$programs\\DVD Ripper.lnk\"; \
+                if (Test-Path $lnk1) { Remove-Item -Force $lnk1 } \
+            } \
+            $desktop = [Environment]::GetFolderPath('Desktop'); \
+            if ($desktop) { \
+                $lnk2 = \"$desktop\\DVD Ripper.lnk\"; \
+                if (Test-Path $lnk2) { Remove-Item -Force $lnk2 } \
+            }";
+        let _ = Command::new("powershell")
+            .args(["-NoProfile", "-NonInteractive", "-Command", script])
+            .output();
+        println!("[+] Removed application shortcuts from Start Menu and Desktop.");
+    }
+
+    #[cfg(unix)]
+    {
+        if let Ok(home) = std::env::var("HOME") {
+            let desktop_file = PathBuf::from(home).join(".local/share/applications/dvd-ripper.desktop");
+            if desktop_file.exists() {
+                let _ = fs::remove_file(desktop_file);
+                println!("[+] Removed desktop launcher.");
+            }
+        }
+    }
+}
 
 fn target_binary_name() -> &'static str {
 

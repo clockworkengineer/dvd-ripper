@@ -1274,11 +1274,25 @@ impl eframe::App for DvdRipperApp {
 
 /// Entry point to launch the native eframe desktop window.
 pub fn run_gui() -> eframe::Result<()> {
+    let mut viewport = egui::ViewportBuilder::default()
+        .with_inner_size([880.0, 920.0])
+        .with_min_inner_size([800.0, 800.0])
+        .with_title("DVD Ripper (Movies & TV Series)");
+
+    let icon_bytes = include_bytes!("../assets/icon.png");
+    if let Ok(img) = image::load_from_memory(icon_bytes) {
+        let rgba = img.to_rgba8();
+        let (w, h) = rgba.dimensions();
+        let icon_data = egui::IconData {
+            rgba: rgba.into_raw(),
+            width: w,
+            height: h,
+        };
+        viewport = viewport.with_icon(icon_data);
+    }
+
     let options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default()
-            .with_inner_size([880.0, 920.0])
-            .with_min_inner_size([800.0, 800.0])
-            .with_title("DVD Ripper (Movies & TV Series)"),
+        viewport,
         ..Default::default()
     };
     eframe::run_native(
