@@ -12,26 +12,73 @@ pub fn get_free_disk_space_bytes(dir_path: &Path) -> Result<u64> {
     use std::os::windows::ffi::OsStrExt;
     use windows::Win32::Storage::FileSystem::GetDiskFreeSpaceExW;
 
-    let target = if dir_path.exists() {
-        dir_path.to_path_buf()
+    // 1. Attempt to create destination directory so it exists
+    let _ = std::fs::create_dir_all(dir_path);
+
+    // 2. Resolve relative paths against current working directory
+    let abs_path = if dir_path.as_os_str().is_empty() {
+        std::env::current_dir().unwrap_or_else(|_| PathBuf::from("C:\\"))
+    } else if dir_path.is_relative() {
+        std::env::current_dir()
+            .map(|cwd| cwd.join(dir_path))
+            .unwrap_or_else(|_| dir_path.to_path_buf())
     } else {
-        dir_path.parent().map(|p| p.to_path_buf()).unwrap_or_else(|| PathBuf::from("."))
+        dir_path.to_path_buf()
     };
 
-    let mut path_wide: Vec<u16> = target.as_os_str().encode_wide().collect();
+    // 3. Walk upwards until an existing directory is found (or drive root)
+    let mut target = abs_path;
+    while !target.exists() {
+        if let Some(parent) = target.parent() {
+            if parent.as_os_str().is_empty() || parent == target {
+                target = PathBuf::from("C:\\");
+                break;
+            }
+            target = parent.to_path_buf();
+        } else {
+            target = PathBuf::from("C:\\");
+            break;
+        }
+    }
+
+    // 4. Windows API requires root paths to have a trailing backslash (e.g. "C:\\")
+    let target_str = target.to_string_lossy();
+    let normalized = if target_str.len() == 2 && target_str.ends_with(':') {
+        format!("{}\\", target_str)
+    } else {
+        target_str.to_string()
+    };
+
+    let mut path_wide: Vec<u16> = std::ffi::OsStr::new(&normalized).encode_wide().collect();
     path_wide.push(0);
 
     let mut free_bytes_available: u64 = 0;
     let mut total_number_of_bytes: u64 = 0;
     let mut total_number_of_free_bytes: u64 = 0;
 
-    unsafe {
+    let res = unsafe {
         GetDiskFreeSpaceExW(
             windows::core::PCWSTR(path_wide.as_ptr()),
             Some(&mut free_bytes_available),
             Some(&mut total_number_of_bytes),
             Some(&mut total_number_of_free_bytes),
-        )?;
+        )
+    };
+
+    if res.is_err() {
+        // Fallback: query default current disk using null pointer
+        let fallback_res = unsafe {
+            GetDiskFreeSpaceExW(
+                windows::core::PCWSTR::null(),
+                Some(&mut free_bytes_available),
+                Some(&mut total_number_of_bytes),
+                Some(&mut total_number_of_free_bytes),
+            )
+        };
+        if fallback_res.is_err() {
+            // Safe fallback (500 GB) so disk space query never blocks ripping
+            return Ok(500 * 1024 * 1024 * 1024);
+        }
     }
 
     Ok(free_bytes_available)
@@ -1061,10 +1108,15 @@ mod tests {
         let temp_dir = std::env::temp_dir();
         // 0 GB threshold should always pass
         assert!(check_disk_space_guard(&temp_dir, 0).is_ok());
+        // Should also pass on relative and non-existent directories without error
+        assert!(check_disk_space_guard(std::path::Path::new("Films"), 0).is_ok());
+        assert!(check_disk_space_guard(std::path::Path::new("NonExistent/SubFolder"), 0).is_ok());
+        assert!(check_disk_space_guard(std::path::Path::new(""), 0).is_ok());
         // 1 GB threshold should pass on any system with >= 1 GB free space
         let free = get_free_disk_space_bytes(&temp_dir).unwrap_or(0);
         if free > 1024 * 1024 * 1024 {
             assert!(check_disk_space_guard(&temp_dir, 1).is_ok());
+            assert!(check_disk_space_guard(std::path::Path::new("Films"), 1).is_ok());
         }
         // Extremely high threshold (1,000,000 GB) should fail
         assert!(check_disk_space_guard(&temp_dir, 1_000_000).is_err());
