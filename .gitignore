@@ -1,6 +1,6 @@
 /target
 *.mp4
 *.mpg
-/* (????)
 ripping_history.json
 /Films/*
+.vscode/

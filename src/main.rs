@@ -14,6 +14,7 @@ mod gui;
 mod history;
 mod imdb;
 mod mqtt;
+mod ocr;
 mod queue;
 mod utils;
 
@@ -371,6 +372,7 @@ fn main() -> Result<()> {
                     &ep.formatted_name,
                     Some(ep.duration_secs),
                 )?;
+                let _ = crate::ocr::process_subtitle_ocr_sidecar(&ep_args, &ep_output, &ep.formatted_name);
                 last_output_file = Some(ep_output);
             }
 
@@ -407,6 +409,7 @@ fn main() -> Result<()> {
                 &ep_name,
                 film_runtime,
             )?;
+            let _ = crate::ocr::process_subtitle_ocr_sidecar(&args, &ep_output, &ep_name);
             last_output_file = Some(ep_output);
         }
     } else {
@@ -423,6 +426,7 @@ fn main() -> Result<()> {
             display_title,
             film_runtime,
         )?;
+        let _ = crate::ocr::process_subtitle_ocr_sidecar(&args, &absolute_output, display_title);
         last_output_file = Some(absolute_output);
     }
 

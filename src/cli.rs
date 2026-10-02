@@ -225,6 +225,18 @@ pub struct Args {
     #[arg(long = "sub-external-srt")]
     pub sub_external_srt: bool,
 
+    /// Enable on-the-fly Optical Character Recognition (OCR) to convert DVD bitmap subtitles into clean text .srt subtitles
+    #[arg(long = "ocr")]
+    pub ocr: bool,
+
+    /// Target language code for subtitle OCR extraction (e.g. eng, fra, deu, spa)
+    #[arg(long = "ocr-lang", default_value = "eng")]
+    pub ocr_lang: String,
+
+    /// Custom path to Tesseract OCR executable
+    #[arg(long = "tesseract", default_value = "tesseract")]
+    pub tesseract: String,
+
     /// Select specific audio stream track by 1-based index (e.g. 1 for Director's Commentary, 2 for 5.1 Surround)
     #[arg(long = "audio-track")]
     pub audio_track: Option<u32>,
@@ -286,8 +298,12 @@ pub struct Args {
     pub auto_cleanup_days: Option<u64>,
 
     /// Comma-separated list of optical drive paths for multi-drive appliance pool monitoring
-    #[arg(long = "drive-pool")]
+    #[arg(long = "drive-pool", alias = "drives")]
     pub drive_pool: Option<String>,
+
+    /// Automatically identify disc metadata and immediately start ripping without manual web/CLI confirmation
+    #[arg(long = "auto-rip")]
+    pub auto_rip: bool,
 
     /// Video SDR tonemapping algorithm curve (mobius, hable, reinhard)
     #[arg(long = "tonemap")]
@@ -350,6 +366,9 @@ impl Default for Args {
             no_eject: false,
             sub_forced_only: false,
             sub_external_srt: false,
+            ocr: false,
+            ocr_lang: "eng".to_string(),
+            tesseract: "tesseract".to_string(),
             audio_track: None,
             hwaccel_fallback: false,
             audio_title: None,
@@ -366,6 +385,7 @@ impl Default for Args {
             audio_downmix: None,
             auto_cleanup_days: None,
             drive_pool: None,
+            auto_rip: false,
             tonemap: None,
         }
     }
@@ -394,6 +414,9 @@ pub struct EncodingOptions {
     pub no_eject: bool,
     pub sub_forced_only: bool,
     pub sub_external_srt: bool,
+    pub ocr: bool,
+    pub ocr_lang: String,
+    pub tesseract: String,
     pub audio_track: Option<u32>,
     pub hwaccel_fallback: bool,
     pub audio_title: Option<String>,
@@ -410,6 +433,7 @@ pub struct EncodingOptions {
     pub audio_downmix: Option<String>,
     pub auto_cleanup_days: Option<u64>,
     pub drive_pool: Option<String>,
+    pub auto_rip: bool,
     pub tonemap: Option<String>,
 }
 
@@ -436,6 +460,9 @@ impl Args {
         self.no_eject = opts.no_eject;
         self.sub_forced_only = opts.sub_forced_only;
         self.sub_external_srt = opts.sub_external_srt;
+        self.ocr = opts.ocr;
+        self.ocr_lang = opts.ocr_lang;
+        self.tesseract = opts.tesseract;
         self.audio_track = opts.audio_track;
         self.hwaccel_fallback = opts.hwaccel_fallback;
         self.audio_title = opts.audio_title;
@@ -452,6 +479,7 @@ impl Args {
         self.audio_downmix = opts.audio_downmix;
         self.auto_cleanup_days = opts.auto_cleanup_days;
         self.drive_pool = opts.drive_pool;
+        self.auto_rip = opts.auto_rip;
         self.tonemap = opts.tonemap;
     }
 }
@@ -472,6 +500,9 @@ impl EncodingOptionProvider for Args {
             no_eject: self.no_eject,
             sub_forced_only: self.sub_forced_only,
             sub_external_srt: self.sub_external_srt,
+            ocr: self.ocr,
+            ocr_lang: self.ocr_lang.clone(),
+            tesseract: self.tesseract.clone(),
             audio_track: self.audio_track,
             hwaccel_fallback: self.hwaccel_fallback,
             audio_title: self.audio_title.clone(),
@@ -489,6 +520,7 @@ impl EncodingOptionProvider for Args {
             audio_downmix: self.audio_downmix.clone(),
             auto_cleanup_days: self.auto_cleanup_days,
             drive_pool: self.drive_pool.clone(),
+            auto_rip: self.auto_rip,
             tonemap: self.tonemap.clone(),
             ..Default::default()
         }

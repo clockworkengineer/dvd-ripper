@@ -64,6 +64,11 @@ denoise = true
 
 # Minimum required free disk space threshold (GB) before ripping
 min_free_gb = 10
+
+# On-the-fly Subtitle OCR using Tesseract (converts bitmap dvdsub into text .srt)
+ocr = true
+ocr_lang = "eng"
+tesseract = "tesseract"
 ```
 
 ---
@@ -86,6 +91,12 @@ min_free_gb = 10
 | `--auto-boxset` | | Auto-calculate episode numbering across multi-disc box sets | `false` |
 | `--benchmark` | | Run 10-second optical sector read speed throughput test | `false` |
 | `--sub-format <FMT>` | | Subtitle stream codec format (`dvdsub` or `subrip`/`srt`) | `"dvdsub"` |
+| `--sub-external-srt` | | Save extracted subtitle stream as a standalone external `.srt` sidecar | `false` |
+| `--ocr` | | Convert DVD bitmap subtitles into clean text `.srt` using Tesseract OCR | `false` |
+| `--ocr-lang <LANG>` | | Target language code for subtitle OCR extraction | `"eng"` |
+| `--tesseract <PATH>` | | Custom executable path to Tesseract OCR binary | `"tesseract"` |
+| `--drive-pool <DRIVES>` | | Comma-separated list of drives for concurrent daemon monitoring | `None` |
+| `--auto-rip` | | Unattended automated ripping upon optical disc insertion | `false` |
 | `--normalize-audio` | | EBU R128 audio loudness normalization filter | `false` |
 | `--dual-audio` | | Dual-track output (Stereo AAC + 5.1 Passthrough) | `false` |
 | `--daemon` | | Launch headless multi-drive monitoring daemon | `false` |

@@ -81,6 +81,9 @@ pub struct DvdRipperApp {
     no_eject: bool,
     sub_forced_only: bool,
     sub_external_srt: bool,
+    ocr: bool,
+    ocr_lang: String,
+    tesseract: String,
     audio_track_str: String,
 
     // Search Modal Popup state
@@ -149,6 +152,9 @@ impl Default for DvdRipperApp {
             no_eject: false,
             sub_forced_only: false,
             sub_external_srt: false,
+            ocr: false,
+            ocr_lang: "eng".to_string(),
+            tesseract: "tesseract".to_string(),
             audio_track_str: String::new(),
 
             plot: String::new(),
@@ -225,6 +231,9 @@ impl DvdRipperApp {
             no_eject: self.no_eject,
             sub_forced_only: self.sub_forced_only,
             sub_external_srt: self.sub_external_srt,
+            ocr: self.ocr,
+            ocr_lang: self.ocr_lang.clone(),
+            tesseract: self.tesseract.clone(),
             audio_track: self.audio_track_str.trim().parse::<u32>().ok(),
             hwaccel_fallback: false,
             audio_title: None,
@@ -242,6 +251,7 @@ impl DvdRipperApp {
             audio_downmix: None,
             auto_cleanup_days: None,
             drive_pool: None,
+            auto_rip: false,
             tonemap: None,
         }
     }
@@ -517,6 +527,8 @@ impl DvdRipperApp {
                                     let _ = tx.send(ProgressEvent::Error(format!("Error ripping episode {}: {}", ep.episode_num, e)));
                                 }
                                 return;
+                            } else {
+                                let _ = crate::ocr::process_subtitle_ocr_sidecar(&args, &abs_out, &ep.formatted_name);
                             }
                         }
                         Err(e) => {
@@ -566,6 +578,8 @@ impl DvdRipperApp {
                             false,
                         ) {
                             let _ = tx.send(ProgressEvent::Error(format!("Ripping error: {}", e)));
+                        } else {
+                            let _ = crate::ocr::process_subtitle_ocr_sidecar(&args, &abs_out, &ep_name);
                         }
                     }
                     Err(e) => {
@@ -598,6 +612,8 @@ impl DvdRipperApp {
                             false,
                         ) {
                             let _ = tx.send(ProgressEvent::Error(format!("Ripping error: {}", e)));
+                        } else {
+                            let _ = crate::ocr::process_subtitle_ocr_sidecar(&args, &abs_out, &display_title);
                         }
                     }
                     Err(e) => {
@@ -1119,6 +1135,11 @@ impl eframe::App for DvdRipperApp {
                         ui.checkbox(&mut self.subtitles, "Subtitles");
                         ui.checkbox(&mut self.sub_forced_only, "Forced Only");
                         ui.checkbox(&mut self.sub_external_srt, "External .srt");
+                        ui.checkbox(&mut self.ocr, "🔤 OCR (.srt)");
+                        if self.ocr {
+                            ui.label("OCR Lang:");
+                            ui.add(egui::TextEdit::singleline(&mut self.ocr_lang).hint_text("eng").desired_width(35.0));
+                        }
                         ui.label("Sub Lang:");
                         ui.add(egui::TextEdit::singleline(&mut self.sub_lang).hint_text("eng").desired_width(40.0));
                         ui.label("Sub Format:");

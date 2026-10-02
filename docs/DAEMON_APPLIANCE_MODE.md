@@ -11,55 +11,73 @@ When launched with `--daemon`, `dvd-ripper` operates as a background service: mo
 To launch in headless daemon mode:
 
 ```bash
-# Basic Daemon Mode
+# Basic Daemon Mode (Controlled Selection Workflow: waits for Web UI/CLI confirmation)
 dvd-ripper --daemon
 
-# Daemon Mode with Home Assistant MQTT & Webhook Telemetry
-dvd-ripper --daemon --mqtt-broker mqtt://192.168.1.50:1883 --webhook-url https://discord.com/api/webhooks/... --min-free-gb 20
+# Multi-Drive Pool Monitoring (monitors D: and E: concurrently)
+dvd-ripper --daemon --drives "D:\,E:\"
+
+# Unattended Auto-Rip Mode (automatically detects metadata, rips, and auto-ejects)
+dvd-ripper --daemon --auto-rip
+
+# Multi-Drive Appliance with Auto-Rip and Home Assistant Telemetry
+dvd-ripper --daemon --drives "D:\,E:\" --auto-rip --mqtt-broker mqtt://192.168.1.50:1883 --webhook-url https://discord.com/api/webhooks/... --min-free-gb 20
 ```
 
 ---
 
-## 2. Multi-Drive Watcher Architecture
+## 2. Multi-Drive Concurrent Watcher Architecture
 
 When daemon mode starts, `dvd-ripper`:
 1. Launches the embedded HTTP REST API server on port **8080** (`http://localhost:8080`).
-2. Detects all connected physical optical DVD drives (`/dev/sr0`, `/dev/sr1`, `D:\`, `E:\`).
-3. Spawns an independent background watcher thread (`spawn_drive_watcher`) for each drive.
-4. Continuously polls optical drive volume descriptors every 3 seconds (`poll_interval_secs`).
+2. Discovers or resolves all optical drives configured via `--drive-pool` / `--drives` (or auto-detects all connected drives `/dev/sr0`, `/dev/sr1`, `D:\`, `E:\` when `auto` is set).
+3. Initializes the thread-safe `DrivePoolState` registry and per-drive independent cancellation flags.
+4. Spawns an independent background watcher thread (`spawn_drive_watcher`) for each drive in the pool.
+5. Monitors each drive simultaneously—allowing simultaneous disc detection, concurrent background ripping, and independent optical tray ejection.
 
 ```mermaid
 graph TD
-    Daemon["src/daemon.rs (Main Daemon Loop)"] --> API["src/api.rs (Port 8080 REST API)"]
-    Daemon --> Watcher1["Drive Watcher Thread (/dev/sr0)"]
-    Daemon --> Watcher2["Drive Watcher Thread (/dev/sr1)"]
-    Watcher1 --> DiscCheck{"Disc Inserted?"}
-    DiscCheck -- Yes --> VolLabel["Read Volume Label & Fingerprint"]
-    VolLabel --> StatusUpdate["Transition Appliance State: 'Detected - Search Required'"]
-    StatusUpdate --> MQTT["Publish MQTT 3.1.1 Discovery & Telemetry"]
-    StatusUpdate --> Webhook["Send HTTP JSON Webhook Alert"]
-    StatusUpdate --> Pause["Pause Ripping & Await Title Selection"]
+    Daemon["src/daemon.rs (Main Daemon Loop)"] --> API["src/api.rs (Port 8080 REST API & Pool Registry)"]
+    Daemon --> Watcher1["Drive Watcher Thread (/dev/sr0 or D:\\)"]
+    Daemon --> Watcher2["Drive Watcher Thread (/dev/sr1 or E:\\)"]
+    Watcher1 --> DiscCheck1{"Disc Inserted?"}
+    Watcher2 --> DiscCheck2{"Disc Inserted?"}
+    DiscCheck1 -- Yes --> AutoCheck1{"--auto-rip Enabled?"}
+    AutoCheck1 -- Yes --> Query1["Auto-Match IMDb Metadata & Start Rip"]
+    AutoCheck1 -- No --> StatusUpdate1["State: 'Detected - Search Required'"]
+    StatusUpdate1 --> WebUI1["Web UI / API Candidate Selection"]
+    Query1 --> Rip1["Concurrent Rip Worker 1"]
+    WebUI1 --> Rip1
+    Rip1 --> Eject1["Auto-Eject Tray 1"]
 ```
 
 ---
 
-## 3. Controlled Selection Workflow Lifecycle
+## 3. Workflow Lifecycles: Controlled vs Unattended Auto-Rip
 
-To prevent accidental ripping of incorrect movies when ambiguous optical volume labels (e.g. `DVD_VIDEO`, `UNTITLED`) are detected, `dvd-ripper` enforces a **Controlled Selection Workflow**:
+`dvd-ripper` supports two operational models:
 
+### 3.1 Controlled Selection Workflow (Default)
+To prevent accidental ripping of incorrect movies when ambiguous optical volume labels (e.g. `DVD_VIDEO`, `UNTITLED`) are detected, `dvd-ripper` pauses upon disc insertion:
 ```text
 [Idle] ──(Disc Inserted)──> [Detected - Search Required] ──(Select Title)──> [Ready / Ripping] ──(Complete)──> [Idle]
 ```
-
-### State Machine Lifecycle Steps:
-
 1. **`Idle`**: Drive is empty or tray is open.
 2. **`Detected - Search Required`**: A new optical disc is inserted into the drive. Auto-ripping is **paused**. Telemetry alerts are sent via MQTT and Webhooks requesting user verification.
 3. **Candidate Search & Selection**:
    - The user searches candidates via the Web UI Dashboard (`http://localhost:8080`), CLI (`dvd-ripper --search "Aliens"`), or REST API (`GET /api/search?q=Aliens`).
-   - The user selects the target candidate (`POST /api/select?imdb_id=tt0090605`).
-4. **`Ready / Ripping`**: The **▶ Start Rip** button or API endpoint (`POST /api/rip`) is unlocked, initiating background FFmpeg extraction.
+   - The user selects the target candidate (`POST /api/select?imdb_id=tt0090605&drive=D:\`).
+4. **`Ready / Ripping`**: The **▶ Start Rip** button or API endpoint (`POST /api/rip?drive=D:\`) is unlocked, initiating background FFmpeg extraction.
 5. **`Completed`**: Ripping finishes, media server scans are triggered (Plex/Jellyfin), notification alerts fire, and the optical tray is automatically ejected.
+
+### 3.2 Unattended Auto-Rip Mode (`--auto-rip`)
+When launched with `--auto-rip`, the daemon operates fully hands-off:
+```text
+[Idle] ──(Disc Inserted)──> [Auto-Identifying Metadata] ──(High Confidence Match)──> [Ripping] ──(Auto-Eject)──> [Idle]
+```
+- Disc insertion immediately queries IMDb/TMDb using the normalized ISO-9660 volume label.
+- High-confidence candidates automatically begin ripping in a dedicated thread.
+- Upon completion, media server scans trigger and the disc is automatically ejected.
 
 ---
 
@@ -117,9 +135,12 @@ Configure `--webhook-url <URL>` to receive real-time HTTP JSON alerts compatible
 
 When daemon mode is active, access the web control panel at **`http://localhost:8080`**:
 
-- **Appliance Monitoring**: View live progress bar, current disc volume label, active FPS, and speed.
-- **Search & Candidate Selection**: Use the integrated OMDb/IMDb search bar to select titles.
-- **Remote Appliance Control**: Trigger rip jobs (`POST /api/rip`), cancel jobs (`POST /api/cancel`), or eject the drive tray (`POST /api/eject`).
+- **Multi-Drive Dashboard**: Renders interactive cards for every optical drive in the pool with independent progress bars, disc labels, and controls.
+- **Drive Pool Status API (`GET /api/pool/status` or `GET /api/status?drive=D:\`)**: Returns array of all monitored optical drives and their real-time state.
+- **Per-Drive Candidate Selection (`POST /api/select?imdb_id=...&drive=D:\`)**: Binds chosen metadata to a specific drive.
+- **Per-Drive Rip Execution (`POST /api/rip?drive=D:\`)**: Concurrently launches ripping for that drive without blocking others.
+- **Per-Drive Instant Cancellation (`POST /api/cancel?drive=D:\`)**: Kills the FFmpeg worker for that drive only.
+- **Per-Drive Optical Tray Ejection (`POST /api/eject?drive=D:\`)**: Opens the optical tray for that specific drive.
 
 ---
 

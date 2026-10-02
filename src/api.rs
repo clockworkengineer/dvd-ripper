@@ -3,6 +3,7 @@
  * @brief REST API web server, Prometheus metrics provider, and SSE event broadcast engine.
  */
 
+use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -226,6 +227,404 @@ pub fn fail_appliance_status(title: &str, out_dir: &str, err_msg: &str) {
     let _ = crate::history::record_rip_event(title, "Movie", out_dir, err_msg);
 }
 
+/// Represents status of an individual optical drive in the multi-drive pool.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DriveStatusInfo {
+    pub drive: String,
+    pub disc: String,
+    pub status: String,
+    pub current_title: String,
+    pub progress: f64,
+    pub fps: String,
+    pub speed: String,
+    pub has_selected_movie: bool,
+    pub is_series: bool,
+    pub year: Option<u32>,
+}
+
+impl DriveStatusInfo {
+    pub fn new(drive: &str) -> Self {
+        Self {
+            drive: drive.to_string(),
+            disc: String::new(),
+            status: "Idle".to_string(),
+            current_title: String::new(),
+            progress: 0.0,
+            fps: "0".to_string(),
+            speed: "0x".to_string(),
+            has_selected_movie: false,
+            is_series: false,
+            year: None,
+        }
+    }
+}
+
+static DRIVE_POOL_REGISTRY: OnceLock<Arc<Mutex<HashMap<String, DriveStatusInfo>>>> = OnceLock::new();
+static DRIVE_CANCEL_FLAGS: OnceLock<Arc<Mutex<HashMap<String, Arc<AtomicBool>>>>> = OnceLock::new();
+
+pub fn get_drive_pool_registry() -> Arc<Mutex<HashMap<String, DriveStatusInfo>>> {
+    DRIVE_POOL_REGISTRY.get_or_init(|| Arc::new(Mutex::new(HashMap::new()))).clone()
+}
+
+pub fn get_drive_cancel_flags_map() -> Arc<Mutex<HashMap<String, Arc<AtomicBool>>>> {
+    DRIVE_CANCEL_FLAGS.get_or_init(|| Arc::new(Mutex::new(HashMap::new()))).clone()
+}
+
+/// Initializes the multi-drive appliance pool with optical drive paths.
+pub fn init_drive_pool(drives: &[String]) {
+    let registry = get_drive_pool_registry();
+    if let Ok(mut pool) = registry.lock() {
+        for drive in drives {
+            pool.entry(drive.clone()).or_insert_with(|| DriveStatusInfo::new(drive));
+        }
+    }
+    if let Some(first) = drives.first() {
+        let handle = get_appliance_status_handle();
+        if let Ok(mut state) = handle.lock() {
+            if state.drive == "auto" {
+                state.drive = first.clone();
+            }
+        }
+    }
+}
+
+/// Retrieves statuses for all monitored optical drives in the pool, sorted by drive path.
+pub fn get_drive_pool_statuses() -> Vec<DriveStatusInfo> {
+    let registry = get_drive_pool_registry();
+    if let Ok(pool) = registry.lock() {
+        let mut list: Vec<DriveStatusInfo> = pool.values().cloned().collect();
+        list.sort_by(|a, b| a.drive.cmp(&b.drive));
+        if !list.is_empty() {
+            return list;
+        }
+    }
+    let handle = get_appliance_status_handle();
+    if let Ok(state) = handle.lock() {
+        vec![DriveStatusInfo {
+            drive: state.drive.clone(),
+            disc: state.disc.clone(),
+            status: state.status.clone(),
+            current_title: state.current_title.clone(),
+            progress: state.progress,
+            fps: state.fps.clone(),
+            speed: state.speed.clone(),
+            has_selected_movie: state.has_selected_movie,
+            is_series: state.is_series,
+            year: state.year,
+        }]
+    } else {
+        Vec::new()
+    }
+}
+
+/// Retrieves status for a specific optical drive from the pool.
+pub fn get_drive_status(drive: &str) -> Option<DriveStatusInfo> {
+    let registry = get_drive_pool_registry();
+    if let Ok(pool) = registry.lock() {
+        if let Some(status) = pool.get(drive) {
+            return Some(status.clone());
+        }
+    }
+    None
+}
+
+/// Marks a disc as detected for a specific drive in the pool.
+pub fn set_drive_disc_detected(drive: &str, disc_label: &str) {
+    let registry = get_drive_pool_registry();
+    if let Ok(mut pool) = registry.lock() {
+        let entry = pool.entry(drive.to_string()).or_insert_with(|| DriveStatusInfo::new(drive));
+        if entry.disc != disc_label {
+            entry.disc = disc_label.to_string();
+            entry.current_title.clear();
+            entry.has_selected_movie = false;
+            entry.status = "Detected - Search Required".to_string();
+            entry.progress = 0.0;
+        }
+    }
+    set_disc_detected(disc_label);
+}
+
+/// Sets selected metadata for a specific drive in the pool.
+pub fn set_drive_selected_metadata(drive: &str, title: &str, is_series: bool, year: Option<u32>) {
+    let registry = get_drive_pool_registry();
+    if let Ok(mut pool) = registry.lock() {
+        let entry = pool.entry(drive.to_string()).or_insert_with(|| DriveStatusInfo::new(drive));
+        entry.current_title = title.to_string();
+        entry.is_series = is_series;
+        entry.year = year;
+        entry.has_selected_movie = true;
+        entry.status = format!("Ready (Selected: {})", title);
+    }
+    let handle = get_appliance_status_handle();
+    if let Ok(mut state) = handle.lock() {
+        state.drive = drive.to_string();
+        state.current_title = title.to_string();
+        state.is_series = is_series;
+        state.year = year;
+        state.has_selected_movie = true;
+        state.status = format!("Ready (Selected: {})", title);
+    }
+}
+
+/// Updates progress and status for a specific drive in the pool.
+pub fn update_drive_status(
+    drive: &str,
+    status: &str,
+    disc: &str,
+    title: &str,
+    progress: f64,
+    fps: &str,
+    speed: &str,
+) {
+    let registry = get_drive_pool_registry();
+    if let Ok(mut pool) = registry.lock() {
+        let entry = pool.entry(drive.to_string()).or_insert_with(|| DriveStatusInfo::new(drive));
+        entry.status = status.to_string();
+        if !disc.is_empty() {
+            entry.disc = disc.to_string();
+        }
+        if !title.is_empty() {
+            entry.current_title = title.to_string();
+        }
+        entry.progress = progress;
+        entry.fps = fps.to_string();
+        entry.speed = speed.to_string();
+    }
+    update_appliance_status(status, disc, title, progress, fps, speed);
+}
+
+/// Resets status for a specific drive in the pool.
+pub fn reset_drive_status(drive: &str, status_name: &str) {
+    let registry = get_drive_pool_registry();
+    if let Ok(mut pool) = registry.lock() {
+        if let Some(entry) = pool.get_mut(drive) {
+            entry.status = status_name.to_string();
+            entry.progress = 0.0;
+            entry.fps = "0".to_string();
+            entry.speed = "0x".to_string();
+            if status_name == "Idle" {
+                entry.disc.clear();
+                entry.current_title.clear();
+                entry.has_selected_movie = false;
+            }
+        }
+    }
+    reset_appliance_status(status_name);
+}
+
+/// Gets or creates a dedicated cancel flag for a specific optical drive.
+pub fn get_drive_cancel_flag(drive: &str) -> Arc<AtomicBool> {
+    let flags_map = get_drive_cancel_flags_map();
+    if let Ok(mut map) = flags_map.lock() {
+        map.entry(drive.to_string())
+            .or_insert_with(|| Arc::new(AtomicBool::new(false)))
+            .clone()
+    } else {
+        Arc::new(AtomicBool::new(false))
+    }
+}
+
+/// Cancels ripping on a specific optical drive.
+pub fn cancel_drive_rip(drive: &str) -> bool {
+    let flags_map = get_drive_cancel_flags_map();
+    if let Ok(map) = flags_map.lock() {
+        if let Some(flag) = map.get(drive) {
+            flag.store(true, Ordering::SeqCst);
+            update_drive_status(drive, "Cancelled", "", "", 0.0, "0", "0x");
+            return true;
+        }
+    }
+    false
+}
+
+/// Cancels ripping across all optical drives in the pool.
+pub fn cancel_all_drive_rips() -> usize {
+    let flags_map = get_drive_cancel_flags_map();
+    let mut count = 0;
+    if let Ok(map) = flags_map.lock() {
+        for (drive, flag) in map.iter() {
+            flag.store(true, Ordering::SeqCst);
+            update_drive_status(drive, "Cancelled", "", "", 0.0, "0", "0x");
+            count += 1;
+        }
+    }
+    let global_flag = get_cancel_flag_handle();
+    global_flag.store(true, Ordering::SeqCst);
+    if let Ok(mut lock) = get_cancel_tx_handle().lock() {
+        if let Some(tx) = lock.take() {
+            let _ = tx.send(());
+        }
+    }
+    count
+}
+
+/// Spawns an asynchronous background thread to rip a title/series from a specific optical drive.
+pub fn execute_rip_for_drive(
+    drive_path_str: &str,
+    custom_args: Option<crate::cli::Args>,
+) -> Result<()> {
+    let drive_info = get_drive_status(drive_path_str).unwrap_or_else(|| {
+        let handle = get_appliance_status_handle();
+        if let Ok(st) = handle.lock() {
+            DriveStatusInfo {
+                drive: drive_path_str.to_string(),
+                disc: st.disc.clone(),
+                status: st.status.clone(),
+                current_title: st.current_title.clone(),
+                progress: st.progress,
+                fps: st.fps.clone(),
+                speed: st.speed.clone(),
+                has_selected_movie: st.has_selected_movie,
+                is_series: st.is_series,
+                year: st.year,
+            }
+        } else {
+            DriveStatusInfo::new(drive_path_str)
+        }
+    });
+
+    if drive_info.disc.trim().is_empty() {
+        return Err(anyhow::anyhow!("No DVD disc is present in drive '{}'", drive_path_str));
+    }
+    if !drive_info.has_selected_movie || drive_info.current_title.trim().is_empty() {
+        return Err(anyhow::anyhow!("No movie/show selected for drive '{}'. Please select a title first.", drive_path_str));
+    }
+
+    let title = drive_info.current_title.clone();
+    let is_series = drive_info.is_series;
+    let year = drive_info.year;
+    let drive_clone = drive_path_str.to_string();
+
+    let cancel_flag = get_drive_cancel_flag(drive_path_str);
+    cancel_flag.store(false, Ordering::SeqCst);
+
+    update_drive_status(drive_path_str, "Ripping", "", &title, 0.0, "0", "0x");
+
+    thread::spawn(move || {
+        let mut args = custom_args.unwrap_or_default();
+        args.input = drive_clone.clone();
+        args.tv = is_series;
+        let config = crate::config::load_config(None);
+        crate::config::apply_config_defaults(&mut args, &config);
+        if is_series {
+            args.out_dir = "TV".to_string();
+        }
+        let dvd_path = crate::dvd::normalize_dvd_path(&drive_clone);
+
+        let (event_tx, event_rx) = channel();
+        let item_title = title.clone();
+        let thread_drive = drive_clone.clone();
+        thread::spawn(move || {
+            while let Ok(event) = event_rx.recv() {
+                if let crate::ffmpeg::ProgressEvent::Progress { percent, fps, speed, .. } = event {
+                    update_drive_status(&thread_drive, "Ripping", "", &item_title, percent as f64, &fps, &speed);
+                }
+            }
+        });
+
+        if let Err(e) = crate::utils::check_disk_space_guard(std::path::Path::new(&args.out_dir), args.min_free_gb) {
+            fail_appliance_status(&title, &args.out_dir, &format!("Disk Space Error: {}", e));
+            update_drive_status(&drive_clone, "Failed", "", &title, 0.0, "0", "0x");
+            return;
+        }
+
+        let res = if is_series {
+            let episodes = crate::ffmpeg::detect_tv_episodes(
+                &args.ffmpeg,
+                &dvd_path,
+                &title,
+                args.season,
+                args.start_episode,
+                Some(&cancel_flag),
+            );
+            let mut success = true;
+            for ep in &episodes {
+                if cancel_flag.load(Ordering::SeqCst) {
+                    success = false;
+                    break;
+                }
+                if let Ok(out_path) = crate::ffmpeg::resolve_tv_output_path(
+                    &args,
+                    Some(&title),
+                    year,
+                    args.season,
+                    ep.episode_num,
+                ) {
+                    update_drive_status(&drive_clone, "Ripping", "", &ep.formatted_name, 0.0, "0", "0x");
+                    let run_res = crate::ffmpeg::run_ffmpeg_with_channel(
+                        &args,
+                        &dvd_path,
+                        &out_path,
+                        &ep.formatted_name,
+                        Some(ep.duration_secs),
+                        Some(event_tx.clone()),
+                        None,
+                        Some(cancel_flag.clone()),
+                        true,
+                    );
+                    if run_res.is_ok() {
+                        let _ = crate::ocr::process_subtitle_ocr_sidecar(&args, &out_path, &ep.formatted_name);
+                        let _ = crate::history::record_rip_event(&ep.formatted_name, "TV Series", &out_path.to_string_lossy(), "Success");
+                    } else {
+                        success = false;
+                        if cancel_flag.load(Ordering::SeqCst) {
+                            let _ = crate::history::record_rip_event(&ep.formatted_name, "TV Series", &out_path.to_string_lossy(), "Cancelled");
+                        }
+                        break;
+                    }
+                }
+            }
+            if success && !cancel_flag.load(Ordering::SeqCst) {
+                Ok(())
+            } else {
+                Err(anyhow::anyhow!("Ripping cancelled or failed"))
+            }
+        } else {
+            if let Ok(out_path) = crate::ffmpeg::resolve_output_path(&args, Some(&title), year) {
+                update_drive_status(&drive_clone, "Ripping", "", &title, 0.0, "0", "0x");
+                let run_res = crate::ffmpeg::run_ffmpeg_with_channel(
+                    &args,
+                    &dvd_path,
+                    &out_path,
+                    &title,
+                    None,
+                    Some(event_tx),
+                    None,
+                    Some(cancel_flag.clone()),
+                    false,
+                );
+                if run_res.is_ok() {
+                    let _ = crate::ocr::process_subtitle_ocr_sidecar(&args, &out_path, &title);
+                    let _ = crate::history::record_rip_event(&title, "Movie", &out_path.to_string_lossy(), "Success");
+                    Ok(())
+                } else {
+                    if cancel_flag.load(Ordering::SeqCst) {
+                        let _ = crate::history::record_rip_event(&title, "Movie", &out_path.to_string_lossy(), "Cancelled");
+                    }
+                    Err(anyhow::anyhow!("Ripping cancelled or failed"))
+                }
+            } else {
+                Err(anyhow::anyhow!("Failed to resolve output path"))
+            }
+        };
+
+        if cancel_flag.load(Ordering::SeqCst) {
+            update_drive_status(&drive_clone, "Cancelled", "", "", 0.0, "0", "0x");
+        } else if res.is_ok() {
+            increment_completed_rips();
+            update_drive_status(&drive_clone, "Completed", "", &title, 100.0, "0", "0x");
+            let _ = crate::dvd::eject_disc(&drive_clone);
+            thread::sleep(Duration::from_secs(3));
+            reset_drive_status(&drive_clone, "Idle");
+        } else {
+            increment_failed_rips();
+            update_drive_status(&drive_clone, "Failed", "", "", 0.0, "0", "0x");
+        }
+    });
+
+    Ok(())
+}
+
 /// Embedded HTML5 Web UI Dashboard string embedded directly into the binary.
 const EMBEDDED_DASHBOARD_HTML: &str = r#"<!DOCTYPE html>
 <html lang="en">
@@ -261,18 +660,22 @@ const EMBEDDED_DASHBOARD_HTML: &str = r#"<!DOCTYPE html>
         </div>
 
         <div class="card">
-            <h2>Appliance Status</h2>
-            <div id="status-text" class="muted">Querying daemon status...</div>
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 0.75rem; margin-bottom: 0.25rem;">
-                <span class="muted" id="progress-state-label">Progress</span>
-                <span id="progress-percent-label" style="font-weight: bold; color: var(--accent); font-size: 1.1rem;">0.0%</span>
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+                <h2 style="margin:0;">Optical Drive Pool Status</h2>
+                <button class="btn btn-secondary" style="font-size:0.85rem; padding:0.4rem 0.8rem;" onclick="fetchHistory()">🔄 Refresh History</button>
             </div>
-            <div class="progress-bar"><div id="progress-fill" class="progress-fill"></div></div>
-            <div style="margin-top: 1rem;">
-                <button class="btn" id="start-rip-btn" onclick="triggerRip()" disabled style="opacity: 0.4; cursor: not-allowed;" title="Insert DVD and select a movie to enable ripping.">▶ Start Rip</button>
-                <button class="btn btn-danger" onclick="cancelRip()">⏹ Cancel</button>
-                <button class="btn btn-secondary" onclick="ejectDisc()">⏏ Eject Tray</button>
-                <button class="btn btn-secondary" onclick="fetchHistory()">🔄 Refresh History</button>
+            <div id="drives-container">
+                <div id="status-text" class="muted">Querying optical drive pool status...</div>
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 0.75rem; margin-bottom: 0.25rem;">
+                    <span class="muted" id="progress-state-label">Progress</span>
+                    <span id="progress-percent-label" style="font-weight: bold; color: var(--accent); font-size: 1.1rem;">0.0%</span>
+                </div>
+                <div class="progress-bar"><div id="progress-fill" class="progress-fill"></div></div>
+                <div style="margin-top: 1rem;">
+                    <button class="btn" id="start-rip-btn" onclick="triggerRip()" disabled style="opacity: 0.4; cursor: not-allowed;" title="Insert DVD and select a movie to enable ripping.">▶ Start Rip</button>
+                    <button class="btn btn-danger" onclick="cancelRip()">⏹ Cancel</button>
+                    <button class="btn btn-secondary" onclick="ejectDisc()">⏏ Eject Tray</button>
+                </div>
             </div>
         </div>
 
@@ -292,34 +695,68 @@ const EMBEDDED_DASHBOARD_HTML: &str = r#"<!DOCTYPE html>
     </div>
 
     <script>
+        let currentPool = [];
+
         function renderStatusData(data) {
             document.getElementById('appliance-badge').innerText = data.status || 'Idle';
-            const pct = (data.progress || 0).toFixed(1);
-            let statusDetails = `<strong>State:</strong> ${data.status} | <strong>Drive:</strong> ${data.drive} | <strong>Disc/Title:</strong> ${data.current_title || data.disc || 'None'}`;
-            if (data.fps && data.fps !== '0' && data.fps !== 'N/A') {
-                statusDetails += ` | <strong>FPS:</strong> ${data.fps} | <strong>Speed:</strong> ${data.speed}`;
-            }
-            document.getElementById('status-text').innerHTML = statusDetails;
-            document.getElementById('progress-fill').style.width = pct + '%';
-            document.getElementById('progress-percent-label').innerText = pct + '%';
+            if (data.pool && data.pool.length > 0) {
+                currentPool = data.pool;
+                const container = document.getElementById('drives-container');
+                container.innerHTML = data.pool.map(d => {
+                    const pct = (d.progress || 0).toFixed(1);
+                    const isRipping = d.status && d.status.toLowerCase().includes('rip');
+                    const hasDvd = d.disc && d.disc.length > 0;
+                    const hasSelected = d.has_selected_movie === true;
+                    const canRip = hasDvd && hasSelected && !isRipping;
+                    let statusDetails = `<strong>Drive:</strong> ${d.drive} | <strong>Disc:</strong> ${d.disc || 'None'} | <strong>Title:</strong> ${d.current_title || 'None'}`;
+                    if (d.fps && d.fps !== '0' && d.fps !== 'N/A') {
+                        statusDetails += ` | <strong>FPS:</strong> ${d.fps} | <strong>Speed:</strong> ${d.speed}`;
+                    }
+                    return `
+                    <div style="background:#0f172a; border:1px solid #334155; border-radius:10px; padding:1.2rem; margin-bottom:1rem;">
+                        <div style="display:flex; justify-content:space-between; align-items:center;">
+                            <span style="font-weight:bold; font-size:1.1rem; color:var(--accent);">💿 Optical Drive ${d.drive}</span>
+                            <span class="badge" style="background:${isRipping ? 'var(--accent)' : (d.status === 'Completed' ? 'var(--success)' : '#64748b')}; color:#000;">${d.status}</span>
+                        </div>
+                        <div class="muted" style="margin:0.5rem 0;">${statusDetails}</div>
+                        <div style="display:flex; justify-content:space-between; margin-bottom:0.25rem;">
+                            <span class="muted">Progress</span>
+                            <span style="font-weight:bold; color:var(--accent);">${pct}%</span>
+                        </div>
+                        <div class="progress-bar"><div class="progress-fill" style="width:${pct}%"></div></div>
+                        <div style="margin-top:0.75rem;">
+                            <button class="btn" onclick="triggerRip('${d.drive}')" ${canRip ? '' : 'disabled style="opacity:0.4; cursor:not-allowed;"'}>▶ Start Rip</button>
+                            <button class="btn btn-danger" onclick="cancelRip('${d.drive}')" ${isRipping ? '' : 'disabled style="opacity:0.4; cursor:not-allowed;"'}>⏹ Cancel</button>
+                            <button class="btn btn-secondary" onclick="ejectDisc('${d.drive}')">⏏ Eject Tray</button>
+                        </div>
+                    </div>`;
+                }).join('');
+            } else {
+                const pct = (data.progress || 0).toFixed(1);
+                let statusDetails = `<strong>State:</strong> ${data.status} | <strong>Drive:</strong> ${data.drive} | <strong>Disc/Title:</strong> ${data.current_title || data.disc || 'None'}`;
+                if (data.fps && data.fps !== '0' && data.fps !== 'N/A') {
+                    statusDetails += ` | <strong>FPS:</strong> ${data.fps} | <strong>Speed:</strong> ${data.speed}`;
+                }
+                const st = document.getElementById('status-text');
+                if (st) st.innerHTML = statusDetails;
+                const pf = document.getElementById('progress-fill');
+                if (pf) pf.style.width = pct + '%';
+                const ppl = document.getElementById('progress-percent-label');
+                if (ppl) ppl.innerText = pct + '%';
 
-            const hasDvd = data.disc && data.disc.length > 0;
-            const hasSelected = data.has_selected_movie === true;
-            const startBtn = document.getElementById('start-rip-btn');
-            if (startBtn) {
-                if (hasDvd && hasSelected) {
-                    startBtn.disabled = false;
-                    startBtn.style.opacity = '1';
-                    startBtn.style.cursor = 'pointer';
-                    startBtn.title = 'Start Ripping DVD';
-                } else {
-                    startBtn.disabled = true;
-                    startBtn.style.opacity = '0.4';
-                    startBtn.style.cursor = 'not-allowed';
-                    if (!hasDvd) {
-                        startBtn.title = 'Insert a DVD disc to enable ripping.';
+                const hasDvd = data.disc && data.disc.length > 0;
+                const hasSelected = data.has_selected_movie === true;
+                const startBtn = document.getElementById('start-rip-btn');
+                if (startBtn) {
+                    if (hasDvd && hasSelected) {
+                        startBtn.disabled = false;
+                        startBtn.style.opacity = '1';
+                        startBtn.style.cursor = 'pointer';
+                        startBtn.title = 'Start Ripping DVD';
                     } else {
-                        startBtn.title = 'Search and select a movie to enable ripping.';
+                        startBtn.disabled = true;
+                        startBtn.style.opacity = '0.4';
+                        startBtn.style.cursor = 'not-allowed';
                     }
                 }
             }
@@ -345,32 +782,41 @@ const EMBEDDED_DASHBOARD_HTML: &str = r#"<!DOCTYPE html>
                     container.innerHTML = '<p class="muted">No search results found.</p>';
                     return;
                 }
-                container.innerHTML = data.map(item => `
+                container.innerHTML = data.map(item => {
+                    let selectBtns = '';
+                    if (currentPool && currentPool.length > 1) {
+                        selectBtns = currentPool.map(d =>
+                            `<button class="btn" style="padding: 0.35rem 0.6rem; font-size: 0.8rem; margin-right: 0.3rem;" onclick="selectCandidate('${item.imdb_id}', '${d.drive}')">Select for ${d.drive}</button>`
+                        ).join('');
+                    } else {
+                        const targetDrive = (currentPool && currentPool.length === 1) ? currentPool[0].drive : '';
+                        selectBtns = `<button class="btn" style="padding: 0.35rem 0.8rem; font-size: 0.85rem;" onclick="selectCandidate('${item.imdb_id}', '${targetDrive}')">Select</button>`;
+                    }
+                    return `
                     <div class="history-item">
                         <div>
                             <strong>${item.title}</strong> ${item.year ? '<span class="muted">(' + item.year + ')</span>' : ''}
                             <div class="muted">IMDb ID: ${item.imdb_id} | Type: ${item.type_field}</div>
                         </div>
-                        <div>
-                            <button class="btn" style="padding: 0.35rem 0.8rem; font-size: 0.85rem;" onclick="selectCandidate('${item.imdb_id}')">Select</button>
-                        </div>
-                    </div>
-                `).join('');
+                        <div>${selectBtns}</div>
+                    </div>`;
+                }).join('');
             } catch(e) {
                 container.innerHTML = '<p class="muted" style="color:var(--danger)">Search request failed.</p>';
             }
         }
 
-        async function selectCandidate(imdbId) {
+        async function selectCandidate(imdbId, drive) {
             try {
-                const res = await fetch('/api/select', {
+                const url = '/api/select?imdb_id=' + encodeURIComponent(imdbId) + (drive ? '&drive=' + encodeURIComponent(drive) : '');
+                const res = await fetch(url, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ imdb_id: imdbId })
+                    body: JSON.stringify({ imdb_id: imdbId, drive: drive || undefined })
                 });
                 const data = await res.json();
                 if (data.success) {
-                    alert('Selected title: ' + data.title + (data.year ? ' (' + data.year + ')' : ''));
+                    alert('Selected title: ' + data.title + (data.year ? ' (' + data.year + ')' : '') + (data.drive ? ' for ' + data.drive : ''));
                     pollStatus();
                 } else {
                     alert(data.message || 'Selection failed.');
@@ -406,16 +852,19 @@ const EMBEDDED_DASHBOARD_HTML: &str = r#"<!DOCTYPE html>
             }
         }
 
-        async function ejectDisc() {
-            if (confirm('Eject optical drive tray?')) {
-                const res = await fetch('/api/eject', { method: 'POST' });
+        async function ejectDisc(drive) {
+            if (confirm('Eject optical drive tray' + (drive ? ' for ' + drive : '') + '?')) {
+                const url = '/api/eject' + (drive ? '?drive=' + encodeURIComponent(drive) : '');
+                const res = await fetch(url, { method: 'POST' });
                 const data = await res.json();
                 alert(data.success ? 'Tray ejected successfully.' : 'Failed to eject tray.');
+                pollStatus();
             }
         }
 
-        async function triggerRip() {
-            const res = await fetch('/api/rip', { method: 'POST' });
+        async function triggerRip(drive) {
+            const url = '/api/rip' + (drive ? '?drive=' + encodeURIComponent(drive) : '');
+            const res = await fetch(url, { method: 'POST' });
             const data = await res.json();
             if (!data.success) {
                 alert('⚠️ ' + (data.message || 'Cannot start rip.'));
@@ -425,9 +874,10 @@ const EMBEDDED_DASHBOARD_HTML: &str = r#"<!DOCTYPE html>
             }
         }
 
-        async function cancelRip() {
-            if (confirm('Cancel active DVD ripping process?')) {
-                const res = await fetch('/api/cancel', { method: 'POST' });
+        async function cancelRip(drive) {
+            if (confirm('Cancel active DVD ripping process' + (drive ? ' on drive ' + drive : '') + '?')) {
+                const url = '/api/cancel' + (drive ? '?drive=' + encodeURIComponent(drive) : '');
+                const res = await fetch(url, { method: 'POST' });
                 const data = await res.json();
                 alert(data.message || 'Cancelled rip job.');
                 pollStatus();
@@ -710,18 +1160,54 @@ fn handle_client(mut stream: TcpStream, drive_path: &str) -> Result<()> {
                 thread::sleep(Duration::from_millis(500));
             }
         }
-    } else if method_str == "GET" && path_str == "/api/status" {
-        let handle = get_appliance_status_handle();
-        let json_body = if let Ok(state) = handle.lock() {
-            serde_json::to_string(&*state).unwrap_or_else(|_| "{}".to_string())
+    } else if method_str == "GET" && (path_str == "/api/status" || path_str.starts_with("/api/status")) {
+        let req_drive = parse_query_param(&path_str, "drive");
+        let pool = get_drive_pool_statuses();
+        let json_body = if let Some(ref d) = req_drive {
+            if let Some(status) = get_drive_status(d) {
+                serde_json::to_string(&status).unwrap_or_else(|_| "{}".to_string())
+            } else {
+                serde_json::json!({
+                    "status": "Idle",
+                    "drive": d,
+                    "disc": "",
+                    "current_title": "",
+                    "progress": 0.0,
+                    "fps": "0",
+                    "speed": "0x",
+                    "has_selected_movie": false,
+                    "is_series": false,
+                    "year": null,
+                    "pool": pool
+                }).to_string()
+            }
         } else {
-            let label = crate::dvd::get_volume_label(drive_path).unwrap_or_default();
-            format!(
-                "{{\"status\":\"Active\",\"drive\":\"{}\",\"disc\":\"{}\",\"current_title\":\"\",\"progress\":0,\"fps\":\"0\",\"speed\":\"0x\"}}",
-                drive_path, label
-            )
+            let handle = get_appliance_status_handle();
+            let mut val = if let Ok(state) = handle.lock() {
+                serde_json::to_value(&*state).unwrap_or_else(|_| serde_json::json!({}))
+            } else {
+                let label = crate::dvd::get_volume_label(drive_path).unwrap_or_default();
+                serde_json::json!({
+                    "status": "Active",
+                    "drive": drive_path,
+                    "disc": label,
+                    "current_title": "",
+                    "progress": 0.0,
+                    "fps": "0",
+                    "speed": "0x",
+                    "has_selected_movie": false,
+                    "is_series": false,
+                    "year": null
+                })
+            };
+            val["pool"] = serde_json::to_value(&pool).unwrap_or_else(|_| serde_json::json!([]));
+            val.to_string()
         };
         send_http_response(&mut stream, "200 OK", "application/json", &json_body)?;
+    } else if method_str == "GET" && (path_str.starts_with("/api/pool/status") || path_str.starts_with("/api/drives/status")) {
+        let pool = get_drive_pool_statuses();
+        let resp_obj = serde_json::json!({ "drives": pool, "count": pool.len() });
+        send_json_response(&mut stream, "200 OK", &resp_obj.to_string())?;
     } else if method_str == "GET" && path_str == "/api/history" {
         let history = load_history(None);
         let json_body = serde_json::to_string(&history).unwrap_or_else(|_| "[]".to_string());
@@ -769,26 +1255,29 @@ fn handle_client(mut stream: TcpStream, drive_path: &str) -> Result<()> {
     } else if method_str == "POST" && path_str.starts_with("/api/select") {
         let body_str = extract_body(req_bytes).unwrap_or_default();
         let mut imdb_id = parse_query_param(&path_str, "imdb_id");
-        if imdb_id.is_none() && !body_str.trim().is_empty() {
+        let mut target_drive = parse_query_param(&path_str, "drive");
+        if !body_str.trim().is_empty() {
             if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(body_str) {
-                if let Some(id) = parsed.get("imdb_id").and_then(|v| v.as_str()) {
-                    imdb_id = Some(id.to_string());
+                if imdb_id.is_none() {
+                    if let Some(id) = parsed.get("imdb_id").and_then(|v| v.as_str()) {
+                        imdb_id = Some(id.to_string());
+                    }
+                }
+                if target_drive.is_none() {
+                    if let Some(d) = parsed.get("drive").and_then(|v| v.as_str()) {
+                        target_drive = Some(d.to_string());
+                    }
                 }
             }
         }
 
+        let chosen_drive = target_drive.unwrap_or_else(|| drive_path.to_string());
         if let Some(ref id) = imdb_id {
             if let Some(meta) = crate::imdb::lookup_omdb_by_id(id) {
-                let handle = get_appliance_status_handle();
-                let mut state = lock_or_recover(&handle);
-                state.current_title = meta.title.clone();
-                state.year = meta.year;
-                state.is_series = meta.is_series;
-                state.has_selected_movie = true;
-                state.status = format!("Ready (Selected: {})", meta.title);
-
+                set_drive_selected_metadata(&chosen_drive, &meta.title, meta.is_series, meta.year);
                 let resp_obj = serde_json::json!({
                     "success": true,
+                    "drive": chosen_drive,
                     "title": meta.title,
                     "year": meta.year,
                     "is_series": meta.is_series
@@ -802,169 +1291,77 @@ fn handle_client(mut stream: TcpStream, drive_path: &str) -> Result<()> {
             let json_body = "{\"success\":false,\"message\":\"Missing imdb_id parameter\"}";
             send_http_response(&mut stream, "400 Bad Request", "application/json", json_body)?;
         }
-    } else if method_str == "POST" && path_str == "/api/eject" {
-        let ok = eject_disc(drive_path);
-        let resp_obj = serde_json::json!({ "success": ok });
-        send_http_response(&mut stream, "200 OK", "application/json", &resp_obj.to_string())?;
-    } else if method_str == "POST" && path_str == "/api/rip" {
-        let handle = get_appliance_status_handle();
-        let (has_selected, title, is_series, year, disc) = if let Ok(state) = handle.lock() {
-            (state.has_selected_movie, state.current_title.clone(), state.is_series, state.year, state.disc.clone())
-        } else {
-            (false, String::new(), false, None, String::new())
-        };
-
-        if disc.trim().is_empty() {
-            let json_body = "{\"success\": false, \"message\": \"Ripping disabled: No DVD disc is present in the optical drive.\"}";
-            send_http_response(&mut stream, "400 Bad Request", "application/json", json_body)?;
-        } else if !has_selected || title.trim().is_empty() {
-            let json_body = "{\"success\": false, \"message\": \"Ripping disabled: Please search and select a movie first.\"}";
-            send_http_response(&mut stream, "400 Bad Request", "application/json", json_body)?;
-        } else {
-            update_appliance_status("Ripping", "", &title, 0.0, "0", "0x");
-            let drive_clone = drive_path.to_string();
-            let display_title = title.clone();
-
-            let cancel_flag = get_cancel_flag_handle();
-            cancel_flag.store(false, Ordering::SeqCst);
-            let (cancel_tx, _cancel_rx) = channel();
-            if let Ok(mut lock) = get_cancel_tx_handle().lock() {
-                *lock = Some(cancel_tx);
+    } else if method_str == "POST" && (path_str == "/api/eject" || path_str.starts_with("/api/eject")) {
+        let body_str = extract_body(req_bytes).unwrap_or_default();
+        let mut target_drive = parse_query_param(&path_str, "drive");
+        if target_drive.is_none() && !body_str.trim().is_empty() {
+            if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(body_str) {
+                if let Some(d) = parsed.get("drive").and_then(|v| v.as_str()) {
+                    target_drive = Some(d.to_string());
+                }
             }
-
-            thread::spawn(move || {
-                let mut args = crate::cli::Args {
-                    input: drive_clone.clone(),
-                    tv: is_series,
-                    ..Default::default()
-                };
-                let config = crate::config::load_config(None);
-                crate::config::apply_config_defaults(&mut args, &config);
-                if is_series {
-                    args.out_dir = "TV".to_string();
+        }
+        let chosen_drive = target_drive.unwrap_or_else(|| drive_path.to_string());
+        let ok = eject_disc(&chosen_drive);
+        reset_drive_status(&chosen_drive, "Idle");
+        let resp_obj = serde_json::json!({ "success": ok, "drive": chosen_drive });
+        send_http_response(&mut stream, "200 OK", "application/json", &resp_obj.to_string())?;
+    } else if method_str == "POST" && (path_str == "/api/rip" || path_str.starts_with("/api/rip")) {
+        let body_str = extract_body(req_bytes).unwrap_or_default();
+        let mut target_drive = parse_query_param(&path_str, "drive");
+        if target_drive.is_none() && !body_str.trim().is_empty() {
+            if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(body_str) {
+                if let Some(d) = parsed.get("drive").and_then(|v| v.as_str()) {
+                    target_drive = Some(d.to_string());
                 }
-                let dvd_path = crate::dvd::normalize_dvd_path(&drive_clone);
-
-                let (event_tx, event_rx) = channel();
-                let item_title = title.clone();
-                thread::spawn(move || {
-                    while let Ok(event) = event_rx.recv() {
-                        if let crate::ffmpeg::ProgressEvent::Progress { percent, fps, speed, .. } = event {
-                            update_appliance_status("Ripping", "", &item_title, percent as f64, &fps, &speed);
-                        }
-                    }
+            }
+        }
+        let chosen_drive = target_drive.unwrap_or_else(|| drive_path.to_string());
+        match execute_rip_for_drive(&chosen_drive, None) {
+            Ok(()) => {
+                let resp_obj = serde_json::json!({
+                    "success": true,
+                    "drive": chosen_drive,
+                    "message": format!("Started ripping on drive {}", chosen_drive)
                 });
-
-                if let Err(e) = crate::utils::check_disk_space_guard(std::path::Path::new(&args.out_dir), args.min_free_gb) {
-                    fail_appliance_status(&title, &args.out_dir, &format!("Disk Space Error: {}", e));
-                    return;
+                send_http_response(&mut stream, "200 OK", "application/json", &resp_obj.to_string())?;
+            }
+            Err(e) => {
+                let resp_obj = serde_json::json!({
+                    "success": false,
+                    "drive": chosen_drive,
+                    "message": e.to_string()
+                });
+                send_http_response(&mut stream, "400 Bad Request", "application/json", &resp_obj.to_string())?;
+            }
+        }
+    } else if method_str == "POST" && (path_str == "/api/cancel" || path_str.starts_with("/api/cancel")) {
+        let body_str = extract_body(req_bytes).unwrap_or_default();
+        let mut target_drive = parse_query_param(&path_str, "drive");
+        if target_drive.is_none() && !body_str.trim().is_empty() {
+            if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(body_str) {
+                if let Some(d) = parsed.get("drive").and_then(|v| v.as_str()) {
+                    target_drive = Some(d.to_string());
                 }
-
-                let res = if is_series {
-                    let episodes = crate::ffmpeg::detect_tv_episodes(
-                        &args.ffmpeg,
-                        &dvd_path,
-                        &title,
-                        args.season,
-                        args.start_episode,
-                        Some(&cancel_flag),
-                    );
-                    let mut success = true;
-                    for ep in &episodes {
-                        if cancel_flag.load(Ordering::SeqCst) {
-                            success = false;
-                            break;
-                        }
-                        if let Ok(out_path) = crate::ffmpeg::resolve_tv_output_path(
-                            &args,
-                            Some(&title),
-                            year,
-                            args.season,
-                            ep.episode_num,
-                        ) {
-                            update_appliance_status("Ripping", "", &ep.formatted_name, 0.0, "0", "0x");
-                            let run_res = crate::ffmpeg::run_ffmpeg_with_channel(
-                                &args,
-                                &dvd_path,
-                                &out_path,
-                                &ep.formatted_name,
-                                Some(ep.duration_secs),
-                                Some(event_tx.clone()),
-                                None,
-                                Some(cancel_flag.clone()),
-                                true,
-                            );
-                            if run_res.is_ok() {
-                                let _ = crate::history::record_rip_event(&ep.formatted_name, "TV Series", &out_path.to_string_lossy(), "Success");
-                            } else {
-                                success = false;
-                                if cancel_flag.load(Ordering::SeqCst) {
-                                    let _ = crate::history::record_rip_event(&ep.formatted_name, "TV Series", &out_path.to_string_lossy(), "Cancelled");
-                                }
-                                break;
-                            }
-                        }
-                    }
-                    if success && !cancel_flag.load(Ordering::SeqCst) {
-                        Ok(())
-                    } else {
-                        Err(anyhow::anyhow!("Ripping cancelled or failed"))
-                    }
-                } else {
-                    if let Ok(out_path) = crate::ffmpeg::resolve_output_path(&args, Some(&title), year) {
-                        update_appliance_status("Ripping", "", &title, 0.0, "0", "0x");
-                        let run_res = crate::ffmpeg::run_ffmpeg_with_channel(
-                            &args,
-                            &dvd_path,
-                            &out_path,
-                            &title,
-                            None,
-                            Some(event_tx),
-                            None,
-                            Some(cancel_flag.clone()),
-                            false,
-                        );
-                        if run_res.is_ok() {
-                            let _ = crate::history::record_rip_event(&title, "Movie", &out_path.to_string_lossy(), "Success");
-                            Ok(())
-                        } else {
-                            if cancel_flag.load(Ordering::SeqCst) {
-                                let _ = crate::history::record_rip_event(&title, "Movie", &out_path.to_string_lossy(), "Cancelled");
-                            }
-                            Err(anyhow::anyhow!("Ripping cancelled or failed"))
-                        }
-                    } else {
-                        Err(anyhow::anyhow!("Failed to resolve output path"))
-                    }
-                };
-
-                if cancel_flag.load(Ordering::SeqCst) {
-                    update_appliance_status("Cancelled", "", "", 0.0, "0", "0x");
-                } else if res.is_ok() {
-                    update_appliance_status("Completed", "", &title, 100.0, "0", "0x");
-                    let _ = crate::dvd::eject_disc(&drive_clone);
-                } else {
-                    update_appliance_status("Failed", "", "", 0.0, "0", "0x");
-                }
+            }
+        }
+        if let Some(ref d) = target_drive {
+            let ok = cancel_drive_rip(d);
+            let resp_obj = serde_json::json!({
+                "success": ok,
+                "drive": d,
+                "message": format!("Cancellation signal sent to drive {}", d)
             });
-
+            send_http_response(&mut stream, "200 OK", "application/json", &resp_obj.to_string())?;
+        } else {
+            let count = cancel_all_drive_rips();
             let resp_obj = serde_json::json!({
                 "success": true,
-                "message": format!("Started ripping selected title: {}", display_title)
+                "count": count,
+                "message": "Cancellation signal sent to all active ripping jobs"
             });
             send_http_response(&mut stream, "200 OK", "application/json", &resp_obj.to_string())?;
         }
-    } else if method_str == "POST" && path_str == "/api/cancel" {
-        let flag = get_cancel_flag_handle();
-        flag.store(true, Ordering::SeqCst);
-        if let Ok(mut lock) = get_cancel_tx_handle().lock() {
-            if let Some(tx) = lock.take() {
-                let _ = tx.send(());
-            }
-        }
-        update_appliance_status("Cancelled", "", "", 0.0, "0", "0x");
-        let json_body = "{\"success\": true, \"message\": \"Ripping process cancelled by user.\"}";
-        send_http_response(&mut stream, "200 OK", "application/json", json_body)?;
     } else if method_str == "GET" && path_str == "/api/boxset" {
         let boxsets = crate::queue::list_boxsets();
         let json_body = serde_json::to_string(&boxsets).unwrap_or_else(|_| "[]".to_string());
@@ -1570,5 +1967,60 @@ mod tests {
         assert_eq!(mime_type_for_path("app.css"), "text/css; charset=utf-8");
         assert_eq!(mime_type_for_path("data.json"), "application/json");
         assert_eq!(mime_type_for_path("image.png"), "image/png");
+    }
+
+    #[test]
+    fn test_drive_status_info_new() {
+        let drive = DriveStatusInfo::new("E:\\");
+        assert_eq!(drive.drive, "E:\\");
+        assert_eq!(drive.status, "Idle");
+        assert_eq!(drive.progress, 0.0);
+        assert!(!drive.has_selected_movie);
+    }
+
+    #[test]
+    fn test_drive_pool_initialization_and_status() {
+        let drives = vec!["D:\\".to_string(), "E:\\".to_string(), "F:\\".to_string()];
+        init_drive_pool(&drives);
+
+        let statuses = get_drive_pool_statuses();
+        assert!(statuses.iter().any(|d| d.drive == "D:\\"));
+        assert!(statuses.iter().any(|d| d.drive == "E:\\"));
+        assert!(statuses.iter().any(|d| d.drive == "F:\\"));
+
+        set_drive_disc_detected("E:\\", "THE_MATRIX");
+        let e_status = get_drive_status("E:\\").expect("Drive E status should exist");
+        assert_eq!(e_status.disc, "THE_MATRIX");
+        assert_eq!(e_status.status, "Detected - Search Required");
+
+        set_drive_selected_metadata("E:\\", "The Matrix", false, Some(1999));
+        let e_updated = get_drive_status("E:\\").unwrap();
+        assert_eq!(e_updated.current_title, "The Matrix");
+        assert_eq!(e_updated.year, Some(1999));
+        assert!(e_updated.has_selected_movie);
+        assert!(e_updated.status.contains("Ready"));
+
+        update_drive_status("E:\\", "Ripping", "", "The Matrix", 54.5, "28", "2.1x");
+        let e_ripping = get_drive_status("E:\\").unwrap();
+        assert_eq!(e_ripping.status, "Ripping");
+        assert_eq!(e_ripping.progress, 54.5);
+        assert_eq!(e_ripping.fps, "28");
+        assert_eq!(e_ripping.speed, "2.1x");
+    }
+
+    #[test]
+    fn test_drive_pool_cancellation() {
+        let flag_d = get_drive_cancel_flag("D:\\");
+        let flag_e = get_drive_cancel_flag("E:\\");
+        flag_d.store(false, Ordering::SeqCst);
+        flag_e.store(false, Ordering::SeqCst);
+
+        let cancelled = cancel_drive_rip("D:\\");
+        assert!(cancelled);
+        assert!(flag_d.load(Ordering::SeqCst));
+        assert!(!flag_e.load(Ordering::SeqCst)); // Independent cancellation!
+
+        cancel_all_drive_rips();
+        assert!(flag_e.load(Ordering::SeqCst));
     }
 }

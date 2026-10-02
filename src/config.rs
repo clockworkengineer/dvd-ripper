@@ -47,7 +47,11 @@ pub struct AppConfig {
     pub audio_downmix: Option<String>,
     pub auto_cleanup_days: Option<u64>,
     pub drive_pool: Option<String>,
+    pub auto_rip: Option<bool>,
     pub tonemap: Option<String>,
+    pub ocr: Option<bool>,
+    pub ocr_lang: Option<String>,
+    pub tesseract: Option<String>,
 }
 
 fn try_load_config_file(path: &Path) -> Option<AppConfig> {
@@ -252,8 +256,28 @@ pub fn apply_config_defaults(args: &mut Args, config: &AppConfig) {
     if args.drive_pool.is_none() {
         args.drive_pool = config.drive_pool.clone();
     }
+    if !args.auto_rip {
+        if let Some(auto) = config.auto_rip {
+            args.auto_rip = auto;
+        }
+    }
     if args.tonemap.is_none() {
         args.tonemap = config.tonemap.clone();
+    }
+    if let Some(val) = config.ocr {
+        if !args.ocr {
+            args.ocr = val;
+        }
+    }
+    if let Some(ref val) = config.ocr_lang {
+        if args.ocr_lang == "eng" {
+            args.ocr_lang = val.clone();
+        }
+    }
+    if let Some(ref val) = config.tesseract {
+        if args.tesseract == "tesseract" {
+            args.tesseract = val.clone();
+        }
     }
 }
 
@@ -286,6 +310,9 @@ mod tests {
             out_dir: Some("CustomMedia".to_string()),
             codec: Some("av1".to_string()),
             api_key: Some("test_api_key".to_string()),
+            ocr: Some(true),
+            ocr_lang: Some("fra".to_string()),
+            tesseract: Some("tesseract-ocr".to_string()),
             ..Default::default()
         };
 
@@ -293,5 +320,8 @@ mod tests {
         assert_eq!(args.out_dir, "CustomMedia");
         assert_eq!(args.codec, "av1");
         assert_eq!(args.api_key, Some("test_api_key".to_string()));
+        assert!(args.ocr);
+        assert_eq!(args.ocr_lang, "fra");
+        assert_eq!(args.tesseract, "tesseract-ocr");
     }
 }

@@ -18,7 +18,9 @@ A fast, portable DVD backup utility written in Rust featuring both a **Portable 
 - **Controlled Headless Selection Workflow**: On disc insertion, appliance status transitions to `"Detected - Search Required"` and auto-ripping is paused until the correct movie candidate is searched and selected via CLI flags (`-s`, `--imdb-id`, `--select-index`), terminal prompt, or the Web Dashboard. The **▶ Start Rip** control is safely enabled only when a DVD is present and title selection is complete.
 - **Real-Time Cancellation & Progress Tracking**: Real-time FFmpeg progress streaming (0.0% to 100.0%, FPS, Speed) with instant job cancellation support (`POST /api/cancel` / `⏹ Cancel`).
 - **Smart Home & Webhook Telemetry Notifications**: Native Home Assistant MQTT reporting (`--mqtt-broker`) and HTTP JSON Webhook notifications (`--webhook-url`) compatible with Discord, Slack, Ntfy, and Telegram.
-- **Audio & Subtitle Track Stream Selection**: Multi-language audio track extraction (`--all-audio`, `--audio-lang`) and subtitle stream extraction (`--subtitles`, `--sub-lang`).
+- **Multi-Drive Concurrent Daemon Pool**: Monitor and rip from multiple optical drives concurrently (`--drive-pool "D:,E:,F:"` or `/dev/sr0,/dev/sr1`) with independent per-drive status tracking and optional unattended auto-ripping (`--auto-rip`).
+- **On-the-Fly Subtitle OCR & External .srt Sidecars**: Optical Character Recognition (`--ocr`, `--ocr-lang`, `--tesseract`) converting DVD `dvdsub` bitmap overlays into clean text SubRip (`.srt`) sidecars for universal direct-play across Plex, Jellyfin, and mobile players without server CPU transcoding.
+- **Audio & Subtitle Track Stream Selection**: Multi-language audio track extraction (`--all-audio`, `--audio-lang`), subtitle stream extraction (`--subtitles`, `--sub-lang`), and external `.srt` sidecars (`--sub-external-srt`).
 - **Output File Overwrite Protection**: Automatic duplicate file collision resolution (`--no-overwrite`) appending incremental numeric suffixes (`Title_1.mpg`, `Title_2.mpg`).
 - **Portable Multi-OS Installer**: Built-in installer (`dvd-ripper-installer`) supporting user and system-wide installation, FFmpeg dependency auditing, and system PATH configuration on Windows, Linux, and macOS.
 - **Persistent Ripping History**: Tracks all completed and cancelled backup events in a structured `ripping_history.json` database log.
@@ -184,6 +186,8 @@ Options:
       --hwaccel <HWACCEL>          Hardware acceleration mode for transcoding (copy, v4l2m2m, vaapi, nvenc, qsv) [default: copy]
       --cli                        Force command-line interface mode instead of GUI
       --daemon                     Run as a headless embedded appliance daemon watching optical drive insertion
+      --drives <DRIVES>            Comma-separated optical drive pool paths to monitor and rip concurrently (e.g. "D:\,E:\" or "/dev/sr0,/dev/sr1")
+      --auto-rip                   Automatically identify disc metadata and immediately start ripping without manual web/CLI confirmation
   -s, --search <QUERY>             Search query term to query IMDb/OMDb metadata candidates
       --imdb-id <IMDB_ID>          Select specific IMDb ID directly (e.g. tt0090605)
       --select-index <INDEX>       Select 1-based candidate index directly from search results
@@ -197,6 +201,12 @@ Options:
       --audio-lang <LANG>          Preferred audio track language code (e.g. eng, fre, spa)
       --subtitles                  Extract subtitle tracks from DVD title into output container
       --sub-lang <LANG>            Preferred subtitle track language code (e.g. eng, fre, spa)
+      --sub-external-srt           Save extracted subtitle stream as a standalone external .srt sidecar file
+      --ocr                        Enable on-the-fly OCR to convert DVD bitmap subtitles into clean text .srt subtitles
+      --ocr-lang <LANG>            Target language code for subtitle OCR extraction [default: eng]
+      --tesseract <PATH>           Path to Tesseract OCR executable [default: tesseract]
+      --drive-pool <DRIVES>        Comma-separated list of optical drives for concurrent daemon monitoring (e.g. "D:,E:,F:" or "/dev/sr0,/dev/sr1")
+      --auto-rip                   Automatically start unattended ripping upon disc insertion without manual web confirmation
       --no-overwrite               Do not overwrite existing files (auto-append incremental numeric suffix)
   -h, --help                       Print help information
   -V, --version                    Print version
@@ -212,19 +222,31 @@ Automatically detects all episode titles on the disc, maps all audio tracks and 
 dvd-ripper.exe --cli D: --tv --season 1 --all-episodes --all-audio --subtitles --sub-lang eng
 ```
 
-### 2. Headless Daemon Watcher with Smart Home Telemetry & Webhook Alerts
+### 2. Multi-Drive Concurrent Daemon Pool with Unattended Auto-Rip
+Monitors multiple optical drives concurrently, automatically rip discs upon insertion, and manages drives in parallel:
+```bash
+dvd-ripper.exe --daemon D:\ --drive-pool "D:,E:,F:" --auto-rip
+```
+
+### 3. Rip Movie with On-the-Fly Subtitle OCR (.srt Sidecar)
+Extracts DVD bitmap subtitles and runs Tesseract OCR to produce a universally playable `.srt` text sidecar:
+```bash
+dvd-ripper.exe --cli D: --ocr --ocr-lang eng
+```
+
+### 4. Headless Daemon Watcher with Smart Home Telemetry & Webhook Alerts
 Monitors drive D:\ for disc insertions, awaits movie selection, posts notifications to Discord webhook, and ejects disc when finished:
 ```bash
 dvd-ripper.exe --daemon D:\ --webhook-url https://discord.com/api/webhooks/... --mqtt-broker 192.168.1.50:1883
 ```
 
-### 3. Interactive IMDb Search Selection in Headless CLI Mode
+### 5. Interactive IMDb Search Selection in Headless CLI Mode
 Searches IMDb candidates for "Kill Bill", prompts terminal selection, and rips chosen movie:
 ```bash
 dvd-ripper.exe --cli D: -s "Kill Bill"
 ```
 
-### 4. Transcode TV Episodes with NVENC Hardware Acceleration
+### 6. Transcode TV Episodes with NVENC Hardware Acceleration
 Re-encodes TV episodes using NVIDIA NVENC hardware acceleration:
 ```bash
 dvd-ripper.exe --cli D: --tv --season 1 --all-episodes --transcode --hwaccel nvenc --preset fast
