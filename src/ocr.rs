@@ -155,8 +155,9 @@ pub fn resolve_external_srt_path(video_path: &Path, lang: Option<&str>) -> PathB
 
 /// Checks whether the Tesseract OCR CLI executable is available in PATH or at the specified binary path.
 pub fn is_tesseract_available(tesseract_bin: &str) -> bool {
-    Command::new(tesseract_bin)
-        .arg("--version")
+    let mut cmd = Command::new(tesseract_bin);
+    crate::utils::configure_silent_command(&mut cmd);
+    cmd.arg("--version")
         .output()
         .map(|out| out.status.success())
         .unwrap_or(false)
@@ -189,7 +190,9 @@ impl OcrProcessor for TesseractOcrProcessor {
     }
 
     fn recognize_text(&self, image_path: &Path, lang: &str) -> Result<String> {
-        let output = Command::new(&self.binary_path)
+        let mut cmd = Command::new(&self.binary_path);
+        crate::utils::configure_silent_command(&mut cmd);
+        let output = cmd
             .arg(image_path)
             .arg("stdout")
             .arg("-l")

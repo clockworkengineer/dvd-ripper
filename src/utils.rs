@@ -89,6 +89,17 @@ pub fn get_free_disk_space_bytes(_dir_path: &Path) -> Result<u64> {
     Ok(100 * 1024 * 1024 * 1024)
 }
 
+/// Configures a Command to run silently without popping up a console window on Windows.
+pub fn configure_silent_command(cmd: &mut std::process::Command) -> &mut std::process::Command {
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
+    cmd
+}
+
 /// Verifies that available free disk space on target_dir exceeds min_free_gb threshold.
 pub fn check_disk_space_guard(target_dir: &Path, min_free_gb: u64) -> Result<u64> {
     if min_free_gb == 0 {
@@ -539,6 +550,7 @@ pub fn run_post_processing_hook(
 
     let year_str = year.map(|y| y.to_string()).unwrap_or_default();
     let mut cmd = std::process::Command::new(script_path);
+    configure_silent_command(&mut cmd);
     cmd.env("DVD_OUTPUT_PATH", output_path.to_string_lossy().to_string())
        .env("DVD_TITLE", title)
        .env("DVD_MEDIA_TYPE", media_type)

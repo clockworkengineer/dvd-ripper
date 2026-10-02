@@ -341,7 +341,9 @@ pub fn eject_disc(root_path: &str) -> bool {
             "(New-Object -ComObject Shell.Application).NameSpace(17).ParseName('{}:').InvokeVerb('Eject')",
             drive_letter
         );
-        Command::new("powershell").args(["-NoProfile", "-Command", &ps_cmd]).output().map_or(false, |out| out.status.success())
+        let mut cmd = Command::new("powershell");
+        crate::utils::configure_silent_command(&mut cmd);
+        cmd.args(["-NoProfile", "-Command", &ps_cmd]).output().map_or(false, |out| out.status.success())
     }
     #[cfg(not(target_os = "windows"))]
     {
@@ -386,7 +388,9 @@ pub fn close_disc_tray(root_path: &str) -> bool {
             "(New-Object -ComObject Shell.Application).NameSpace(17).ParseName('{}:').InvokeVerb('Eject')",
             drive_letter
         );
-        Command::new("powershell").args(["-NoProfile", "-Command", &ps_cmd]).output().map_or(false, |out| out.status.success())
+        let mut cmd = Command::new("powershell");
+        crate::utils::configure_silent_command(&mut cmd);
+        cmd.args(["-NoProfile", "-Command", &ps_cmd]).output().map_or(false, |out| out.status.success())
     }
     #[cfg(not(target_os = "windows"))]
     {
@@ -565,6 +569,7 @@ pub fn run_drive_benchmark(
     let norm_path = normalize_dvd_path(&dvd_path.to_string_lossy());
 
     let mut cmd = Command::new(ffmpeg_path);
+    crate::utils::configure_silent_command(&mut cmd);
     cmd.arg("-y")
        .arg("-nostdin")
        .arg("-f").arg("dvdvideo")

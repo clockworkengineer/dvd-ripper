@@ -167,7 +167,9 @@ pub fn probe_dvd_titles_fast(
     dvd_path: &Path,
 ) -> Vec<DvdTitleInfo> {
     let mut titles = Vec::new();
-    let output = Command::new(ffmpeg_path)
+    let mut cmd = Command::new(ffmpeg_path);
+    crate::utils::configure_silent_command(&mut cmd);
+    let output = cmd
         .stdin(std::process::Stdio::null())
         .arg("-analyzeduration")
         .arg("500000")
@@ -597,7 +599,9 @@ pub fn probe_dvd_titles(
                 break;
             }
         }
-        let output = Command::new(ffmpeg_path)
+        let mut cmd = Command::new(ffmpeg_path);
+        crate::utils::configure_silent_command(&mut cmd);
+        let output = cmd
             .stdin(std::process::Stdio::null())
             .arg("-analyzeduration")
             .arg("500000")
@@ -754,6 +758,7 @@ pub fn build_ffmpeg_command(
     resolved_title: u32,
 ) -> Command {
     let mut cmd = Command::new(&args.ffmpeg);
+    crate::utils::configure_silent_command(&mut cmd);
 
     cmd.arg("-f").arg("dvdvideo");
 
