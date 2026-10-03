@@ -573,6 +573,7 @@ impl Args {
 }
 
 /// Interface Segregation (ISP/SOLID): Focused configuration slice for video/audio transcoding.
+#[allow(dead_code)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TranscodeConfig {
     pub transcode: bool,
@@ -603,6 +604,7 @@ impl From<&Args> for TranscodeConfig {
 }
 
 /// Interface Segregation (ISP/SOLID): Focused configuration slice for audio and subtitle streams.
+#[allow(dead_code)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AudioSubtitleConfig {
     pub all_audio: bool,
@@ -641,6 +643,7 @@ impl From<&Args> for AudioSubtitleConfig {
 }
 
 /// Interface Segregation (ISP/SOLID): Focused configuration slice for storage, output paths, and safeguards.
+#[allow(dead_code)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StorageConfig {
     pub out_dir: String,
@@ -661,6 +664,7 @@ impl From<&Args> for StorageConfig {
 }
 
 /// Interface Segregation (ISP/SOLID): Focused configuration slice for external notification integrations.
+#[allow(dead_code)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct IntegrationConfig {
     pub plex_url: Option<String>,
@@ -691,6 +695,7 @@ impl From<&Args> for IntegrationConfig {
 }
 
 /// Interface Segregation (ISP/SOLID): Focused configuration slice for TV series batch ripping.
+#[allow(dead_code)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TvModeConfig {
     pub tv: bool,

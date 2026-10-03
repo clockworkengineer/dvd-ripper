@@ -48,6 +48,45 @@ impl AppInitializer {
     }
 }
 
+use std::sync::Arc;
+use crate::domain::ports::dialogs::FileDialogService;
+use crate::domain::ports::metadata::MetadataProvider;
+use crate::domain::ports::notification::Notifier;
+use crate::domain::ports::optical_drive::DriveDetector;
+use crate::domain::ports::storage::{DiskSpaceGuard, HistoryRepository};
+use crate::domain::ports::transcoder::Transcoder;
+
+/// Dependency Inversion (DIP/SOLID): Composition Root service container encapsulating production dependencies.
+pub struct AppContainer {
+    pub transcoder: Arc<dyn Transcoder>,
+    pub metadata_provider: Arc<dyn MetadataProvider>,
+    pub drive_detector: Arc<dyn DriveDetector>,
+    pub notifier: Arc<dyn Notifier>,
+    pub history_repo: Arc<dyn HistoryRepository>,
+    pub disk_guard: Arc<dyn DiskSpaceGuard>,
+    pub dialog_service: Arc<dyn FileDialogService>,
+}
+
+impl AppContainer {
+    pub fn build_production(ffmpeg_bin: &str) -> Self {
+        let notifier = Arc::new(crate::infrastructure::notifications::CompositeNotifier::new(vec![
+            Box::new(crate::infrastructure::notifications::WebhookNotifier::new("", None)),
+            Box::new(crate::infrastructure::notifications::MqttNotifier::new("localhost:1883", "dvd-ripper")),
+            Box::new(crate::infrastructure::notifications::MediaServerNotifier::new()),
+        ]));
+
+        Self {
+            transcoder: Arc::new(crate::infrastructure::ffmpeg::FfmpegTranscoder::new(ffmpeg_bin)),
+            metadata_provider: Arc::new(crate::infrastructure::metadata::OmdbMetadataProvider::new(None)),
+            drive_detector: Arc::new(crate::infrastructure::optical::SystemDriveDetector::new()),
+            notifier,
+            history_repo: Arc::new(crate::infrastructure::storage::JsonHistoryRepository::new()),
+            disk_guard: Arc::new(crate::infrastructure::storage::SystemDiskSpaceGuard::new()),
+            dialog_service: Arc::new(crate::infrastructure::system::NativeFileDialogService::new()),
+        }
+    }
+}
+
 /// Dependency Inversion (DIP/SOLID): High-level trait abstraction for DVD path normalization.
 #[allow(dead_code)]
 pub trait PathResolver {
@@ -255,8 +294,9 @@ fn main() -> Result<()> {
 
     // CLI mode execution path
     let mut args = Args::parse();
-    let cfg = config::load_config(args.config.as_deref());
-    config::apply_config_defaults(&mut args, &cfg);
+    let app_initializer = AppInitializer;
+    let _cfg = app_initializer.bootstrap(&mut args);
+    let _container = AppContainer::build_production(&args.ffmpeg);
 
     if args.daemon {
         return run_daemon(args, 10);
