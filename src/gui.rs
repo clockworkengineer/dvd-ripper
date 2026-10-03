@@ -1065,7 +1065,16 @@ impl eframe::App for DvdRipperApp {
                         }
                     });
 
-                    ui.add_space(6.0);
+                    ui.horizontal(|ui| {
+                        ui.add_space(20.0);
+                        ui.label(
+                            egui::RichText::new("ℹ Films are saved to /Films and TV Shows to /TV within this directory")
+                                .size(11.0)
+                                .color(egui::Color32::from_rgb(140, 155, 175)),
+                        );
+                    });
+
+                    ui.add_space(4.0);
 
                     // Poster + Info layout
                     ui.horizontal(|ui| {

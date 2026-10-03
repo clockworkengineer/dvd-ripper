@@ -24,17 +24,71 @@ pub fn format_episode_filename(show_name: &str, season: u32, episode: u32) -> St
 }
 
 
+/// Helper: Checks if the path component is named "films" (case-insensitive)
+fn is_named_films(path: &Path) -> bool {
+    path.file_name()
+        .map(|s| s.to_string_lossy().eq_ignore_ascii_case("films"))
+        .unwrap_or(false)
+}
+
+/// Helper: Checks if the path component is named "tv" or "tv shows" (case-insensitive)
+fn is_named_tv(path: &Path) -> bool {
+    path.file_name()
+        .map(|s| {
+            let lossy = s.to_string_lossy();
+            lossy.eq_ignore_ascii_case("tv") || lossy.eq_ignore_ascii_case("tv shows")
+        })
+        .unwrap_or(false)
+}
+
+/// Resolves the root destination directory for Film/Movie rips.
+/// Defaults to `<out_dir>/Films`. If `out_dir` already ends in `Films`, it is kept as-is.
+/// If `out_dir` ends in `TV`, its parent sibling `/Films` is used.
+pub fn resolve_films_root(out_dir: &str) -> PathBuf {
+    let trimmed = out_dir.trim().trim_end_matches(['/', '\\']);
+    if trimmed.is_empty() || trimmed == "." {
+        return PathBuf::from("Films");
+    }
+    let p = Path::new(trimmed);
+    if is_named_films(p) {
+        p.to_path_buf()
+    } else if is_named_tv(p) {
+        match p.parent() {
+            Some(parent) if !parent.as_os_str().is_empty() => parent.join("Films"),
+            _ => PathBuf::from("Films"),
+        }
+    } else {
+        p.join("Films")
+    }
+}
+
+/// Resolves the root destination directory for TV series rips.
+/// Defaults to `<out_dir>/TV`. If `out_dir` already ends in `TV`, it is kept as-is.
+/// If `out_dir` ends in `Films`, its parent sibling `/TV` is used.
+pub fn resolve_tv_root(out_dir: &str) -> PathBuf {
+    let trimmed = out_dir.trim().trim_end_matches(['/', '\\']);
+    if trimmed.is_empty() || trimmed == "." {
+        return PathBuf::from("TV");
+    }
+    let p = Path::new(trimmed);
+    if is_named_tv(p) {
+        p.to_path_buf()
+    } else if is_named_films(p) {
+        match p.parent() {
+            Some(parent) if !parent.as_os_str().is_empty() => parent.join("TV"),
+            _ => PathBuf::from("TV"),
+        }
+    } else {
+        p.join("TV")
+    }
+}
+
 /// Helper: Ensures parent directories exist and returns absolute path with optional collision incrementing.
-fn ensure_absolute_parent_dir(base_dir: &str, path: PathBuf, no_overwrite: bool) -> Result<PathBuf> {
+fn ensure_absolute_parent_dir(path: PathBuf, no_overwrite: bool) -> Result<PathBuf> {
     let mut absolute_output = if path.is_absolute() {
         path
     } else {
-        let target = PathBuf::from(base_dir).join(path);
-        if target.is_absolute() {
-            target
-        } else {
-            std::env::current_dir()?.join(target)
-        }
+        std::env::current_dir()?.join(path)
     };
 
     if no_overwrite && absolute_output.exists() {
@@ -97,17 +151,26 @@ pub fn resolve_output_path(
     } else {
         "mpg"
     };
-    let rel_or_abs_file = if let Some(name) = film_name {
-        let segment = format_title_folder_name(name, film_year);
-        PathBuf::from(format!("{}/{}.{}", segment, segment, extension))
+
+    let films_root = resolve_films_root(&args.out_dir);
+
+    let target_candidate = if let Some(name) = film_name {
+        let clean_name = crate::utils::sanitize_filename(name);
+        let segment = format_title_folder_name(&clean_name, film_year);
+        films_root.join(&segment).join(format!("{}.{}", segment, extension))
     } else if let Some(ref out) = args.output {
-        PathBuf::from(out)
+        let out_path = PathBuf::from(out);
+        if out_path.is_absolute() {
+            out_path
+        } else {
+            films_root.join(out_path)
+        }
     } else {
-        PathBuf::from(format!("output.{}", extension))
+        films_root.join(format!("output.{}", extension))
     };
 
-    let target_path = ensure_absolute_parent_dir(&args.out_dir, rel_or_abs_file, args.no_overwrite)?;
-    crate::utils::ensure_path_contained(Path::new(&args.out_dir), &target_path)
+    let target_path = ensure_absolute_parent_dir(target_candidate, args.no_overwrite)?;
+    crate::utils::ensure_path_contained(&films_root, &target_path)
 }
 
 /// Resolves the absolute output file path for a TV series episode (e.g. TV/The Office (2005)/Season 01/The Office - S01E01.mpg).
@@ -126,23 +189,20 @@ pub fn resolve_tv_output_path(
         "mpg"
     };
     let name = show_name.unwrap_or("Unknown Show");
-    let show_folder = format_title_folder_name(name, show_year);
+    let clean_show = crate::utils::sanitize_filename(name);
+    let show_folder = format_title_folder_name(&clean_show, show_year);
     let season_folder = format!("Season {:02}", season);
-    let filename = format!("{}.{}", format_episode_name(name, season, episode_num), extension);
+    let filename = format!("{}.{}", format_episode_name(&clean_show, season, episode_num), extension);
 
-    let root_dir = if args.out_dir == "Films" {
-        "TV"
-    } else {
-        &args.out_dir
-    };
+    let tv_root = resolve_tv_root(&args.out_dir);
 
-    let rel_file = PathBuf::from(root_dir)
+    let target_candidate = tv_root
         .join(show_folder)
         .join(season_folder)
         .join(filename);
 
-    let target_path = ensure_absolute_parent_dir(root_dir, rel_file, args.no_overwrite)?;
-    crate::utils::ensure_path_contained(Path::new(root_dir), &target_path)
+    let target_path = ensure_absolute_parent_dir(target_candidate, args.no_overwrite)?;
+    crate::utils::ensure_path_contained(&tv_root, &target_path)
 }
 
 /// Structure representing a detected TV episode title on a DVD disc.
@@ -1496,7 +1556,8 @@ mod tests {
         let temp = TestTempDir::new("no_overwrite_test");
         let out_dir_str = temp.0.to_string_lossy().to_string();
 
-        let dummy_file = temp.0.join("output.mp4");
+        let dummy_file = temp.0.join("Films").join("output.mp4");
+        std::fs::create_dir_all(dummy_file.parent().unwrap()).unwrap();
         std::fs::write(&dummy_file, b"existing").unwrap();
 
         let args = Args {
@@ -1507,6 +1568,37 @@ mod tests {
 
         let path = resolve_output_path(&args, None, None).unwrap();
         assert!(path.to_string_lossy().contains("output_1.mp4"));
+    }
+
+    #[test]
+    fn test_resolve_films_and_tv_root_defaults() {
+        let films = resolve_films_root("Films");
+        let tv = resolve_tv_root("Films");
+        assert_eq!(films, PathBuf::from("Films"));
+        assert_eq!(tv, PathBuf::from("TV"));
+
+        let films_tv = resolve_films_root("TV");
+        let tv_tv = resolve_tv_root("TV");
+        assert_eq!(films_tv, PathBuf::from("Films"));
+        assert_eq!(tv_tv, PathBuf::from("TV"));
+    }
+
+    #[test]
+    fn test_resolve_films_and_tv_root_nested() {
+        let base = PathBuf::from("C:\\Media\\DVD Rips");
+        let base_str = base.to_string_lossy();
+        assert_eq!(resolve_films_root(&base_str), base.join("Films"));
+        assert_eq!(resolve_tv_root(&base_str), base.join("TV"));
+
+        let base_films = base.join("Films");
+        let base_films_str = base_films.to_string_lossy();
+        assert_eq!(resolve_films_root(&base_films_str), base.join("Films"));
+        assert_eq!(resolve_tv_root(&base_films_str), base.join("TV"));
+
+        let base_tv = base.join("TV");
+        let base_tv_str = base_tv.to_string_lossy();
+        assert_eq!(resolve_films_root(&base_tv_str), base.join("Films"));
+        assert_eq!(resolve_tv_root(&base_tv_str), base.join("TV"));
     }
 
     #[test]
