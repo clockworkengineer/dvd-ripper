@@ -1,11 +1,10 @@
 #[cfg(test)]
 mod tests {
     use std::path::{Path, PathBuf};
-    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::atomic::AtomicBool;
     use std::sync::{Arc, Mutex};
     use anyhow::{anyhow, Result};
 
-    use crate::application::drive_pool::DrivePool;
     use crate::application::probe_disc::ProbeDiscUseCase;
     use crate::application::rip_single_title::{RipSingleTitleRequest, RipSingleTitleUseCase};
     use crate::application::rip_tv_batch::{RipTvBatchRequest, RipTvBatchUseCase};
