@@ -309,6 +309,14 @@ impl DvdRipperApp {
 
         std::thread::spawn(move || {
             let dvd_path = normalize_dvd_path(&drive);
+            let (best_title, best_dur) = crate::ffmpeg::detect_best_title_info("", &dvd_path, None);
+            if best_title > 0 {
+                let _ = tx.send(ProgressEvent::DetectedTitle {
+                    title_num: best_title,
+                    duration_secs: best_dur.unwrap_or(0.0),
+                });
+            }
+
             let search_term = if let Some(q) = query_override {
                 q
             } else if let Some(label) = get_volume_label(&dvd_path.to_string_lossy()) {
@@ -705,11 +713,32 @@ impl DvdRipperApp {
                     self.detect_status = msg.clone();
                     self.status_message = format!("Benchmark complete: {:.2} MB/s", report.read_speed_mbps);
                 }
+                ProgressEvent::DetectedTitle { title_num, duration_secs } => {
+                    self.title_number = title_num;
+                    if duration_secs > 0.0 {
+                        let mins = (duration_secs / 60.0).round() as u32;
+                        let h = mins / 60;
+                        let m = mins % 60;
+                        let dur_str = if h > 0 {
+                            format!("{}h {}m", h, m)
+                        } else {
+                            format!("{}m", m)
+                        };
+                        self.detect_status = format!("Auto-selected Title #{} ({})", title_num, dur_str);
+                    } else {
+                        self.detect_status = format!("Auto-selected Title #{}", title_num);
+                    }
+                }
                 ProgressEvent::Progress { percent, fps, speed } => {
                     self.progress_percent = (percent as f32) / 100.0;
                     self.fps = fps;
                     self.speed = speed;
-                    self.status_message = format!("Ripping in progress... ({:.1}%)", percent);
+                    let pct_formatted = if percent < 1.0 {
+                        format!("{:.2}%", percent)
+                    } else {
+                        format!("{:.1}%", percent)
+                    };
+                    self.status_message = format!("Ripping in progress... ({})", pct_formatted);
                 }
                 ProgressEvent::Success(path) => {
                     self.is_ripping = false;
@@ -1199,9 +1228,13 @@ impl eframe::App for DvdRipperApp {
                 let pct_val = (self.progress_percent * 100.0).min(100.0).max(0.0);
                 let progress_text = if self.is_ripping {
                     if self.progress_percent > 0.0 {
-                        format!("{:.1}%", pct_val)
+                        if pct_val < 1.0 {
+                            format!("{:.2}%", pct_val)
+                        } else {
+                            format!("{:.1}%", pct_val)
+                        }
                     } else {
-                        "Ripping... (0.0%)".to_string()
+                        "Ripping... (0.00%)".to_string()
                     }
                 } else if self.progress_percent >= 1.0 {
                     "100%".to_string()

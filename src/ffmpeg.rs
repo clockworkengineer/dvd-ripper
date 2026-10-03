@@ -581,12 +581,110 @@ impl MediaProcessRunner for SystemMediaProcessRunner {
     }
 }
 
+/// Ultra-fast DVD title probing by directly reading DVD-Video IFO structures (VIDEO_TS.IFO and VTS_xx_0.IFO).
+/// Returns titles and exact durations in <10ms without launching FFmpeg subprocesses.
+pub fn probe_dvd_titles_ifo(dvd_path: &Path) -> Option<Vec<DvdTitleInfo>> {
+    let candidates = [
+        dvd_path.join("VIDEO_TS").join("VIDEO_TS.IFO"),
+        dvd_path.join("video_ts").join("video_ts.ifo"),
+        dvd_path.join("VIDEO_TS").join("video_ts.ifo"),
+        dvd_path.join("video_ts").join("VIDEO_TS.IFO"),
+        dvd_path.join("VIDEO_TS.IFO"),
+        dvd_path.join("video_ts.ifo"),
+    ];
+
+    let ifo_path = candidates.into_iter().find(|p| p.exists())?;
+    let data = std::fs::read(&ifo_path).ok()?;
+    if data.len() < 0xC8 {
+        return None;
+    }
+
+    let sector_offset = u32::from_be_bytes([data[0xc4], data[0xc5], data[0xc6], data[0xc7]]);
+    let byte_offset = (sector_offset as usize) * 2048;
+    if byte_offset + 8 > data.len() {
+        return None;
+    }
+
+    let nr_titles = u16::from_be_bytes([data[byte_offset], data[byte_offset + 1]]) as usize;
+    if nr_titles == 0 || byte_offset + 8 + nr_titles * 12 > data.len() {
+        return None;
+    }
+
+    let ifo_dir = ifo_path.parent().unwrap_or(dvd_path);
+    let mut titles = Vec::with_capacity(nr_titles);
+
+    for t in 0..nr_titles {
+        let entry_off = byte_offset + 8 + t * 12;
+        let vtsn = data[entry_off + 6];
+        let vts_ttn = data[entry_off + 7];
+
+        let mut duration_secs = 0.0;
+        let vts_candidates = [
+            ifo_dir.join(format!("VTS_{:02}_0.IFO", vtsn)),
+            ifo_dir.join(format!("vts_{:02}_0.ifo", vtsn)),
+            ifo_dir.join(format!("VTS_{:02}_0.ifo", vtsn)),
+        ];
+
+        if let Some(vts_path) = vts_candidates.into_iter().find(|p| p.exists()) {
+            if let Ok(vts_data) = std::fs::read(&vts_path) {
+                if vts_data.len() > 0xCC + 4 {
+                    let pgciti_sec = u32::from_be_bytes([
+                        vts_data[0xCC],
+                        vts_data[0xCD],
+                        vts_data[0xCE],
+                        vts_data[0xCF],
+                    ]);
+                    let pgciti_off = (pgciti_sec as usize) * 2048;
+                    if vts_ttn > 0 && pgciti_off + 8 + (vts_ttn as usize) * 8 <= vts_data.len() {
+                        let pgc_entry_off = pgciti_off + 8 + (vts_ttn as usize - 1) * 8;
+                        let pgc_start_rel = u32::from_be_bytes([
+                            vts_data[pgc_entry_off + 4],
+                            vts_data[pgc_entry_off + 5],
+                            vts_data[pgc_entry_off + 6],
+                            vts_data[pgc_entry_off + 7],
+                        ]);
+                        let pgc_off = pgciti_off + (pgc_start_rel as usize);
+                        if pgc_off + 8 <= vts_data.len() {
+                            let h_bcd = vts_data[pgc_off + 4];
+                            let m_bcd = vts_data[pgc_off + 5];
+                            let s_bcd = vts_data[pgc_off + 6];
+                            let h = (((h_bcd >> 4) * 10) + (h_bcd & 0x0F)) as f64;
+                            let m = (((m_bcd >> 4) * 10) + (m_bcd & 0x0F)) as f64;
+                            let s = (((s_bcd >> 4) * 10) + (s_bcd & 0x0F)) as f64;
+                            duration_secs = h * 3600.0 + m * 60.0 + s;
+                        }
+                    }
+                }
+            }
+        }
+
+        titles.push(DvdTitleInfo {
+            title_num: (t + 1) as u32,
+            duration_secs,
+        });
+    }
+
+    if titles.is_empty() {
+        None
+    } else {
+        Some(titles)
+    }
+}
+
 /// Probes the duration in seconds of a specific DVD title.
 pub fn probe_single_title_duration(
     ffmpeg_path: &str,
     dvd_path: &Path,
     title_num: u32,
 ) -> Option<f64> {
+    if let Some(titles) = probe_dvd_titles_ifo(dvd_path) {
+        if let Some(t) = titles.into_iter().find(|item| item.title_num == title_num) {
+            if t.duration_secs > 0.0 {
+                return Some(t.duration_secs);
+            }
+        }
+    }
+
     let mut cmd = Command::new(ffmpeg_path);
     crate::utils::configure_silent_command(&mut cmd);
     let output = cmd
@@ -621,6 +719,12 @@ pub fn probe_dvd_titles(
     dvd_path: &Path,
     cancel_flag: Option<&std::sync::atomic::AtomicBool>,
 ) -> Vec<DvdTitleInfo> {
+    if let Some(ifo_titles) = probe_dvd_titles_ifo(dvd_path) {
+        if ifo_titles.iter().any(|t| t.duration_secs >= 60.0) {
+            return ifo_titles;
+        }
+    }
+
     let fast_results = probe_dvd_titles_fast(ffmpeg_path, dvd_path);
     if fast_results.iter().any(|t| t.duration_secs >= 300.0) {
         return fast_results;
@@ -948,6 +1052,10 @@ pub enum ProgressEvent {
     SearchResults(Vec<crate::imdb::SearchResultItem>),
     TvEpisodesDetected(Vec<TvEpisodeInfo>),
     BenchmarkFinished(crate::dvd::DriveBenchmarkReport),
+    DetectedTitle {
+        title_num: u32,
+        duration_secs: f64,
+    },
     Progress {
         percent: f64,
         fps: String,
@@ -1704,5 +1812,11 @@ mod tests {
             ..Default::default()
         };
         assert!(is_transcode_enabled(&explicit_transcode_args));
+    }
+
+    #[test]
+    fn test_probe_dvd_titles_ifo_nonexistent() {
+        let result = probe_dvd_titles_ifo(Path::new("Z:\\nonexistent\\dvd"));
+        assert!(result.is_none());
     }
 }
