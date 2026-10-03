@@ -9,6 +9,7 @@ mod api;
 mod cli;
 mod config;
 mod daemon;
+pub mod domain;
 mod dvd;
 mod ffmpeg;
 #[cfg(feature = "gui")]

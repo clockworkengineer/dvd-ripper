@@ -154,12 +154,8 @@ pub struct TvEpisodeInfo {
     pub formatted_name: String,
 }
 
-/// Structure representing basic probed information for a DVD title track.
-#[derive(Debug, Clone)]
-pub struct DvdTitleInfo {
-    pub title_num: u32,
-    pub duration_secs: f64,
-}
+/// Structure representing basic probed information for a DVD title track (re-exported from domain).
+pub use crate::domain::entities::disc::DvdTitleInfo;
 
 /// Attempts single-pass fast probing of all DVD title tracks on disc in one process call.
 pub fn probe_dvd_titles_fast(
@@ -843,59 +839,8 @@ pub fn detect_tv_episodes(
     episodes
 }
 
-/// Probes the DVD drive to find the title number and probed duration best matching expected_runtime_secs, or with the longest duration.
-pub fn rank_best_title_from_slice(
-    titles: &[DvdTitleInfo],
-    expected_runtime_secs: Option<f64>,
-) -> (u32, Option<f64>) {
-    if titles.is_empty() {
-        return (1, None);
-    }
-
-    // Only consider feature titles >= 5 minutes (300 seconds) if any exist
-    let feature_titles: Vec<&DvdTitleInfo> = if titles.iter().any(|t| t.duration_secs >= 300.0) {
-        titles.iter().filter(|t| t.duration_secs >= 300.0).collect()
-    } else {
-        titles.iter().collect()
-    };
-
-    if let Some(target) = expected_runtime_secs {
-        let mut best_title = feature_titles[0].title_num;
-        let mut best_duration = Some(feature_titles[0].duration_secs);
-        let mut best_diff = f64::MAX;
-
-        for t in &feature_titles {
-            // Account for standard 24fps NTSC and 25fps PAL 4% speedup (24.0 / 25.0 = 0.96)
-            let diff_ntsc = (t.duration_secs - target).abs();
-            let diff_pal = (t.duration_secs - target * (24.0 / 25.0)).abs();
-            let diff = diff_ntsc.min(diff_pal);
-
-            // If diff is significantly better (>15s), or close (within 15s) but has a lower title number
-            // (on copy-protected discs, the genuine primary authoring title is the lowest numbered title):
-            if diff < best_diff - 15.0 || ((diff - best_diff).abs() <= 15.0 && t.title_num < best_title) {
-                best_diff = diff;
-                best_title = t.title_num;
-                best_duration = Some(t.duration_secs);
-            }
-        }
-        (best_title, best_duration)
-    } else {
-        // Find maximum duration
-        let max_duration = feature_titles.iter().map(|t| t.duration_secs).fold(0.0f64, f64::max);
-        // On copy-protected discs with playlist obfuscation / bad-sector padded traps,
-        // multiple titles share the main feature duration within 3%.
-        // The lowest numbered title in this cluster is the genuine primary feature track.
-        let threshold = max_duration * 0.97;
-        let mut cluster: Vec<&DvdTitleInfo> = feature_titles
-            .into_iter()
-            .filter(|t| t.duration_secs >= threshold)
-            .collect();
-        cluster.sort_by_key(|t| t.title_num);
-
-        let best = cluster[0];
-        (best.title_num, Some(best.duration_secs))
-    }
-}
+/// Probes the DVD drive to find the title number and probed duration best matching expected_runtime_secs, or with the longest duration (re-exported from domain).
+pub use crate::domain::heuristics::cluster_detector::rank_best_title_from_slice;
 
 /// Probes the DVD drive to find the title number and probed duration best matching expected_runtime_secs, or with the longest duration.
 pub fn detect_best_title_info(

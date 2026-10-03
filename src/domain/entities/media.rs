@@ -1,0 +1,33 @@
+use serde::{Deserialize, Serialize};
+
+/// Type of media represented on disc.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum MediaType {
+    Movie,
+    TvSeries,
+}
+
+/// Unified Film / TV metadata entity.
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
+pub struct FilmMetadata {
+    pub title: String,
+    pub year: Option<u32>,
+    pub runtime_secs: Option<f64>,
+    pub plot: Option<String>,
+    pub poster_url: Option<String>,
+    pub poster_bytes: Option<Vec<u8>>,
+    pub is_series: bool,
+    pub genre: Option<String>,
+    pub director: Option<String>,
+    pub actors: Option<String>,
+    pub rating: Option<String>,
+}
+
+/// Lightweight candidate result from online search queries.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct SearchCandidate {
+    pub title: String,
+    pub year: Option<u32>,
+    pub imdb_id: String,
+    pub type_field: String,
+}
