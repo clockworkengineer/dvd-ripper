@@ -27,12 +27,12 @@ pub struct Chapter {
 }
 
 /// Comprehensive copy protection diagnostic report.
-#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
 pub struct DiscCopyProtectionReport {
-    pub is_css_encrypted: bool,
-    pub has_arccos_screenpass: bool,
-    pub virtual_title_count: usize,
-    pub virtual_size_bytes: u64,
+    pub has_css_indicators: bool,
+    pub vob_count: usize,
+    pub ifo_count: usize,
+    pub total_bytes: u64,
     pub diagnostic_notes: Vec<String>,
 }
 

@@ -1,4 +1,3 @@
-use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
 
 /// Execution status of an optical rip job.

@@ -16,6 +16,7 @@ mod ffmpeg;
 mod gui;
 mod history;
 mod imdb;
+pub mod infrastructure;
 mod mqtt;
 mod ocr;
 mod queue;
