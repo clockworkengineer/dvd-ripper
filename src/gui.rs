@@ -585,7 +585,11 @@ impl DvdRipperApp {
                             Some(cancel_flag.clone()),
                             false,
                         ) {
-                            let _ = tx.send(ProgressEvent::Error(format!("Ripping error: {}", e)));
+                            if cancel_flag.load(Ordering::SeqCst) {
+                                let _ = tx.send(ProgressEvent::Error("Ripping process cancelled by user.".to_string()));
+                            } else {
+                                let _ = tx.send(ProgressEvent::Error(format!("Ripping error: {}", e)));
+                            }
                         } else {
                             let _ = crate::ocr::process_subtitle_ocr_sidecar(&args, &abs_out, &ep_name);
                         }
@@ -619,7 +623,11 @@ impl DvdRipperApp {
                             Some(cancel_flag.clone()),
                             false,
                         ) {
-                            let _ = tx.send(ProgressEvent::Error(format!("Ripping error: {}", e)));
+                            if cancel_flag.load(Ordering::SeqCst) {
+                                let _ = tx.send(ProgressEvent::Error("Ripping process cancelled by user.".to_string()));
+                            } else {
+                                let _ = tx.send(ProgressEvent::Error(format!("Ripping error: {}", e)));
+                            }
                         } else {
                             let _ = crate::ocr::process_subtitle_ocr_sidecar(&args, &abs_out, &display_title);
                         }
@@ -632,7 +640,7 @@ impl DvdRipperApp {
         });
     }
 
-    fn cancel_ripping(&mut self) {
+    pub fn cancel_ripping(&mut self) {
         if let Some(flag) = self.cancel_flag.take() {
             flag.store(true, Ordering::SeqCst);
         }
@@ -641,6 +649,9 @@ impl DvdRipperApp {
         }
         self.is_ripping = false;
         self.detecting = false;
+        self.progress_percent = 0.0;
+        self.fps = "N/A".to_string();
+        self.speed = "N/A".to_string();
         self.status_message = "Ripping process cancelled by user.".to_string();
 
         let title = self.film_name_opt().unwrap_or_else(|| "Unknown DVD Rip".to_string());
@@ -651,6 +662,22 @@ impl DvdRipperApp {
     }
 
     fn poll_events(&mut self, ctx: &egui::Context) {
+        self.process_events();
+
+        if self.poster_texture.is_none() {
+            if let Some(ref bytes) = self.raw_poster_bytes {
+                if let Ok(image) = image::load_from_memory(bytes) {
+                    let rgba = image.to_rgba8();
+                    let size = [rgba.width() as _, rgba.height() as _];
+                    let pixels = rgba.into_raw();
+                    let color_image = egui::ColorImage::from_rgba_unmultiplied(size, &pixels);
+                    self.poster_texture = Some(ctx.load_texture("movie_poster", color_image, Default::default()));
+                }
+            }
+        }
+    }
+
+    pub fn process_events(&mut self) {
         while let Ok(event) = self.event_rx.try_recv() {
             match event {
                 ProgressEvent::Log(line) => {
@@ -730,6 +757,9 @@ impl DvdRipperApp {
                     }
                 }
                 ProgressEvent::Progress { percent, fps, speed } => {
+                    if !self.is_ripping {
+                        continue;
+                    }
                     self.progress_percent = (percent as f32) / 100.0;
                     self.fps = fps;
                     self.speed = speed;
@@ -741,6 +771,9 @@ impl DvdRipperApp {
                     self.status_message = format!("Ripping in progress... ({})", pct_formatted);
                 }
                 ProgressEvent::Success(path) => {
+                    if !self.is_ripping {
+                        continue;
+                    }
                     self.is_ripping = false;
                     self.progress_percent = 1.0;
                     self.status_message = format!("Success! Saved to {}", path.display());
@@ -767,21 +800,17 @@ impl DvdRipperApp {
                 ProgressEvent::Error(msg) => {
                     self.is_ripping = false;
                     self.detecting = false;
-                    self.status_message = format!("Stopped: {}", msg);
                     self.cancel_tx = None;
                     self.cancel_flag = None;
-                }
-            }
-        }
+                    self.progress_percent = 0.0;
+                    self.fps = "N/A".to_string();
+                    self.speed = "N/A".to_string();
 
-        if self.poster_texture.is_none() {
-            if let Some(ref bytes) = self.raw_poster_bytes {
-                if let Ok(img) = image::load_from_memory(bytes) {
-                    let size = [img.width() as usize, img.height() as usize];
-                    let rgba = img.to_rgba8();
-                    let color_img = egui::ColorImage::from_rgba_unmultiplied(size, rgba.as_flat_samples().as_slice());
-                    let texture = ctx.load_texture("poster_thumb", color_img, Default::default());
-                    self.poster_texture = Some(texture);
+                    if msg.contains("cancelled by user") || msg.contains("Ripping cancelled") {
+                        self.status_message = "Ripping process cancelled by user.".to_string();
+                    } else {
+                        self.status_message = format!("Stopped: {}", msg);
+                    }
                 }
             }
         }
@@ -1237,7 +1266,11 @@ impl eframe::App for DvdRipperApp {
                         "Ripping... (0.00%)".to_string()
                     }
                 } else if self.progress_percent >= 1.0 {
-                    "100%".to_string()
+                    "100% (Completed)".to_string()
+                } else if self.status_message.contains("cancelled") || self.status_message.contains("Cancelled") {
+                    "Cancelled (0%)".to_string()
+                } else if self.progress_percent <= 0.0 {
+                    "Ready".to_string()
                 } else {
                     format!("{:.1}%", pct_val)
                 };
@@ -1348,4 +1381,72 @@ pub fn run_gui() -> eframe::Result<()> {
         options,
         Box::new(|cc| Ok(Box::new(DvdRipperApp::new(cc)))),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_cancel_ripping_cleans_up_progress_bar_and_stats() {
+        let mut app = DvdRipperApp::default();
+        app.is_ripping = true;
+        app.progress_percent = 0.55;
+        app.fps = "42.1".to_string();
+        app.speed = "1.9x".to_string();
+        app.status_message = "Ripping in progress... (55.0%)".to_string();
+
+        app.cancel_ripping();
+
+        assert!(!app.is_ripping);
+        assert!(!app.detecting);
+        assert_eq!(app.progress_percent, 0.0);
+        assert_eq!(app.fps, "N/A");
+        assert_eq!(app.speed, "N/A");
+        assert_eq!(app.status_message, "Ripping process cancelled by user.");
+    }
+
+    #[test]
+    fn test_process_events_ignores_late_progress_events_when_cancelled() {
+        let mut app = DvdRipperApp::default();
+        app.is_ripping = false;
+        app.progress_percent = 0.0;
+        app.fps = "N/A".to_string();
+        app.speed = "N/A".to_string();
+
+        // Send late progress event from cancelled thread
+        let _ = app.event_tx.send(ProgressEvent::Progress {
+            percent: 85.0,
+            fps: "45.0".to_string(),
+            speed: "2.0x".to_string(),
+        });
+
+        app.process_events();
+
+        // Must still be 0.0 and N/A
+        assert_eq!(app.progress_percent, 0.0);
+        assert_eq!(app.fps, "N/A");
+        assert_eq!(app.speed, "N/A");
+    }
+
+    #[test]
+    fn test_process_events_handles_cancelled_error_event_cleanly() {
+        let mut app = DvdRipperApp::default();
+        app.is_ripping = true;
+        app.progress_percent = 0.40;
+        app.fps = "30.0".to_string();
+        app.speed = "1.2x".to_string();
+
+        let _ = app.event_tx.send(ProgressEvent::Error(
+            "Ripping process cancelled by user.".to_string(),
+        ));
+
+        app.process_events();
+
+        assert!(!app.is_ripping);
+        assert_eq!(app.progress_percent, 0.0);
+        assert_eq!(app.fps, "N/A");
+        assert_eq!(app.speed, "N/A");
+        assert_eq!(app.status_message, "Ripping process cancelled by user.");
+    }
 }

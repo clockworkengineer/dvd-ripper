@@ -1217,6 +1217,9 @@ pub fn run_ffmpeg_with_channel(
             if flag.load(std::sync::atomic::Ordering::SeqCst) {
                 let _ = child.kill();
                 let _ = child.wait();
+                if absolute_output.exists() {
+                    let _ = std::fs::remove_file(absolute_output);
+                }
                 let msg = "Ripping process cancelled by user.".to_string();
                 if let Some(ref sender) = tx {
                     let _ = sender.send(ProgressEvent::Error(msg.clone()));
@@ -1229,6 +1232,9 @@ pub fn run_ffmpeg_with_channel(
             if rx.try_recv().is_ok() {
                 let _ = child.kill();
                 let _ = child.wait();
+                if absolute_output.exists() {
+                    let _ = std::fs::remove_file(absolute_output);
+                }
                 let msg = "Ripping process cancelled by user.".to_string();
                 if let Some(ref sender) = tx {
                     let _ = sender.send(ProgressEvent::Error(msg.clone()));
@@ -1347,6 +1353,18 @@ pub fn run_ffmpeg_with_channel(
             } else {
                 line_bytes.push(b);
             }
+        }
+    }
+
+    if let Some(ref flag) = cancel_flag {
+        if flag.load(std::sync::atomic::Ordering::SeqCst) {
+            let _ = child.kill();
+            let _ = child.wait();
+            if absolute_output.exists() {
+                let _ = std::fs::remove_file(absolute_output);
+            }
+            let msg = "Ripping process cancelled by user.".to_string();
+            return Err(anyhow!(msg));
         }
     }
 
