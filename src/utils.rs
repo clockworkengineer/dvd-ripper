@@ -313,7 +313,7 @@ pub fn encode_url_query_value(raw: &str) -> String {
 }
 
 
-/// Formats a log line with a timestamp and prefix tag (e.g. "[2026-08-18 17:15:14] [Daemon] Message").
+/// Formats a log line with a timestamp and prefix tag (e.g. `"[2026-08-18 17:15:14] [Daemon] Message"`).
 #[allow(dead_code)]
 pub fn format_timestamped_log(prefix: &str, msg: &str) -> String {
     format!("[{}] [{}] {}", now_timestamp_str(), prefix, msg)

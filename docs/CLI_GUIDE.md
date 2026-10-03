@@ -20,7 +20,7 @@ By default, launching `dvd-ripper` without arguments opens the graphical desktop
 |---|---|---|
 | `-i`, `--input <PATH>` | `D:\` (or `/dev/sr0`) | Target DVD drive letter, mount point, or ISO path (use `auto` for drive auto-detection). |
 | `-o`, `--output <FILE>` | *Auto* | Explicit destination file path. |
-| `--out-dir <DIR>` | `Films` | Base output root directory for movies (`Films`) or TV series (`TV`). |
+| `--out-dir <DIR>` | `Films` | Base output root directory. Movies are saved into `<out_dir>/Films/` and TV series into `<out_dir>/TV/` with intelligent sibling resolution. |
 | `--title <NUM>` | `0` | DVD title track index to rip (`0` = auto-detect title with matching movie runtime or longest duration). |
 | `--config <PATH>` | *Auto* | Path to custom TOML configuration file. |
 | `--cli` | `false` | Force headless command-line execution (suppress GUI launch). |

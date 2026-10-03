@@ -1,7 +1,8 @@
 # DVD Ripper (dvd-ripper) Configuration Example
 # Save this file to dvd-ripper.toml in the working directory or ~/.dvd-ripper/config.toml
 
-# Base destination directory for movie backups (default: "Films")
+# Base media library destination directory.
+# Movies are saved to <out_dir>/Films/ and TV series to <out_dir>/TV/ (with sibling directory auto-resolution).
 out_dir = "Films"
 
 # Preferred video codec: "h264", "hevc" (H.265), "av1" (SVT-AV1), or "copy" (Stream Copy)

@@ -55,7 +55,11 @@ Clicking the **`ℹ️ About`** button in the top-right header opens the applica
 
 ### 3.1 Input Drive & Output Directory Selection
 - **Input Drive**: Dropdown menu allowing selection of `auto` drive detection, explicit optical drive letters (`D:\`, `E:\`), or Linux block devices (`/dev/sr0`).
-- **Base Output Directory (`out_dir`)**: Specify destination folder root (defaults to `Films` for movies or `TV` for series).
+- **Base Output Directory (`out_dir`)**: Configures the base media library directory (defaults to `%USERPROFILE%\Videos\DVD Rips` on Windows or `~/Videos/DVD Rips` on Linux/macOS).
+  - **`📂 Browse...`**: Opens the system-native folder picker dialog.
+  - **`↗ Open`**: Immediately launches Windows File Explorer or the Linux desktop file manager in the active output folder.
+  - **`↺ Reset`**: Restores the output folder setting to the OS default Videos directory.
+  - **Routing Caption**: An informational indicator displays: `ℹ Films are saved to /Films and TV Shows to /TV within this directory`. TV series rips automatically resolve to a sibling `TV` folder if `Films` is selected.
 
 ### 3.2 Movie Metadata & Candidate Search Modal
 - **Movie Title & Release Year**: Enter the title name and release year for Plex/Jellyfin naming compatibility.
@@ -93,12 +97,15 @@ To rip TV show season box sets:
 
 ---
 
-## 5. Progress Tracking, Live Logs & Instant Cancellation
+## 5. Progress Tracking, Live Logs & Cooperative Cancellation
 
-- **Real-Time Progress Bar**: Visual percentage bar (0.0% to 100.0%) updated via thread-safe channels.
+- **Real-Time Progress Bar**: Visual percentage bar (0.0% to 100.0%) updated via thread-safe crossbeam channels.
 - **Performance Indicators**: Live FPS rendering counter and encoding speed multiplier (`2.4x`).
 - **Ring Buffer Log Console**: Live scrollable terminal log window capturing FFmpeg stdout/stderr diagnostics.
-- **Instant Job Cancellation (`⏹ Cancel Rip`)**: Click to send an emergency abort signal (`cancel_flag`), immediately terminating background FFmpeg child processes without leaving corrupted temporary files.
+- **Cooperative Cancellation Flow (`⏹ Cancel Rip`)**:
+  - Clicking **⏹ Cancel Rip** sets an atomic `cancel_flag` observed cooperatively by background threads and child processes.
+  - The UI immediately terminates child FFmpeg processes cleanly, aborts remaining batch queue items, and zeroes out the progress bar, FPS meter, and speed gauge.
+  - The status label displays `"Rip cancelled"`, optical drive locks are released, and the cancellation event is recorded to `ripping_history.json` with status `"Cancelled"`.
 
 ---
 

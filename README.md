@@ -45,10 +45,10 @@ For detailed platform-specific installation instructions (macOS Homebrew, Linux 
 
 ## 📁 Output Destination Directories
 
-By default, ripped files are output relative to your current working directory using a clean, Plex/Jellyfin-compatible media hierarchy:
+By default, ripped files are output to a sensible user video library location (`%USERPROFILE%\Videos\DVD Rips` on Windows, `~/Videos/DVD Rips` on Linux/macOS) using a clean, Plex/Jellyfin-compatible media hierarchy:
 
 ### 1. Default Directory Structure
-- **Movies**: Saved into **`Films/`** (or your custom `--out-dir` path).
+- **Movies**: Saved into **`Films/`** (or `<out_dir>/Films/`).
   - **Path**: `Films/<Movie Title> (<Year>)/<Movie Title> (<Year>).<ext>`
   - **Example**: `Films/Kill Bill Vol. 2 (2004)/Kill Bill Vol. 2 (2004).mpg` (or `.mp4` if re-encoded).
 
@@ -56,17 +56,20 @@ By default, ripped files are output relative to your current working directory u
   - **Path**: `TV/<Show Name> (<Year>)/Season <NN>/<Show Name> - S<NN>E<NN>.<ext>`
   - **Example**: `TV/The Office (2005)/Season 01/The Office - S01E01.mpg`
 
-### 2. Custom Destination Options
-- **Custom Output Directory (`-d` / `--out-dir`)**:
-  ```bash
-  dvd-ripper --daemon -d "D:\Media"
-  ```
-  *Saves movie backups to `D:\Media\Films\...` and TV shows to `D:\Media\TV\...`.*
+### 2. Sibling Directory Auto-Resolution
+The destination resolution engine intelligently routes media without creating awkward duplicate nested subfolders:
+- Pointing `--out-dir` to `D:\Media` outputs films to `D:\Media\Films` and TV series to `D:\Media\TV`.
+- Pointing `--out-dir` to `D:\Media\Films` keeps films in `D:\Media\Films` and **automatically routes TV series to sibling folder `D:\Media\TV`**.
+- Pointing `--out-dir` to `D:\Media\TV` keeps TV series in `D:\Media\TV` and **automatically routes films to sibling folder `D:\Media\Films`**.
 
-- **Custom Output File Path (`-o` / `--output`)**:
-  ```bash
-  dvd-ripper --cli D: -o "D:\Backups\MyMovie.mp4" --transcode
-  ```
+### 3. Explicit File Override (`-o` / `--output`)
+```bash
+dvd-ripper --cli D: -o "D:\Backups\MyMovie.mp4" --transcode
+```
+*When `-o` is explicitly provided, the specified path is directly honored.*
+
+For full details on folder naming and media server sidecar files, see:  
+👉 **[`docs/MEDIA_ORGANIZATION.md`](docs/MEDIA_ORGANIZATION.md)**
 
 ---
 
@@ -264,21 +267,41 @@ For detailed guides and technical specifications, refer to:
 
 ---
 
-## 🏗️ Project Architecture
+## 🏗️ Project Architecture (Clean & SOLID)
 
 ```
 src/
-├── main.rs         - Application entry point orchestrating GUI, CLI, or Daemon mode for Movies & TV Series
-├── api.rs          - Embedded HTTP REST API & HTML5 Web UI appliance dashboard server with cancellation & search handlers
-├── cli.rs          - Command-line argument schema (clap) with search flags, audio/subtitle/webhook options
-├── daemon.rs       - Headless auto-rip watcher loop for optical disc insertion, metadata resolution, & auto-eject
-├── dvd.rs          - Cross-platform drive detection, Win32 & ISO-9660 volume label queries, & optical tray eject API
-├── ffmpeg.rs       - Fast single-pass title probing, MKV/MP4 stream mapping, collision protection, progress streaming
-├── gui.rs          - Native desktop GUI implementation (eframe/egui) with stream controls, MKV toggle & history view
-├── history.rs      - Persistent JSON ripping history database log (load, save, clear, record)
-├── imdb.rs         - TMDB / OMDb / IMDb API metadata client, candidate search, runtime & plot parsing models
-├── mqtt.rs         - MQTT smart home telemetry & HTTP Webhook notification engine
-├── utils.rs        - Cover artwork saving, duration parsing, filename sanitization, season/disc label extraction
+├── main.rs         - Composition Root (AppContainer) & CLI orchestration
+├── cli.rs          - Command-line argument schema & segregated configuration traits
+├── config.rs       - TOML configuration parser & runtime default merging
+├── gui.rs          - Native desktop GUI (eframe/egui) with cancellation & explorer actions
+├── api.rs          - Embedded HTTP REST API, SSE event streaming, & OpenAPI spec
+├── daemon.rs       - Multi-drive watcher daemon loop & auto-rip coordination
+│
+├── domain/         - Pure domain layer (zero external I/O or system libraries)
+│   ├── entities/   - Core domain models (DvdDisc, DvdTitleInfo, FilmMetadata, RipRecord)
+│   ├── heuristics/ - Business rules (PAL 25fps speedup, cluster ranking, TV detection)
+│   └── ports/      - Abstract interfaces (Transcoder, DriveDetector, HistoryRepository)
+│
+├── application/    - Application use cases (orchestrates domain entities & ports)
+│   ├── probe_disc.rs        - ProbeDiscUseCase
+│   ├── rip_single_title.rs  - RipSingleTitleUseCase
+│   ├── rip_tv_batch.rs      - RipTvBatchUseCase
+│   └── drive_pool.rs        - DrivePool concurrent drive manager
+│
+├── infrastructure/ - Concrete infrastructure adapters (implements domain ports)
+│   ├── ffmpeg/     - Builder, process runner, & progress parser
+│   ├── optical/    - Win32 & Linux ISO-9660 drive readers & tray ejectors
+│   ├── metadata/   - OMDb / TMDb HTTP clients & local fingerprint cache
+│   ├── storage/    - Disk space guard & JSON history persistence
+│   ├── notifications/ - MQTT 3.1.1 packet generator & HTTP webhook alerts
+│   └── ocr/        - Tesseract OCR runner for SubRip sidecar generation
+│
+├── ffmpeg.rs       - Output path resolution, formatters, & backward compatibility facades
+├── dvd.rs          - Optical sector benchmarking & copy protection inspection
+├── queue.rs        - Job queue & TV BoxSet manager (boxsets.json)
+├── history.rs      - History database serialization
+├── utils.rs        - String formatting, disk space guard checks, & media server hooks
 └── bin/
     └── installer.rs - Portable multi-OS installer binary (dvd-ripper-installer)
 ```
@@ -287,31 +310,34 @@ src/
 
 ## 📚 Technical Documentation Index
 
-Detailed user guides and technical architecture documents are available in the [`docs/`](file:///c:/Users/User/.gemini/antigravity-ide/scratch/dvd-ripper/docs) directory:
+Detailed user guides and technical architecture documents are available in the [`docs/`](docs) directory:
 
-- 📖 **[CLI User Manual](file:///c:/Users/User/.gemini/antigravity-ide/scratch/dvd-ripper/docs/CLI_GUIDE.md)**: Command-line syntax, modes, filters, and usage examples.
-- 💻 **[Desktop GUI Guide](file:///c:/Users/User/.gemini/antigravity-ide/scratch/dvd-ripper/docs/GUI_GUIDE.md)**: Desktop immediate-mode GUI interface (`eframe`/`egui`), tab controls, search modal, and benchmarks.
-- 🤖 **[Daemon Appliance Guide](file:///c:/Users/User/.gemini/antigravity-ide/scratch/dvd-ripper/docs/DAEMON_APPLIANCE_MODE.md)**: Headless multi-drive watcher, Home Assistant MQTT telemetry, and webhooks.
-- 📦 **[Installer & Service Guide](file:///c:/Users/User/.gemini/antigravity-ide/scratch/dvd-ripper/docs/INSTALLER_AND_SERVICE_GUIDE.md)**: `dvd-ripper-installer` CLI, systemd service setup, and udev rules.
-- 📜 **[Ripping History & Logging](file:///c:/Users/User/.gemini/antigravity-ide/scratch/dvd-ripper/docs/RIPPING_HISTORY_AND_LOGGING.md)**: JSON backup database schema, audit trails, and history management.
-- 📺 **[TV Series Box Set Guide](file:///c:/Users/User/.gemini/antigravity-ide/scratch/dvd-ripper/docs/TV_BOXSET_GUIDE.md)**: Multi-disc TV show season auto-stitching and cumulative episode tracking.
-- ⚙️ **[Configuration Guide](file:///c:/Users/User/.gemini/antigravity-ide/scratch/dvd-ripper/docs/CONFIGURATION.md)**: TOML configuration keys, defaults, and priority hierarchy.
-- 🌐 **[REST API Reference](file:///c:/Users/User/.gemini/antigravity-ide/scratch/dvd-ripper/docs/API_REFERENCE.md)**: HTTP REST endpoints, Bearer auth, SSE streaming, OpenAPI v3 spec, and Prometheus metrics.
-- 🍿 **[Media Server Integration](file:///c:/Users/User/.gemini/antigravity-ide/scratch/dvd-ripper/docs/MEDIA_SERVER_INTEGRATION.md)**: Plex, Jellyfin, Emby scan triggers, NFO XML files, and poster artwork.
-- ⚡ **[Hardware Acceleration Guide](file:///c:/Users/User/.gemini/antigravity-ide/scratch/dvd-ripper/docs/HARDWARE_ACCELERATION.md)**: NVENC, VAAPI, QSV, and V4L2 M2M GPU setup.
-- 🛠️ **[Troubleshooting & Diagnostics](file:///c:/Users/User/.gemini/antigravity-ide/scratch/dvd-ripper/docs/TROUBLESHOOTING.md)**: Optical read speed benchmarks (RipLock), disk space guards, and copy protection.
-- 🏗️ **[System Architecture](file:///c:/Users/User/.gemini/antigravity-ide/scratch/dvd-ripper/docs/ARCHITECTURE.md)**: Threading model, disc fingerprinting, and codebase module breakdown.
-- 💻 **[Developer Guide](file:///c:/Users/User/.gemini/antigravity-ide/scratch/dvd-ripper/docs/DEVELOPER_GUIDE.md)**: Developer onboarding, adding API routes/filters, and contributing.
+- 🏛️ **[SOLID Architecture Guide](docs/SOLID_ARCHITECTURE.md)**: Deep-dive into SRP, OCP, LSP, ISP, DIP, heuristics, & mock architectures.
+- 📁 **[Media Organization Guide](docs/MEDIA_ORGANIZATION.md)**: Plex/Jellyfin folder standards, sibling resolution, NFO & artwork sidecars.
+- 📖 **[CLI User Manual](docs/CLI_GUIDE.md)**: Command-line syntax, modes, filters, and usage examples.
+- 💻 **[Desktop GUI Guide](docs/GUI_GUIDE.md)**: Desktop immediate-mode GUI interface (`eframe`/`egui`), tab controls, search modal, and benchmarks.
+- 🤖 **[Daemon Appliance Guide](docs/DAEMON_APPLIANCE_MODE.md)**: Headless multi-drive watcher, Home Assistant MQTT telemetry, and webhooks.
+- 📦 **[Installer & Service Guide](docs/INSTALLER_AND_SERVICE_GUIDE.md)**: `dvd-ripper-installer` CLI, systemd service setup, and udev rules.
+- 📜 **[Ripping History & Logging](docs/RIPPING_HISTORY_AND_LOGGING.md)**: JSON backup database schema, audit trails, and history management.
+- 📺 **[TV Series Box Set Guide](docs/TV_BOXSET_GUIDE.md)**: Multi-disc TV show season auto-stitching and cumulative episode tracking.
+- ⚙️ **[Configuration Guide](docs/CONFIGURATION.md)**: TOML configuration keys, defaults, and priority hierarchy.
+- 🌐 **[REST API Reference](docs/API_REFERENCE.md)**: HTTP REST endpoints, Bearer auth, SSE streaming, OpenAPI v3 spec, and Prometheus metrics.
+- 🍿 **[Media Server Integration](docs/MEDIA_SERVER_INTEGRATION.md)**: Plex, Jellyfin, Emby scan triggers, NFO XML files, and poster artwork.
+- ⚡ **[Hardware Acceleration Guide](docs/HARDWARE_ACCELERATION.md)**: NVENC, VAAPI, QSV, and V4L2 M2M GPU setup.
+- 🛠️ **[Troubleshooting & Diagnostics](docs/TROUBLESHOOTING.md)**: Optical read speed benchmarks (RipLock), disk space guards, and copy protection.
+- 🏗️ **[System Architecture](docs/ARCHITECTURE.md)**: Hexagonal layering, threading model, and codebase module breakdown.
+- 💻 **[Developer Guide](docs/DEVELOPER_GUIDE.md)**: Developer onboarding, adding use cases/adapters, and contributing.
+- 🤝 **[Contributor Guide](CONTRIBUTING.md)**: Code of conduct, architecture boundaries, PR checklist, and coding standards.
 
 ---
 
 ## 🧪 Testing
 
-Run the full test suite (128 unit tests):
+Run the full test suite (**163 unit and integration tests**):
 ```bash
 cargo test
 ```
-All unit tests use RAII temporary directory guards to ensure test files leave zero footprint on disk.
+All unit tests use RAII temporary directory guards and in-memory mock adapters to ensure test files leave zero footprint on disk.
 
 ---
 

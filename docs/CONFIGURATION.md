@@ -20,7 +20,8 @@ When determining application settings, `dvd-ripper` evaluates parameters in the 
 Save a `dvd-ripper.toml` file in your working directory or in `~/.dvd-ripper/config.toml`:
 
 ```toml
-# Base output directory (default: "Films")
+# Base output directory (movies are placed in /Films and TV series in /TV)
+# Supports sibling resolution (e.g. C:\Media\Films will route TV shows to sibling C:\Media\TV)
 out_dir = "Films"
 
 # Preferred video codec: "h264", "hevc", "av1", or "copy"
