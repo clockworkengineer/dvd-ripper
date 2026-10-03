@@ -1,3 +1,5 @@
+#![windows_subsystem = "windows"]
+
 /**
  * @file main.rs
  * @brief DVD Ripper entry point supporting both GUI and CLI modes for Movies & TV Series.
@@ -237,6 +239,15 @@ fn main() -> Result<()> {
             }
             return Ok(());
         }
+    }
+
+    // Attach to parent console if running from terminal in CLI mode on Windows
+    #[cfg(target_os = "windows")]
+    unsafe {
+        unsafe extern "system" {
+            fn AttachConsole(dwProcessId: u32) -> i32;
+        }
+        AttachConsole(0xFFFFFFFF);
     }
 
     // CLI mode execution path

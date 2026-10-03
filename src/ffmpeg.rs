@@ -759,6 +759,7 @@ pub fn build_ffmpeg_command(
 ) -> Command {
     let mut cmd = Command::new(&args.ffmpeg);
     crate::utils::configure_silent_command(&mut cmd);
+    cmd.arg("-nostdin");
 
     cmd.arg("-f").arg("dvdvideo");
 
@@ -1010,6 +1011,7 @@ pub fn run_ffmpeg_with_channel(
             .with_context(|| format!("Failed to remove existing output file {}", absolute_output.display()))?;
     }
 
+    cmd.stdin(std::process::Stdio::null());
     cmd.stdout(std::process::Stdio::null());
     cmd.stderr(std::process::Stdio::piped());
 
