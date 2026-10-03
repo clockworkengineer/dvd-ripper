@@ -581,6 +581,40 @@ impl MediaProcessRunner for SystemMediaProcessRunner {
     }
 }
 
+/// Probes the duration in seconds of a specific DVD title.
+pub fn probe_single_title_duration(
+    ffmpeg_path: &str,
+    dvd_path: &Path,
+    title_num: u32,
+) -> Option<f64> {
+    let mut cmd = Command::new(ffmpeg_path);
+    crate::utils::configure_silent_command(&mut cmd);
+    let output = cmd
+        .stdin(std::process::Stdio::null())
+        .arg("-nostdin")
+        .arg("-analyzeduration").arg("500000")
+        .arg("-probesize").arg("500000")
+        .arg("-f").arg("dvdvideo")
+        .arg("-trim").arg("0")
+        .arg("-title").arg(title_num.to_string())
+        .arg("-i").arg(dvd_path)
+        .output()
+        .ok()?;
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    for line in stderr.lines() {
+        if let Some(dur_str) = extract_kv_field(line, "Duration: ") {
+            let clean = dur_str.trim_end_matches(',');
+            if let Some(secs) = parse_duration(clean) {
+                if secs > 0.0 {
+                    return Some(secs);
+                }
+            }
+        }
+    }
+    None
+}
+
 /// Probes all titles on the DVD drive, using fast single-pass probing with fallback to sequential probing.
 pub fn probe_dvd_titles(
     ffmpeg_path: &str,
@@ -764,6 +798,7 @@ pub fn build_ffmpeg_command(
     let mut cmd = Command::new(&args.ffmpeg);
     crate::utils::configure_silent_command(&mut cmd);
     cmd.arg("-nostdin");
+    cmd.arg("-stats");
 
     cmd.arg("-f").arg("dvdvideo");
     cmd.arg("-trim").arg("0");
@@ -987,7 +1022,8 @@ pub fn run_ffmpeg_with_channel(
         }
         (detected, duration_opt)
     } else {
-        (args.title, None)
+        let dur = probe_single_title_duration(&args.ffmpeg, dvd_path, args.title);
+        (args.title, dur)
     };
 
     let mut cmd = build_ffmpeg_command(args, dvd_path, absolute_output, resolved_title);
@@ -1119,18 +1155,9 @@ pub fn run_ffmpeg_with_channel(
                     if let Some(duration_str) = extract_kv_field(&line, "Duration: ") {
                         let clean_duration = duration_str.trim_end_matches(',');
                         if let Some(secs) = parse_duration(clean_duration) {
-                            // Require duration >= 5 minutes (300s) to filter out short chapters, menus, & sub-streams
-                            if secs >= 300.0 {
-                                match total_seconds {
-                                    Some(current) => {
-                                        // Refine total_seconds only if candidate duration is within 35% of current estimate
-                                        if (secs - current).abs() < current * 0.35 {
-                                            total_seconds = Some(secs);
-                                        }
-                                    }
-                                    None => {
-                                        total_seconds = Some(secs);
-                                    }
+                            if secs > 0.0 {
+                                if total_seconds.is_none() || total_seconds.unwrap_or(0.0) <= 0.0 {
+                                    total_seconds = Some(secs);
                                 }
                             }
                         }
@@ -1143,34 +1170,38 @@ pub fn run_ffmpeg_with_channel(
                             let speed = extract_kv_field(&line, "speed=").unwrap_or("N/A").to_string();
                             let fps = extract_kv_field(&line, "fps=").unwrap_or("N/A").to_string();
 
-                            if let Some(total) = total_seconds {
+                            let percent = if let Some(total) = total_seconds {
                                 if total > 0.0 {
-                                    let percent = (secs / total * 100.0).min(100.0).max(0.0);
-
-                                    crate::api::update_appliance_status("Ripping", "", display_title, percent, &fps, &speed);
-
-                                    if tx.is_none() {
-                                        let width = 20;
-                                        let filled = ((percent / 100.0) * width as f64).round() as usize;
-                                        let empty = width - filled;
-                                        println!(
-                                            "[Daemon Progress] [{}{}] {:.1}% | FPS: {} | Speed: {} | {}",
-                                            "█".repeat(filled),
-                                            "░".repeat(empty),
-                                            percent,
-                                            fps,
-                                            speed,
-                                            display_title
-                                        );
-                                        std::io::stdout().flush().ok();
-                                    } else if let Some(ref sender) = tx {
-                                        let _ = sender.send(ProgressEvent::Progress {
-                                            percent,
-                                            fps: fps.clone(),
-                                            speed: speed.clone(),
-                                        });
-                                    }
+                                    (secs / total * 100.0).min(100.0).max(0.0)
+                                } else {
+                                    0.0
                                 }
+                            } else {
+                                0.0
+                            };
+
+                            crate::api::update_appliance_status("Ripping", "", display_title, percent, &fps, &speed);
+
+                            if tx.is_none() {
+                                let width = 20;
+                                let filled = ((percent / 100.0) * width as f64).round() as usize;
+                                let empty = width - filled;
+                                println!(
+                                    "[Daemon Progress] [{}{}] {:.1}% | FPS: {} | Speed: {} | {}",
+                                    "█".repeat(filled),
+                                    "░".repeat(empty),
+                                    percent,
+                                    fps,
+                                    speed,
+                                    display_title
+                                );
+                                std::io::stdout().flush().ok();
+                            } else if let Some(ref sender) = tx {
+                                let _ = sender.send(ProgressEvent::Progress {
+                                    percent,
+                                    fps: fps.clone(),
+                                    speed: speed.clone(),
+                                });
                             }
                         }
                     }

@@ -2010,17 +2010,17 @@ mod tests {
 
     #[test]
     fn test_drive_pool_cancellation() {
-        let flag_d = get_drive_cancel_flag("D:\\");
-        let flag_e = get_drive_cancel_flag("E:\\");
-        flag_d.store(false, Ordering::SeqCst);
-        flag_e.store(false, Ordering::SeqCst);
+        let flag_x = get_drive_cancel_flag("X:\\");
+        let flag_y = get_drive_cancel_flag("Y:\\");
+        flag_x.store(false, Ordering::SeqCst);
+        flag_y.store(false, Ordering::SeqCst);
 
-        let cancelled = cancel_drive_rip("D:\\");
+        let cancelled = cancel_drive_rip("X:\\");
         assert!(cancelled);
-        assert!(flag_d.load(Ordering::SeqCst));
-        assert!(!flag_e.load(Ordering::SeqCst)); // Independent cancellation!
+        assert!(flag_x.load(Ordering::SeqCst));
+        assert!(!flag_y.load(Ordering::SeqCst)); // Independent cancellation!
 
         cancel_all_drive_rips();
-        assert!(flag_e.load(Ordering::SeqCst));
+        assert!(flag_y.load(Ordering::SeqCst));
     }
 }

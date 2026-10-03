@@ -650,6 +650,9 @@ impl DvdRipperApp {
                         self.detecting = false;
                         self.detect_status = "Detection finished.".to_string();
                     } else {
+                        if self.is_ripping && (line.starts_with("Auto-detecting") || line.starts_with("Auto-selected") || line.starts_with("Ripping")) {
+                            self.status_message = line.clone();
+                        }
                         self.logs.push_back(line);
                         if self.logs.len() > 500 {
                             self.logs.pop_front();
@@ -1193,8 +1196,20 @@ impl eframe::App for DvdRipperApp {
 
                 let max_w = (ui.clip_rect().width() - 40.0).max(180.0);
                 let avail_w = (ui.available_width() - 8.0).min(max_w);
+                let pct_val = (self.progress_percent * 100.0).min(100.0).max(0.0);
+                let progress_text = if self.is_ripping {
+                    if self.progress_percent > 0.0 {
+                        format!("{:.1}%", pct_val)
+                    } else {
+                        "Ripping... (0.0%)".to_string()
+                    }
+                } else if self.progress_percent >= 1.0 {
+                    "100%".to_string()
+                } else {
+                    format!("{:.1}%", pct_val)
+                };
                 let progress_bar = egui::ProgressBar::new(self.progress_percent)
-                    .show_percentage()
+                    .text(progress_text)
                     .animate(self.is_ripping)
                     .desired_width(avail_w);
                 ui.add(progress_bar);
