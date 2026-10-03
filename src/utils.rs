@@ -198,6 +198,51 @@ pub fn get_app_file_path(filename: &str) -> PathBuf {
     get_app_data_dir().join(filename)
 }
 
+/// Returns a sensible default directory for ripped media across operating systems.
+/// On Windows: %USERPROFILE%\Videos\DVD Rips (or %USERPROFILE%\DVD Rips)
+/// On Linux/macOS: $HOME/Videos/DVD Rips (or $HOME/Movies/DVD Rips)
+pub fn get_default_rip_output_dir() -> PathBuf {
+    let home = std::env::var("USERPROFILE")
+        .or_else(|_| std::env::var("HOME"))
+        .map(PathBuf::from);
+
+    if let Ok(home_path) = home {
+        let videos = home_path.join("Videos");
+        if videos.exists() {
+            return videos.join("DVD Rips");
+        }
+        let movies = home_path.join("Movies");
+        if movies.exists() {
+            return movies.join("DVD Rips");
+        }
+        return home_path.join("Videos").join("DVD Rips");
+    }
+
+    PathBuf::from("DVD Rips")
+}
+
+/// Opens a directory path in the operating system's native file explorer.
+pub fn open_folder_in_explorer(path: &Path) {
+    #[cfg(target_os = "windows")]
+    {
+        let _ = std::process::Command::new("explorer")
+            .arg(path)
+            .spawn();
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let _ = std::process::Command::new("open")
+            .arg(path)
+            .spawn();
+    }
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        let _ = std::process::Command::new("xdg-open")
+            .arg(path)
+            .spawn();
+    }
+}
+
 /// Returns a shared, pre-configured HTTP blocking client instance with standard timeout and user agent.
 pub fn get_http_client() -> reqwest::blocking::Client {
     reqwest::blocking::Client::builder()
@@ -1205,5 +1250,12 @@ mod tests {
 
         let invalid_target = base.join("../../../etc/shadow");
         assert!(ensure_path_contained(&base, &invalid_target).is_err());
+    }
+
+    #[test]
+    fn test_get_default_rip_output_dir() {
+        let dir = get_default_rip_output_dir();
+        assert!(!dir.as_os_str().is_empty());
+        assert!(dir.to_string_lossy().contains("DVD Rips"));
     }
 }

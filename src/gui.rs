@@ -114,11 +114,15 @@ pub struct DvdRipperApp {
 impl Default for DvdRipperApp {
     fn default() -> Self {
         let (event_tx, event_rx) = channel();
+        let cfg = crate::config::load_config(None);
+        let default_out = cfg.out_dir.clone().unwrap_or_else(|| {
+            crate::utils::get_default_rip_output_dir().to_string_lossy().to_string()
+        });
         Self {
             input_drive: "auto".to_string(),
             film_name: String::new(),
             film_year: String::new(),
-            out_dir: "Films".to_string(),
+            out_dir: default_out,
             title_number: 0,
             transcode: false,
             mkv: false,
@@ -207,6 +211,31 @@ impl DvdRipperApp {
 
     fn effective_show_name(&self) -> String {
         self.film_name_opt().unwrap_or_else(|| "TV Show".to_string())
+    }
+
+    pub fn pick_output_dir(&mut self) {
+        #[cfg(feature = "gui")]
+        {
+            let starting_dir = if std::path::Path::new(&self.out_dir).exists() {
+                self.out_dir.clone()
+            } else {
+                String::new()
+            };
+            let mut dialog = rfd::FileDialog::new().set_title("Select Default Output Folder for Ripped DVDs");
+            if !starting_dir.is_empty() {
+                dialog = dialog.set_directory(&starting_dir);
+            }
+            if let Some(folder) = dialog.pick_folder() {
+                self.out_dir = folder.to_string_lossy().to_string();
+                self.save_current_output_dir_preference();
+            }
+        }
+    }
+
+    pub fn save_current_output_dir_preference(&self) {
+        let mut cfg = crate::config::load_config(None);
+        cfg.out_dir = Some(self.out_dir.clone());
+        let _ = crate::config::save_default_config(&cfg);
     }
 
     pub fn build_encoding_options(&self) -> crate::cli::EncodingOptions {
@@ -720,7 +749,6 @@ impl DvdRipperApp {
                     self.poster_texture = None;
                     if meta.is_series {
                         self.is_tv_mode = true;
-                        self.out_dir = "TV".to_string();
                         self.update_detected_episode_names();
                     }
                     self.detecting = false;
@@ -986,19 +1014,13 @@ impl eframe::App for DvdRipperApp {
 
                 // Metadata & Mode Section
                 ui.group(|ui| {
-                    ui.label(egui::RichText::new("2. Media Metadata & Mode Settings").strong());
+                    ui.label(egui::RichText::new("2. Media Metadata & Output Folder").strong());
 
                     ui.horizontal(|ui| {
                         ui.label("Ripping Mode:");
-                        if ui.radio_value(&mut self.is_tv_mode, false, "🎬 Movie").changed() {
-                            self.out_dir = "Films".to_string();
-                        }
-                        if ui.radio_value(&mut self.is_tv_mode, true, "📺 TV Series").changed() {
-                            self.out_dir = "TV".to_string();
-                        }
-                        ui.separator();
-                        ui.label("Output Root:");
-                        ui.text_edit_singleline(&mut self.out_dir);
+                        ui.radio_value(&mut self.is_tv_mode, false, "🎬 Movie");
+                        ui.radio_value(&mut self.is_tv_mode, true, "📺 TV Series");
+
                         if !self.is_tv_mode || !self.all_episodes {
                             ui.separator();
                             ui.label("Title #:");
@@ -1006,6 +1028,40 @@ impl eframe::App for DvdRipperApp {
                             if self.title_number == 0 {
                                 ui.label(egui::RichText::new("(Auto)").weak().small());
                             }
+                        }
+                    });
+
+                    ui.add_space(4.0);
+
+                    ui.horizontal(|ui| {
+                        ui.label("📁 Output Folder:");
+                        let text_resp = ui.add(
+                            egui::TextEdit::singleline(&mut self.out_dir)
+                                .hint_text("Destination directory (e.g. C:\\Users\\User\\Videos\\DVD Rips)")
+                                .desired_width(340.0)
+                        );
+                        if text_resp.lost_focus() {
+                            self.save_current_output_dir_preference();
+                        }
+
+                        if ui.button("📂 Browse...").on_hover_text("Select custom destination folder with system file dialog").clicked() {
+                            self.pick_output_dir();
+                        }
+
+                        if ui.button("↗ Open").on_hover_text("Open current destination directory in File Explorer").clicked() {
+                            let p = std::path::Path::new(&self.out_dir);
+                            if p.exists() {
+                                crate::utils::open_folder_in_explorer(p);
+                            } else if let Some(parent) = p.parent() {
+                                if parent.exists() {
+                                    crate::utils::open_folder_in_explorer(parent);
+                                }
+                            }
+                        }
+
+                        if ui.button("↺ Reset").on_hover_text("Reset to system default Videos folder").clicked() {
+                            self.out_dir = crate::utils::get_default_rip_output_dir().to_string_lossy().to_string();
+                            self.save_current_output_dir_preference();
                         }
                     });
 
@@ -1448,5 +1504,27 @@ mod tests {
         assert_eq!(app.fps, "N/A");
         assert_eq!(app.speed, "N/A");
         assert_eq!(app.status_message, "Ripping process cancelled by user.");
+    }
+
+    #[test]
+    fn test_gui_default_out_dir_is_sensible() {
+        let app = DvdRipperApp::default();
+        assert!(!app.out_dir.is_empty());
+        // Default should be a sensible path (not a bare relative "Films")
+        assert!(app.out_dir.contains("DVD Rips") || app.out_dir.contains("Videos") || std::path::Path::new(&app.out_dir).is_absolute());
+    }
+
+    #[test]
+    fn test_gui_mode_change_preserves_custom_out_dir() {
+        let mut app = DvdRipperApp::default();
+        app.out_dir = "D:\\MyCustomRips".to_string();
+
+        // Switch to TV Series
+        app.is_tv_mode = true;
+        assert_eq!(app.out_dir, "D:\\MyCustomRips");
+
+        // Switch back to Movie
+        app.is_tv_mode = false;
+        assert_eq!(app.out_dir, "D:\\MyCustomRips");
     }
 }

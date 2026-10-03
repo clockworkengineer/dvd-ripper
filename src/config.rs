@@ -102,8 +102,18 @@ pub fn load_config(custom_path: Option<&str>) -> AppConfig {
 }
 
 
+/// Returns the default global configuration file path (~/.dvd-ripper/config.toml).
+pub fn get_default_config_path() -> std::path::PathBuf {
+    crate::utils::get_app_data_dir().join("config.toml")
+}
+
+/// Saves an AppConfig struct to the default configuration file (~/.dvd-ripper/config.toml).
+pub fn save_default_config(config: &AppConfig) -> anyhow::Result<()> {
+    let target = get_default_config_path();
+    save_config(config, &target)
+}
+
 /// Saves an AppConfig struct to TOML file using atomic file write.
-#[allow(dead_code)]
 pub fn save_config(config: &AppConfig, target_path: &Path) -> anyhow::Result<()> {
     let toml_str = toml::to_string_pretty(config)?;
     crate::utils::atomic_write_file(target_path, toml_str)?;
