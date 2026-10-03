@@ -247,7 +247,7 @@ pub fn open_folder_in_explorer(path: &Path) {
 pub fn get_http_client() -> reqwest::blocking::Client {
     reqwest::blocking::Client::builder()
         .timeout(std::time::Duration::from_secs(5))
-        .user_agent("dvd-ripper/0.1.0")
+        .user_agent(concat!("dvd-ripper/", env!("CARGO_PKG_VERSION")))
         .build()
         .unwrap_or_default()
 }
