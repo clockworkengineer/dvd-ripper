@@ -177,6 +177,8 @@ pub fn probe_dvd_titles_fast(
         .arg("500000")
         .arg("-f")
         .arg("dvdvideo")
+        .arg("-trim")
+        .arg("0")
         .arg("-i")
         .arg(dvd_path)
         .output();
@@ -609,6 +611,8 @@ pub fn probe_dvd_titles(
             .arg("500000")
             .arg("-f")
             .arg("dvdvideo")
+            .arg("-trim")
+            .arg("0")
             .arg("-title")
             .arg(t.to_string())
             .arg("-i")
@@ -642,7 +646,7 @@ pub fn probe_dvd_titles(
             }
         }
 
-        if consecutive_failures >= 3 {
+        if consecutive_failures >= 15 {
             break;
         }
     }
@@ -762,6 +766,7 @@ pub fn build_ffmpeg_command(
     cmd.arg("-nostdin");
 
     cmd.arg("-f").arg("dvdvideo");
+    cmd.arg("-trim").arg("0");
 
     if resolved_title > 0 {
         cmd.arg("-title").arg(resolved_title.to_string());
@@ -1028,6 +1033,7 @@ pub fn run_ffmpeg_with_channel(
     let mut demux_error = false;
     let mut empty_output = false;
     let mut css_error = false;
+    let mut last_error_lines: std::collections::VecDeque<String> = std::collections::VecDeque::with_capacity(10);
 
     let mut buf = [0u8; 1024];
     let mut line_bytes = Vec::new();
@@ -1083,6 +1089,18 @@ pub fn run_ffmpeg_with_channel(
 
                     if let Some(ref sender) = tx {
                         let _ = sender.send(ProgressEvent::Log(line.clone()));
+                    }
+
+                    if line.contains("Error")
+                        || line.contains("error")
+                        || line.contains("failed")
+                        || line.contains("Invalid")
+                        || line.contains("invalid")
+                    {
+                        if last_error_lines.len() >= 5 {
+                            last_error_lines.pop_front();
+                        }
+                        last_error_lines.push_back(line.clone());
                     }
 
                     if line.contains("Error during demuxing") {
@@ -1212,7 +1230,12 @@ pub fn run_ffmpeg_with_channel(
         }
         Ok(())
     } else {
-        let err_msg = format!("FFmpeg exited with non-zero status code: {:?}", status.code());
+        let detail = if !last_error_lines.is_empty() {
+            format!(": {}", last_error_lines.into_iter().collect::<Vec<_>>().join(" | "))
+        } else {
+            String::new()
+        };
+        let err_msg = format!("FFmpeg exited with non-zero status code: {:?}{}", status.code(), detail);
         if tx.is_none() {
             eprintln!("\n{}", err_msg);
         } else if let Some(ref sender) = tx {

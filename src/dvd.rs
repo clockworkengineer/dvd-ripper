@@ -573,6 +573,7 @@ pub fn run_drive_benchmark(
     cmd.arg("-y")
        .arg("-nostdin")
        .arg("-f").arg("dvdvideo")
+       .arg("-trim").arg("0")
        .arg("-i").arg(&norm_path)
        .arg("-title").arg("1")
        .arg("-t").arg(duration_secs.to_string())
