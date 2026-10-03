@@ -572,6 +572,146 @@ impl Args {
     }
 }
 
+/// Interface Segregation (ISP/SOLID): Focused configuration slice for video/audio transcoding.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TranscodeConfig {
+    pub transcode: bool,
+    pub mkv: bool,
+    pub codec: String,
+    pub profile: String,
+    pub preset: String,
+    pub hwaccel: String,
+    pub deinterlace: bool,
+    pub deinterlace_algo: Option<String>,
+    pub denoise: bool,
+}
+
+impl From<&Args> for TranscodeConfig {
+    fn from(args: &Args) -> Self {
+        Self {
+            transcode: args.transcode,
+            mkv: args.mkv,
+            codec: args.codec.clone(),
+            profile: args.profile.clone(),
+            preset: args.preset.clone(),
+            hwaccel: args.hwaccel.clone(),
+            deinterlace: args.deinterlace,
+            deinterlace_algo: args.deinterlace_algo.clone(),
+            denoise: args.denoise,
+        }
+    }
+}
+
+/// Interface Segregation (ISP/SOLID): Focused configuration slice for audio and subtitle streams.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AudioSubtitleConfig {
+    pub all_audio: bool,
+    pub normalize_audio: bool,
+    pub dual_audio: bool,
+    pub audio_lang: Option<String>,
+    pub auto_audio_pref: Option<String>,
+    pub subtitles: bool,
+    pub sub_lang: Option<String>,
+    pub sub_format: Option<String>,
+    pub sub_forced_only: bool,
+    pub sub_external_srt: bool,
+    pub ocr: bool,
+    pub ocr_lang: String,
+    pub tesseract: String,
+}
+
+impl From<&Args> for AudioSubtitleConfig {
+    fn from(args: &Args) -> Self {
+        Self {
+            all_audio: args.all_audio,
+            normalize_audio: args.normalize_audio,
+            dual_audio: args.dual_audio,
+            audio_lang: args.audio_lang.clone(),
+            auto_audio_pref: args.auto_audio_pref.clone(),
+            subtitles: args.subtitles,
+            sub_lang: args.sub_lang.clone(),
+            sub_format: args.sub_format.clone(),
+            sub_forced_only: args.sub_forced_only,
+            sub_external_srt: args.sub_external_srt,
+            ocr: args.ocr,
+            ocr_lang: args.ocr_lang.clone(),
+            tesseract: args.tesseract.clone(),
+        }
+    }
+}
+
+/// Interface Segregation (ISP/SOLID): Focused configuration slice for storage, output paths, and safeguards.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StorageConfig {
+    pub out_dir: String,
+    pub custom_output: Option<String>,
+    pub min_free_gb: u64,
+    pub no_overwrite: bool,
+}
+
+impl From<&Args> for StorageConfig {
+    fn from(args: &Args) -> Self {
+        Self {
+            out_dir: args.out_dir.clone(),
+            custom_output: args.output.clone(),
+            min_free_gb: args.min_free_gb,
+            no_overwrite: args.no_overwrite,
+        }
+    }
+}
+
+/// Interface Segregation (ISP/SOLID): Focused configuration slice for external notification integrations.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct IntegrationConfig {
+    pub plex_url: Option<String>,
+    pub plex_token: Option<String>,
+    pub jellyfin_url: Option<String>,
+    pub jellyfin_key: Option<String>,
+    pub emby_url: Option<String>,
+    pub emby_key: Option<String>,
+    pub webhook_url: Option<String>,
+    pub webhook_secret: Option<String>,
+    pub mqtt_broker: Option<String>,
+}
+
+impl From<&Args> for IntegrationConfig {
+    fn from(args: &Args) -> Self {
+        Self {
+            plex_url: args.plex_url.clone(),
+            plex_token: args.plex_token.clone(),
+            jellyfin_url: args.jellyfin_url.clone(),
+            jellyfin_key: args.jellyfin_key.clone(),
+            emby_url: args.emby_url.clone(),
+            emby_key: args.emby_key.clone(),
+            webhook_url: args.webhook_url.clone(),
+            webhook_secret: args.webhook_secret.clone(),
+            mqtt_broker: args.mqtt_broker.clone(),
+        }
+    }
+}
+
+/// Interface Segregation (ISP/SOLID): Focused configuration slice for TV series batch ripping.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TvModeConfig {
+    pub tv: bool,
+    pub season: u32,
+    pub start_episode: u32,
+    pub auto_boxset: bool,
+    pub all_episodes: bool,
+}
+
+impl From<&Args> for TvModeConfig {
+    fn from(args: &Args) -> Self {
+        Self {
+            tv: args.tv,
+            season: args.season,
+            start_episode: args.start_episode,
+            auto_boxset: args.auto_boxset,
+            all_episodes: args.all_episodes,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -647,4 +787,31 @@ mod tests {
         assert_eq!(args.imdb_id.as_deref(), Some("tt0266697"));
         assert_eq!(args.select_index, Some(1));
     }
+
+    #[test]
+    fn test_segregated_configs() {
+        let mut args = Args::default();
+        args.transcode = true;
+        args.codec = "hevc".to_string();
+        args.min_free_gb = 25;
+        args.webhook_url = Some("https://hooks.example.com".to_string());
+        args.tv = true;
+        args.season = 2;
+
+        let transcode_cfg: TranscodeConfig = (&args).into();
+        assert!(transcode_cfg.transcode);
+        assert_eq!(transcode_cfg.codec, "hevc");
+
+        let storage_cfg: StorageConfig = (&args).into();
+        assert_eq!(storage_cfg.min_free_gb, 25);
+        assert_eq!(storage_cfg.out_dir, "Films");
+
+        let integration_cfg: IntegrationConfig = (&args).into();
+        assert_eq!(integration_cfg.webhook_url.as_deref(), Some("https://hooks.example.com"));
+
+        let tv_cfg: TvModeConfig = (&args).into();
+        assert!(tv_cfg.tv);
+        assert_eq!(tv_cfg.season, 2);
+    }
 }
+
