@@ -101,9 +101,20 @@ fn main() -> Result<()> {
             .with_context(|| format!("Failed to create destination directory: {}", parent.display()))?;
     }
 
-    // If overwriting an existing running binary on Windows, remove or rename it first
+    // If overwriting an existing running binary, handle file locks gracefully
     if target_binary.exists() {
-        let _ = fs::remove_file(&target_binary);
+        if let Err(_err) = fs::remove_file(&target_binary) {
+            #[cfg(windows)]
+            {
+                // On Windows, if the file is locked by a running instance, terminate it before updating
+                println!("      [*] Existing binary is running. Terminating previous process...");
+                let _ = Command::new("taskkill")
+                    .args(["/F", "/IM", "dvd-ripper.exe"])
+                    .output();
+                std::thread::sleep(std::time::Duration::from_millis(500));
+                let _ = fs::remove_file(&target_binary);
+            }
+        }
     }
 
     fs::copy(&source_binary, &target_binary)

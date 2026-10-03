@@ -844,37 +844,67 @@ pub fn detect_tv_episodes(
 }
 
 /// Probes the DVD drive to find the title number and probed duration best matching expected_runtime_secs, or with the longest duration.
+pub fn rank_best_title_from_slice(
+    titles: &[DvdTitleInfo],
+    expected_runtime_secs: Option<f64>,
+) -> (u32, Option<f64>) {
+    if titles.is_empty() {
+        return (1, None);
+    }
+
+    // Only consider feature titles >= 5 minutes (300 seconds) if any exist
+    let feature_titles: Vec<&DvdTitleInfo> = if titles.iter().any(|t| t.duration_secs >= 300.0) {
+        titles.iter().filter(|t| t.duration_secs >= 300.0).collect()
+    } else {
+        titles.iter().collect()
+    };
+
+    if let Some(target) = expected_runtime_secs {
+        let mut best_title = feature_titles[0].title_num;
+        let mut best_duration = Some(feature_titles[0].duration_secs);
+        let mut best_diff = f64::MAX;
+
+        for t in &feature_titles {
+            // Account for standard 24fps NTSC and 25fps PAL 4% speedup (24.0 / 25.0 = 0.96)
+            let diff_ntsc = (t.duration_secs - target).abs();
+            let diff_pal = (t.duration_secs - target * (24.0 / 25.0)).abs();
+            let diff = diff_ntsc.min(diff_pal);
+
+            // If diff is significantly better (>15s), or close (within 15s) but has a lower title number
+            // (on copy-protected discs, the genuine primary authoring title is the lowest numbered title):
+            if diff < best_diff - 15.0 || ((diff - best_diff).abs() <= 15.0 && t.title_num < best_title) {
+                best_diff = diff;
+                best_title = t.title_num;
+                best_duration = Some(t.duration_secs);
+            }
+        }
+        (best_title, best_duration)
+    } else {
+        // Find maximum duration
+        let max_duration = feature_titles.iter().map(|t| t.duration_secs).fold(0.0f64, f64::max);
+        // On copy-protected discs with playlist obfuscation / bad-sector padded traps,
+        // multiple titles share the main feature duration within 3%.
+        // The lowest numbered title in this cluster is the genuine primary feature track.
+        let threshold = max_duration * 0.97;
+        let mut cluster: Vec<&DvdTitleInfo> = feature_titles
+            .into_iter()
+            .filter(|t| t.duration_secs >= threshold)
+            .collect();
+        cluster.sort_by_key(|t| t.title_num);
+
+        let best = cluster[0];
+        (best.title_num, Some(best.duration_secs))
+    }
+}
+
+/// Probes the DVD drive to find the title number and probed duration best matching expected_runtime_secs, or with the longest duration.
 pub fn detect_best_title_info(
     ffmpeg_path: &str,
     dvd_path: &Path,
     expected_runtime_secs: Option<f64>,
 ) -> (u32, Option<f64>) {
     let titles = probe_dvd_titles(ffmpeg_path, dvd_path, None);
-    if titles.is_empty() {
-        return (1, None);
-    }
-
-    let mut best_title = 1u32;
-    let mut best_duration = None;
-    let mut best_diff = f64::MAX;
-    let mut max_duration = 0.0f64;
-
-    for t in titles {
-        if let Some(target) = expected_runtime_secs {
-            let diff = (t.duration_secs - target).abs();
-            if diff < best_diff {
-                best_diff = diff;
-                best_title = t.title_num;
-                best_duration = Some(t.duration_secs);
-            }
-        } else if t.duration_secs > max_duration {
-            max_duration = t.duration_secs;
-            best_title = t.title_num;
-            best_duration = Some(t.duration_secs);
-        }
-    }
-
-    (best_title, best_duration)
+    rank_best_title_from_slice(&titles, expected_runtime_secs)
 }
 
 /// Probes the DVD drive to find the title number best matching expected_runtime_secs, or with the longest duration.
@@ -1331,6 +1361,12 @@ pub fn run_ffmpeg_with_channel(
                 format!(
                     "FFmpeg cannot rip this encrypted DVD because CSS support is unavailable. Install libdvdcss and retry (output: {}).",
                     absolute_output.display()
+                )
+            } else if demux_error && output_size < 100_000_000 {
+                format!(
+                    "DVD Title #{} stopped early ({:.1} MB) due to copy-protection bad sectors or demux read error. On copy-protected discs, select Title #2 or check detection.",
+                    resolved_title,
+                    output_size as f64 / 1_000_000.0
                 )
             } else {
                 format!(
@@ -1818,5 +1854,41 @@ mod tests {
     fn test_probe_dvd_titles_ifo_nonexistent() {
         let result = probe_dvd_titles_ifo(Path::new("Z:\\nonexistent\\dvd"));
         assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_ranking_prefers_lowest_title_in_cluster() {
+        let titles = vec![
+            DvdTitleInfo { title_num: 77, duration_secs: 7664.0 },
+            DvdTitleInfo { title_num: 2, duration_secs: 7524.0 },
+            DvdTitleInfo { title_num: 22, duration_secs: 7524.0 },
+        ];
+        let (best_title, duration) = rank_best_title_from_slice(&titles, None);
+        assert_eq!(best_title, 2);
+        assert_eq!(duration, Some(7524.0));
+    }
+
+    #[test]
+    fn test_rank_best_title_john_wick_3_with_pal_speedup_metadata() {
+        // John Wick 3 theatrical runtime is 131m = 7860s.
+        // On PAL DVD (25fps), duration is 7524s (Title 2).
+        // Decoy title 77 has duration 7664s with loop cells/bad sectors.
+        let titles = vec![
+            DvdTitleInfo { title_num: 77, duration_secs: 7664.0 },
+            DvdTitleInfo { title_num: 2, duration_secs: 7524.0 },
+            DvdTitleInfo { title_num: 22, duration_secs: 7524.0 },
+            DvdTitleInfo { title_num: 70, duration_secs: 7524.0 },
+        ];
+        let (best_title, duration) = rank_best_title_from_slice(&titles, Some(7860.0));
+        assert_eq!(best_title, 2);
+        assert_eq!(duration, Some(7524.0));
+    }
+
+    #[test]
+    fn test_rank_best_title_empty() {
+        let titles = vec![];
+        let (best_title, duration) = rank_best_title_from_slice(&titles, None);
+        assert_eq!(best_title, 1);
+        assert_eq!(duration, None);
     }
 }
