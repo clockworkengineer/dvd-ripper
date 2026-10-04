@@ -1121,6 +1121,83 @@ pub fn run_ffmpeg_with_progress(
     )
 }
 
+/// Evaluates whether an FFmpeg rip execution resulted in a verified, successful output
+/// despite potential trailing disc errors or demux EOF notices.
+#[derive(Debug, PartialEq)]
+pub enum RipOutcome {
+    Success,
+    TrailingSectorNotice {
+        exit_code: Option<i32>,
+        output_size_mb: f64,
+        ripped_mins: f64,
+    },
+    FatalError(String),
+}
+
+pub fn evaluate_rip_outcome(
+    exit_status_success: bool,
+    exit_code: Option<i32>,
+    output_size: u64,
+    last_progress_secs: f64,
+    total_seconds: Option<f64>,
+    demux_error: bool,
+    empty_output: bool,
+    css_error: bool,
+    resolved_title: u32,
+    output_path: &Path,
+    last_error_lines: &[String],
+    is_batch: bool,
+) -> RipOutcome {
+    let min_valid_size = if is_batch { 30_000_000 } else { 50_000_000 };
+    let is_premature_demux_error = demux_error && output_size < min_valid_size;
+    let is_fatal_error = output_size == 0 || is_premature_demux_error || empty_output || css_error;
+
+    // Detect if the movie/episode feature was fully ripped to completion before optical drive EOF / bad sector traps
+    let has_completed_feature = output_size >= min_valid_size
+        && !css_error
+        && !empty_output
+        && (last_progress_secs >= 300.0)
+        && (total_seconds.is_none() || last_progress_secs >= total_seconds.unwrap_or(0.0) * 0.85);
+
+    if exit_status_success && !is_fatal_error {
+        RipOutcome::Success
+    } else if has_completed_feature {
+        RipOutcome::TrailingSectorNotice {
+            exit_code,
+            output_size_mb: output_size as f64 / 1_000_000.0,
+            ripped_mins: last_progress_secs / 60.0,
+        }
+    } else {
+        let err_msg = if css_error {
+            format!(
+                "FFmpeg cannot rip this encrypted DVD because CSS support is unavailable. Install libdvdcss and retry (output: {}).",
+                output_path.display()
+            )
+        } else if is_premature_demux_error {
+            format!(
+                "DVD Title #{} stopped early ({:.1} MB) due to copy-protection bad sectors or demux read error. On copy-protected discs, select Title #2 or check detection.",
+                resolved_title,
+                output_size as f64 / 1_000_000.0
+            )
+        } else if !exit_status_success {
+            let detail = if !last_error_lines.is_empty() {
+                format!(": {}", last_error_lines.join(" | "))
+            } else {
+                String::new()
+            };
+            format!("FFmpeg exited with non-zero status code: {:?}{}", exit_code, detail)
+        } else {
+            format!(
+                "FFmpeg did not produce a valid rip at {} (output size: {} bytes; DVD demux error: {})",
+                output_path.display(),
+                output_size,
+                demux_error
+            )
+        };
+        RipOutcome::FatalError(err_msg)
+    }
+}
+
 /// Executes FFmpeg child process, sending events over a channel and allowing cancellation.
 pub fn run_ffmpeg_with_channel(
     args: &Args,
@@ -1212,6 +1289,7 @@ pub fn run_ffmpeg_with_channel(
     let mut demux_error = false;
     let mut empty_output = false;
     let mut css_error = false;
+    let mut last_progress_secs: f64 = 0.0;
     let mut last_error_lines: std::collections::VecDeque<String> = std::collections::VecDeque::with_capacity(10);
 
     let mut buf = [0u8; 1024];
@@ -1316,12 +1394,21 @@ pub fn run_ffmpeg_with_channel(
                     if let Some(time_str) = extract_kv_field(&line, "time=") {
                         let clean_time = time_str.trim_start_matches('-');
                         if let Some(secs) = parse_duration(clean_time) {
+                            last_progress_secs = secs;
                             let speed = extract_kv_field(&line, "speed=").unwrap_or("N/A").to_string();
                             let fps = extract_kv_field(&line, "fps=").unwrap_or("N/A").to_string();
 
+                            // If encoding progresses past estimated total duration (e.g. unprobed credits/cells),
+                            // dynamically expand total_seconds so progress doesn't stall at 100% prematurely.
+                            if let Some(total) = total_seconds {
+                                if secs >= total {
+                                    total_seconds = Some(secs + 30.0);
+                                }
+                            }
+
                             let percent = if let Some(total) = total_seconds {
                                 if total > 0.0 {
-                                    (secs / total * 100.0).min(100.0).max(0.0)
+                                    (secs / total * 100.0).min(99.5).max(0.0)
                                 } else {
                                     0.0
                                 }
@@ -1374,72 +1461,89 @@ pub fn run_ffmpeg_with_channel(
     }
 
     let status = child.wait().context("Failed to wait on FFmpeg process")?;
+    let output_size = std::fs::metadata(absolute_output)
+        .map(|metadata| metadata.len())
+        .unwrap_or(0);
 
-    if status.success() {
-        let output_size = std::fs::metadata(absolute_output)
-            .map(|metadata| metadata.len())
-            .unwrap_or(0);
-        if output_size == 0 || demux_error || empty_output || css_error {
-            let err_msg = if css_error {
-                format!(
-                    "FFmpeg cannot rip this encrypted DVD because CSS support is unavailable. Install libdvdcss and retry (output: {}).",
-                    absolute_output.display()
-                )
-            } else if demux_error && output_size < 100_000_000 {
-                format!(
-                    "DVD Title #{} stopped early ({:.1} MB) due to copy-protection bad sectors or demux read error. On copy-protected discs, select Title #2 or check detection.",
-                    resolved_title,
-                    output_size as f64 / 1_000_000.0
-                )
-            } else {
-                format!(
-                    "FFmpeg did not produce a valid rip at {} (output size: {} bytes; DVD demux error: {})",
-                    absolute_output.display(),
-                    output_size,
-                    demux_error
-                )
-            };
-            crate::api::fail_appliance_status(display_title, "", &err_msg);
+    let err_lines_vec: Vec<String> = last_error_lines.into_iter().collect();
+    let outcome = evaluate_rip_outcome(
+        status.success(),
+        status.code(),
+        output_size,
+        last_progress_secs,
+        total_seconds,
+        demux_error,
+        empty_output,
+        css_error,
+        resolved_title,
+        absolute_output,
+        &err_lines_vec,
+        is_batch,
+    );
+
+    match outcome {
+        RipOutcome::Success => {
+            crate::api::update_appliance_status("Completed", "", display_title, 100.0, "N/A", "N/A");
             if let Some(ref sender) = tx {
-                let _ = sender.send(ProgressEvent::Error(err_msg.clone()));
+                let _ = sender.send(ProgressEvent::Progress {
+                    percent: 100.0,
+                    fps: "N/A".to_string(),
+                    speed: "N/A".to_string(),
+                });
+            }
+            let succ_msg = format!("Success! DVD ripped successfully to: {}", absolute_output.display());
+            if tx.is_none() {
+                println!("\n\n{}", succ_msg);
+            } else if let Some(ref sender) = tx {
+                if is_batch {
+                    let _ = sender.send(ProgressEvent::Log(format!("Successfully finished episode: {}", absolute_output.display())));
+                } else {
+                    let _ = sender.send(ProgressEvent::Success(absolute_output.to_path_buf()));
+                }
+            }
+            Ok(())
+        }
+        RipOutcome::TrailingSectorNotice { exit_code, output_size_mb, ripped_mins } => {
+            let notice = format!(
+                "Notice: Optical drive encountered trailing bad sectors / EOF notice at end of disc ({:?}), but feature was successfully ripped ({:.1} MB, {:.0} mins).",
+                exit_code,
+                output_size_mb,
+                ripped_mins
+            );
+            if let Some(ref sender) = tx {
+                let _ = sender.send(ProgressEvent::Log(notice.clone()));
             } else {
+                println!("{}", notice);
+            }
+            crate::api::update_appliance_status("Completed", "", display_title, 100.0, "N/A", "N/A");
+            if let Some(ref sender) = tx {
+                let _ = sender.send(ProgressEvent::Progress {
+                    percent: 100.0,
+                    fps: "N/A".to_string(),
+                    speed: "N/A".to_string(),
+                });
+            }
+            let succ_msg = format!("Success! DVD ripped successfully to: {}", absolute_output.display());
+            if tx.is_none() {
+                println!("\n\n{}", succ_msg);
+            } else if let Some(ref sender) = tx {
+                if is_batch {
+                    let _ = sender.send(ProgressEvent::Log(format!("Successfully finished episode: {}", absolute_output.display())));
+                } else {
+                    let _ = sender.send(ProgressEvent::Success(absolute_output.to_path_buf()));
+                }
+            }
+            Ok(())
+        }
+        RipOutcome::FatalError(err_msg) => {
+            crate::api::fail_appliance_status(display_title, "", &err_msg);
+            if tx.is_none() {
                 eprintln!("\n{}", err_msg);
+            } else if let Some(ref sender) = tx {
+                let _ = sender.send(ProgressEvent::Error(err_msg.clone()));
             }
-            return Err(anyhow!(err_msg));
+            Err(anyhow!(err_msg))
         }
-
-        crate::api::update_appliance_status("Completed", "", display_title, 100.0, "N/A", "N/A");
-        if let Some(ref sender) = tx {
-            let _ = sender.send(ProgressEvent::Progress {
-                percent: 100.0,
-                fps: "N/A".to_string(),
-                speed: "N/A".to_string(),
-            });
-        }
-        let succ_msg = format!("Success! DVD ripped successfully to: {}", absolute_output.display());
-        if tx.is_none() {
-            println!("\n\n{}", succ_msg);
-        } else if let Some(ref sender) = tx {
-            if is_batch {
-                let _ = sender.send(ProgressEvent::Log(format!("Successfully finished episode: {}", absolute_output.display())));
-            } else {
-                let _ = sender.send(ProgressEvent::Success(absolute_output.to_path_buf()));
-            }
-        }
-        Ok(())
-    } else {
-        let detail = if !last_error_lines.is_empty() {
-            format!(": {}", last_error_lines.into_iter().collect::<Vec<_>>().join(" | "))
-        } else {
-            String::new()
-        };
-        let err_msg = format!("FFmpeg exited with non-zero status code: {:?}{}", status.code(), detail);
-        if tx.is_none() {
-            eprintln!("\n{}", err_msg);
-        } else if let Some(ref sender) = tx {
-            let _ = sender.send(ProgressEvent::Error(err_msg.clone()));
-        }
-        Err(anyhow!(err_msg))
     }
 }
 
@@ -1946,4 +2050,81 @@ mod tests {
         assert_eq!(best_title, 1);
         assert_eq!(duration, None);
     }
+
+    #[test]
+    fn test_evaluate_rip_outcome_john_wick_3_trailing_sectors() {
+        // John Wick 3: 7547 seconds ripped, 952MB output, title duration 7312.4s.
+        // At EOF, optical drive hits bad sector / demux EOF trap and exits non-zero (code 1).
+        let out_path = Path::new("Films/John Wick Chapter 3 - Parabellum (2019)/movie.mp4");
+        let outcome = evaluate_rip_outcome(
+            false,
+            Some(1),
+            952_660_706,
+            7546.96,
+            Some(7312.4),
+            true,
+            false,
+            false,
+            2,
+            out_path,
+            &["Error during demuxing: Input/output error".to_string()],
+            false,
+        );
+        match outcome {
+            RipOutcome::TrailingSectorNotice { exit_code, output_size_mb, ripped_mins } => {
+                assert_eq!(exit_code, Some(1));
+                assert!(output_size_mb > 900.0);
+                assert!(ripped_mins > 120.0);
+            }
+            _ => panic!("Expected TrailingSectorNotice, got {:?}", outcome),
+        }
+    }
+
+    #[test]
+    fn test_evaluate_rip_outcome_success_with_demux_warning() {
+        // Normal success with demux warning mid-stream or at end, but full size
+        let out_path = Path::new("Films/Movie/movie.mp4");
+        let outcome = evaluate_rip_outcome(
+            true,
+            Some(0),
+            800_000_000,
+            5000.0,
+            Some(5000.0),
+            true,
+            false,
+            false,
+            1,
+            out_path,
+            &[],
+            false,
+        );
+        assert_eq!(outcome, RipOutcome::Success);
+    }
+
+    #[test]
+    fn test_evaluate_rip_outcome_early_demux_error() {
+        // Early stop on decoy trap (only 20MB produced)
+        let out_path = Path::new("Films/Movie/movie.mp4");
+        let outcome = evaluate_rip_outcome(
+            false,
+            Some(1),
+            20_000_000,
+            120.0,
+            Some(7200.0),
+            true,
+            false,
+            false,
+            1,
+            out_path,
+            &["Error during demuxing".to_string()],
+            false,
+        );
+        match outcome {
+            RipOutcome::FatalError(err) => {
+                assert!(err.contains("stopped early"));
+            }
+            _ => panic!("Expected FatalError, got {:?}", outcome),
+        }
+    }
 }
+
