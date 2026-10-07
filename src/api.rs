@@ -579,6 +579,29 @@ pub fn execute_rip_for_drive(
             } else {
                 Err(anyhow::anyhow!("Ripping cancelled or failed"))
             }
+        } else if args.iso {
+            if let Ok(out_path) = crate::ffmpeg::resolve_output_path(&args, Some(&title), year) {
+                update_drive_status(&drive_clone, "Ripping", "", &title, 0.0, "0", "0x");
+                let label = crate::dvd::get_volume_label(&dvd_path.to_string_lossy());
+                let run_res = crate::iso::dump_disc_to_iso(
+                    &drive_clone,
+                    &out_path,
+                    label.as_deref(),
+                    Some(&cancel_flag),
+                    Some(&event_tx),
+                );
+                if run_res.is_ok() {
+                    let _ = crate::history::record_rip_event(&title, "ISO Image", &out_path.to_string_lossy(), "Success");
+                    Ok(())
+                } else {
+                    if cancel_flag.load(Ordering::SeqCst) {
+                        let _ = crate::history::record_rip_event(&title, "ISO Image", &out_path.to_string_lossy(), "Cancelled");
+                    }
+                    Err(anyhow::anyhow!("ISO dump cancelled or failed"))
+                }
+            } else {
+                Err(anyhow::anyhow!("Failed to resolve output path"))
+            }
         } else {
             if let Ok(out_path) = crate::ffmpeg::resolve_output_path(&args, Some(&title), year) {
                 update_drive_status(&drive_clone, "Ripping", "", &title, 0.0, "0", "0x");
@@ -1079,6 +1102,10 @@ pub const OPENAPI_V3_JSON: &str = r#"{
     "/api/rip": {
       "post": {
         "summary": "Trigger DVD ripping process",
+        "parameters": [
+          { "name": "drive", "in": "query", "required": false, "schema": { "type": "string" } },
+          { "name": "iso", "in": "query", "required": false, "schema": { "type": "boolean" }, "description": "Dump exact 1:1 ISO disc image" }
+        ],
         "responses": { "200": { "description": "Job trigger response" } }
       }
     },
@@ -1355,8 +1382,25 @@ fn handle_client(mut stream: TcpStream, drive_path: &str) -> Result<()> {
                 }
             }
         }
+        let mut is_iso = parse_query_param(&path_str, "iso")
+            .map(|v| v.eq_ignore_ascii_case("true") || v == "1")
+            .unwrap_or(false);
+        if !is_iso && !body_str.trim().is_empty() {
+            if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(body_str) {
+                if let Some(b) = parsed.get("iso").and_then(|v| v.as_bool()) {
+                    is_iso = b;
+                }
+            }
+        }
         let chosen_drive = target_drive.unwrap_or_else(|| drive_path.to_string());
-        match execute_rip_for_drive(&chosen_drive, None) {
+        let custom_args = if is_iso {
+            let mut a = crate::cli::Args::default();
+            a.iso = true;
+            Some(a)
+        } else {
+            None
+        };
+        match execute_rip_for_drive(&chosen_drive, custom_args) {
             Ok(()) => {
                 let resp_obj = serde_json::json!({
                     "success": true,

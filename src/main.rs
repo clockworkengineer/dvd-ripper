@@ -18,6 +18,7 @@ mod gui;
 mod history;
 mod imdb;
 pub mod infrastructure;
+pub mod iso;
 mod mqtt;
 mod ocr;
 mod queue;
@@ -272,6 +273,7 @@ fn main() -> Result<()> {
                 || arg == "--search"
                 || arg == "--imdb-id"
                 || arg == "--select-index"
+                || arg == "--iso"
         });
 
         if !is_cli {
@@ -358,8 +360,15 @@ fn main() -> Result<()> {
     let resolved_out_dir = crate::utils::check_disk_space_guard_with_fallback(std::path::Path::new(&args.out_dir), fb_dir, args.min_free_gb)?;
     args.out_dir = resolved_out_dir.to_string_lossy().to_string();
 
-    // 3. Execution path for TV series vs Movie
-    if args.tv {
+    // 3. Execution path for Archival 1:1 ISO dump vs TV series vs Movie
+    if args.iso {
+        let absolute_output = resolve_output_path(&args, title_name.as_deref(), title_year)?;
+        println!("Archival ISO dump will be saved to: {}", absolute_output.display());
+        let label = volume_label.as_deref();
+        crate::iso::dump_disc_to_iso(&args.input, &absolute_output, label, None, None)?;
+        println!("\nSuccessfully completed archival 1:1 ISO dump of disc!");
+        last_output_file = Some(absolute_output);
+    } else if args.tv {
         let show_name = title_name.as_deref().unwrap_or("TV Show");
 
         if args.auto_boxset && args.start_episode == 1 {

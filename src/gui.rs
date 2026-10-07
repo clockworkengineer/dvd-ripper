@@ -40,6 +40,7 @@ pub struct DvdRipperApp {
     title_number: u32,
     transcode: bool,
     mkv: bool,
+    pub iso_mode: bool,
     preset: String,
     ffmpeg_path: String,
     expected_runtime_secs: Option<f64>,
@@ -128,6 +129,7 @@ impl Default for DvdRipperApp {
             title_number: 0,
             transcode: false,
             mkv: false,
+            iso_mode: false,
             preset: "veryfast".to_string(),
             ffmpeg_path: "ffmpeg".to_string(),
             expected_runtime_secs: None,
@@ -287,6 +289,7 @@ impl DvdRipperApp {
             auto_rip: false,
             tonemap: None,
             ignore_errors: true,
+            iso: self.iso_mode,
         }
     }
 
@@ -543,6 +546,7 @@ impl DvdRipperApp {
         let cancel_flag = Arc::new(AtomicBool::new(false));
         self.cancel_flag = Some(cancel_flag.clone());
 
+        let is_iso = self.iso_mode;
         let is_tv = self.is_tv_mode;
         let all_eps = self.all_episodes;
         let show_name_opt = self.film_name_opt();
@@ -562,6 +566,42 @@ impl DvdRipperApp {
         std::thread::spawn(move || {
             if let Err(e) = crate::utils::check_disk_space_guard(std::path::Path::new(&out_dir), opts.min_free_gb) {
                 let _ = tx.send(ProgressEvent::Error(format!("{}", e)));
+                return;
+            }
+
+            if is_iso {
+                let mut args = Args::new_movie(
+                    drive.clone(),
+                    out_dir.clone(),
+                    title_num,
+                    false,
+                    preset.clone(),
+                    ffmpeg_path.clone(),
+                );
+                args.iso = true;
+                args.apply_encoding_options(opts.clone());
+
+                match resolve_output_path(&args, show_name_opt.as_deref(), year_opt) {
+                    Ok(abs_out) => {
+                        let label = crate::dvd::get_volume_label(&dvd_path.to_string_lossy());
+                        if let Err(e) = crate::iso::dump_disc_to_iso(
+                            &drive,
+                            &abs_out,
+                            label.as_deref(),
+                            Some(&cancel_flag),
+                            Some(&tx),
+                        ) {
+                            if cancel_flag.load(Ordering::SeqCst) {
+                                let _ = tx.send(ProgressEvent::Error("Archival ISO dump cancelled by user.".to_string()));
+                            } else {
+                                let _ = tx.send(ProgressEvent::Error(format!("ISO dump error: {}", e)));
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        let _ = tx.send(ProgressEvent::Error(format!("Path resolution error: {}", e)));
+                    }
+                }
                 return;
             }
 
@@ -1137,6 +1177,8 @@ impl eframe::App for DvdRipperApp {
                         ui.label("Ripping Mode:");
                         ui.radio_value(&mut self.is_tv_mode, false, "🎬 Movie");
                         ui.radio_value(&mut self.is_tv_mode, true, "📺 TV Series");
+                        ui.separator();
+                        ui.checkbox(&mut self.iso_mode, "📀 1:1 ISO Dump");
 
                         if !self.is_tv_mode || !self.all_episodes {
                             ui.separator();
@@ -1443,7 +1485,9 @@ impl eframe::App for DvdRipperApp {
 
                 ui.horizontal(|ui| {
                     if !self.is_ripping && !self.detecting {
-                        let btn_label = if self.is_tv_mode && self.all_episodes {
+                        let btn_label = if self.iso_mode {
+                            "📀 Dump 1:1 ISO Image"
+                        } else if self.is_tv_mode && self.all_episodes {
                             "▶ Batch Rip All Episodes"
                         } else {
                             "▶ Start Rip"

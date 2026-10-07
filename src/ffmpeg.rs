@@ -144,7 +144,9 @@ pub fn resolve_output_path(
     film_name: Option<&str>,
     film_year: Option<u32>,
 ) -> Result<PathBuf> {
-    let extension = if args.mkv {
+    let extension = if args.iso {
+        "iso"
+    } else if args.mkv {
         "mkv"
     } else if is_transcode_enabled(args) {
         "mp4"
@@ -1840,6 +1842,21 @@ mod tests {
 
         let path = resolve_output_path(&args, Some("Aliens"), Some(1986)).unwrap();
         assert!(path.to_string_lossy().contains("Aliens (1986).mkv"));
+    }
+
+    #[test]
+    fn test_resolve_output_path_iso() {
+        let temp = TestTempDir::new("iso_out_dir");
+        let out_dir_str = temp.0.to_string_lossy().to_string();
+
+        let args = Args {
+            out_dir: out_dir_str,
+            iso: true,
+            ..Default::default()
+        };
+
+        let path = resolve_output_path(&args, Some("Aliens"), Some(1986)).unwrap();
+        assert!(path.to_string_lossy().contains("Aliens (1986).iso"));
     }
 
     #[test]

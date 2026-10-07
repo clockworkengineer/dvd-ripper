@@ -37,6 +37,10 @@ pub struct Args {
     #[arg(long)]
     pub mkv: bool,
 
+    /// Create an exact archival 1:1 byte-for-byte ISO disc image without re-encoding
+    #[arg(long)]
+    pub iso: bool,
+
     /// Video codec for transcoding (e.g. h264, hevc, av1, copy)
     #[arg(long, default_value = "h264")]
     pub codec: String,
@@ -323,6 +327,7 @@ impl Default for Args {
             title: 0,
             transcode: false,
             mkv: false,
+            iso: false,
             codec: "h264".to_string(),
             profile: "standard".to_string(),
             preset: "veryfast".to_string(),
@@ -402,6 +407,7 @@ pub struct EncodingOptions {
     pub normalize_audio: bool,
     pub dual_audio: bool,
     pub mkv: bool,
+    pub iso: bool,
     pub codec: String,
     pub profile: String,
     pub audio_lang: Option<String>,
@@ -449,6 +455,7 @@ impl Args {
         self.normalize_audio = opts.normalize_audio;
         self.dual_audio = opts.dual_audio;
         self.mkv = opts.mkv;
+        self.iso = opts.iso;
         self.codec = opts.codec;
         self.profile = opts.profile;
         self.audio_lang = opts.audio_lang;
@@ -530,6 +537,7 @@ impl EncodingOptionProvider for Args {
             auto_rip: self.auto_rip,
             tonemap: self.tonemap.clone(),
             ignore_errors: self.ignore_errors,
+            iso: self.iso,
             ..Default::default()
         }
     }
