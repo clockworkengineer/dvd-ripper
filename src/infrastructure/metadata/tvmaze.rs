@@ -23,6 +23,7 @@ struct TvMazeEmbedded {
 }
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 struct TvMazeShowResponse {
     pub id: u64,
     pub name: String,

@@ -1056,6 +1056,12 @@ pub const OPENAPI_V3_JSON: &str = r#"{
         "responses": { "200": { "description": "History records array" } }
       }
     },
+    "/api/disc-cache": {
+      "get": {
+        "summary": "List persistent disc fingerprint cache entries",
+        "responses": { "200": { "description": "Cached disc entries array" } }
+      }
+    },
     "/api/search": {
       "get": {
         "summary": "Search IMDb/OMDb metadata candidates",
@@ -1240,6 +1246,11 @@ fn handle_client(mut stream: TcpStream, drive_path: &str) -> Result<()> {
                 send_http_response(&mut stream, "500 Internal Server Error", "application/json", &body)?;
             }
         }
+    } else if method_str == "GET" && (path_str == "/api/disc-cache" || path_str.starts_with("/api/disc-cache")) {
+        let cache = crate::infrastructure::metadata::DiskFingerprintCache::new();
+        let entries = cache.list_all_entries();
+        let json_body = serde_json::to_string(&entries).unwrap_or_else(|_| "[]".to_string());
+        send_http_response(&mut stream, "200 OK", "application/json", &json_body)?;
     } else if method_str == "GET" && path_str == "/api/queue/list" {
         let jobs = crate::queue::list_jobs();
         let json_body = serde_json::to_string(&jobs).unwrap_or_else(|_| "[]".to_string());
@@ -1846,6 +1857,9 @@ mod tests {
 
         let req2 = b"GET /api/status HTTP/1.1\r\nHost: localhost\r\n\r\n";
         assert_eq!(parse_http_route(req2), (b"GET" as &[u8], b"/api/status" as &[u8]));
+
+        let req_cache = b"GET /api/disc-cache HTTP/1.1\r\nHost: localhost\r\n\r\n";
+        assert_eq!(parse_http_route(req_cache), (b"GET" as &[u8], b"/api/disc-cache" as &[u8]));
 
         let req3 = b"POST /api/eject HTTP/1.1\r\nHost: localhost\r\n\r\n";
         assert_eq!(parse_http_route(req3), (b"POST" as &[u8], b"/api/eject" as &[u8]));

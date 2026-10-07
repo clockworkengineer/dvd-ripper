@@ -360,9 +360,35 @@ impl DvdRipperApp {
                 }
             }
 
+            let volume_label = get_volume_label(&dvd_path.to_string_lossy());
+            if query_override.is_none() {
+                if volume_label.is_some() {
+                    let fp = crate::dvd::compute_disc_fingerprint(&dvd_path.to_string_lossy());
+                    let cache = crate::infrastructure::metadata::DiskFingerprintCache::new();
+                    if let Some(entry) = cache.lookup_entry(&fp) {
+                        let _ = tx.send(ProgressEvent::Log(format!(
+                            "💾 Instant Recognition from Disc Cache: {} ({:?})",
+                            entry.metadata.title, entry.metadata.year
+                        )));
+                        let clean = sanitize_filename(&entry.metadata.title);
+                        let year_str = entry.metadata.year.map(|y| y.to_string()).unwrap_or_default();
+                        let runtime_desc = entry.metadata
+                            .runtime_secs
+                            .map(|r| format!(" [Runtime: {:.0}m]", r / 60.0))
+                            .unwrap_or_default();
+                        let _ = tx.send(ProgressEvent::Log(format!(
+                            "Metadata Found: {} ({}){}",
+                            clean, year_str, runtime_desc
+                        )));
+                        let _ = tx.send(ProgressEvent::Metadata(entry.to_imdb_metadata()));
+                        return;
+                    }
+                }
+            }
+
             let search_term = if let Some(q) = query_override {
                 q
-            } else if let Some(label) = get_volume_label(&dvd_path.to_string_lossy()) {
+            } else if let Some(label) = volume_label {
                 let _ = tx.send(ProgressEvent::Log(format!("Detected Volume Label: {}", label)));
                 label
             } else {
@@ -881,6 +907,35 @@ impl DvdRipperApp {
 
                     if let Some(ref bytes) = self.raw_poster_bytes {
                         let _ = crate::utils::save_cover_artworks(&path, bytes);
+                    }
+
+                    // Save verified settings into persistent disc fingerprint cache
+                    let dvd_path = normalize_dvd_path(&self.input_drive);
+                    if let Some(label) = get_volume_label(&dvd_path.to_string_lossy()) {
+                        let fp = crate::dvd::compute_disc_fingerprint(&dvd_path.to_string_lossy());
+                        let entry = crate::infrastructure::metadata::CachedDiscEntry {
+                            fingerprint: fp,
+                            volume_label: Some(label),
+                            metadata: crate::domain::entities::media::FilmMetadata {
+                                title: self.film_name.clone(),
+                                year: self.film_year.parse().ok(),
+                                runtime_secs: self.expected_runtime_secs,
+                                poster_url: None,
+                                plot: if self.plot.is_empty() { None } else { Some(self.plot.clone()) },
+                                genre: if self.genre.is_empty() { None } else { Some(self.genre.clone()) },
+                                director: if self.director.is_empty() { None } else { Some(self.director.clone()) },
+                                actors: if self.actors.is_empty() { None } else { Some(self.actors.clone()) },
+                                rating: if self.rating.is_empty() { None } else { Some(self.rating.clone()) },
+                                is_series: self.is_tv_mode,
+                                total_seasons: None,
+                                poster_bytes: self.raw_poster_bytes.clone(),
+                            },
+                            title_number: if self.title_number > 0 { Some(self.title_number) } else { None },
+                            is_tv: self.is_tv_mode,
+                            season: if self.is_tv_mode { Some(self.season_number) } else { None },
+                            cached_at: chrono::Local::now().to_rfc3339(),
+                        };
+                        let _ = crate::infrastructure::metadata::DiskFingerprintCache::new().save_entry(&entry);
                     }
 
                     if !self.no_eject {
