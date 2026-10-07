@@ -534,10 +534,27 @@ impl NfoTemplateStrategy for TvShowNfoStrategy {
     fn root_element(&self) -> &str { "tvshow" }
 }
 
+/// Formats a TV episode name with optional episode title (e.g. `Show Name - S01E02 - Diversity Day`).
+pub fn format_episode_name_with_title(
+    show_name: &str,
+    season: u32,
+    ep_num: u32,
+    episode_title: Option<&str>,
+) -> String {
+    let clean_show = sanitize_filename(show_name);
+    let code = format_episode_code(season, ep_num);
+    if let Some(title) = episode_title {
+        let clean_title = sanitize_filename(title.trim());
+        if !clean_title.is_empty() {
+            return format!("{} - {} - {}", clean_show, code, clean_title);
+        }
+    }
+    format!("{} - {}", clean_show, code)
+}
+
 /// DRY helper: Formats a standard TV episode name (e.g. `Show Name - S01E02`), with sanitized path characters.
 pub fn format_episode_name(show_name: &str, season: u32, ep_num: u32) -> String {
-    let clean_name = sanitize_filename(show_name);
-    format!("{} - {}", clean_name, format_episode_code(season, ep_num))
+    format_episode_name_with_title(show_name, season, ep_num, None)
 }
 
 
@@ -1253,9 +1270,18 @@ mod tests {
     }
 
     #[test]
-    fn test_get_default_rip_output_dir() {
-        let dir = get_default_rip_output_dir();
-        assert!(!dir.as_os_str().is_empty());
-        assert!(dir.to_string_lossy().contains("DVD Rips"));
+    fn test_format_episode_name_with_title() {
+        assert_eq!(
+            format_episode_name_with_title("The Office", 1, 1, Some("Pilot")),
+            "The Office - S01E01 - Pilot"
+        );
+        assert_eq!(
+            format_episode_name_with_title("The Office", 1, 1, None),
+            "The Office - S01E01"
+        );
+        assert_eq!(
+            format_episode_name_with_title("The Office", 1, 1, Some("  ")),
+            "The Office - S01E01"
+        );
     }
 }

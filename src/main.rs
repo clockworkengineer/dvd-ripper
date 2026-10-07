@@ -31,7 +31,7 @@ use cli::Args;
 use daemon::run_daemon;
 use dvd::{get_volume_label, normalize_dvd_path};
 use ffmpeg::{
-    detect_tv_episodes, resolve_output_path, resolve_tv_output_path, run_ffmpeg_with_progress,
+    detect_tv_episodes, resolve_output_path, run_ffmpeg_with_progress,
 };
 use imdb::{fetch_search_candidates, lookup_film_details, lookup_omdb_by_id};
 use utils::sanitize_filename;
@@ -398,22 +398,32 @@ fn main() -> Result<()> {
 
             println!("Found {} episode titles on disc.", episodes.len());
 
+            let tvmaze_episodes = crate::infrastructure::metadata::fetch_tvmaze_episodes(show_name).unwrap_or_default();
+
             for (idx, ep) in episodes.iter().enumerate() {
+                let ep_title = crate::infrastructure::metadata::find_episode_title(&tvmaze_episodes, args.season, ep.episode_num);
+                let display_title = if let Some(ref t) = ep_title {
+                    format!("{} - {}", ep.formatted_name, t)
+                } else {
+                    ep.formatted_name.clone()
+                };
+
                 println!(
                     "\n=== Ripping Episode {}/{}: {} (Title #{}, {:.0} mins) ===",
                     idx + 1,
                     episodes.len(),
-                    ep.formatted_name,
+                    display_title,
                     ep.title_num,
                     ep.duration_secs / 60.0
                 );
 
-                let ep_output = resolve_tv_output_path(
+                let ep_output = crate::ffmpeg::resolve_tv_output_path_with_title(
                     &args,
                     Some(show_name),
                     title_year,
                     args.season,
                     ep.episode_num,
+                    ep_title.as_deref(),
                 )?;
 
                 let mut ep_args = args.clone();
@@ -423,10 +433,10 @@ fn main() -> Result<()> {
                     &ep_args,
                     &dvd_path,
                     &ep_output,
-                    &ep.formatted_name,
+                    &display_title,
                     Some(ep.duration_secs),
                 )?;
-                let _ = crate::ocr::process_subtitle_ocr_sidecar(&ep_args, &ep_output, &ep.formatted_name);
+                let _ = crate::ocr::process_subtitle_ocr_sidecar(&ep_args, &ep_output, &display_title);
                 last_output_file = Some(ep_output);
             }
 
@@ -446,16 +456,19 @@ fn main() -> Result<()> {
             } else {
                 1
             };
-            let ep_output = resolve_tv_output_path(
+            let tvmaze_episodes = crate::infrastructure::metadata::fetch_tvmaze_episodes(show_name).unwrap_or_default();
+            let ep_title = crate::infrastructure::metadata::find_episode_title(&tvmaze_episodes, args.season, ep_num);
+            let ep_output = crate::ffmpeg::resolve_tv_output_path_with_title(
                 &args,
                 Some(show_name),
                 title_year,
                 args.season,
                 ep_num,
+                ep_title.as_deref(),
             )?;
             println!("Output file will be saved to: {}", ep_output.display());
 
-            let ep_name = format!("{} - S{:02}E{:02}", show_name, args.season, ep_num);
+            let ep_name = crate::utils::format_episode_name_with_title(show_name, args.season, ep_num, ep_title.as_deref());
             run_ffmpeg_with_progress(
                 &args,
                 &dvd_path,

@@ -249,6 +249,10 @@ pub struct Args {
     #[arg(long = "audio-title")]
     pub audio_title: Option<String>,
 
+    /// Ignore read errors and discard corrupt packets for scratched discs or copy-protection traps (-err_detect ignore_err -fflags +genpts+discardcorrupt)
+    #[arg(long = "ignore-errors", default_value_t = true)]
+    pub ignore_errors: bool,
+
     /// Path to JSON-Lines structured audit log file (e.g. audit.jsonl)
     #[arg(long = "audit-log")]
     pub audit_log: Option<String>,
@@ -387,6 +391,7 @@ impl Default for Args {
             drive_pool: None,
             auto_rip: false,
             tonemap: None,
+            ignore_errors: true,
         }
     }
 }
@@ -435,6 +440,7 @@ pub struct EncodingOptions {
     pub drive_pool: Option<String>,
     pub auto_rip: bool,
     pub tonemap: Option<String>,
+    pub ignore_errors: bool,
 }
 
 impl Args {
@@ -481,6 +487,7 @@ impl Args {
         self.drive_pool = opts.drive_pool;
         self.auto_rip = opts.auto_rip;
         self.tonemap = opts.tonemap;
+        self.ignore_errors = opts.ignore_errors;
     }
 }
 
@@ -522,6 +529,7 @@ impl EncodingOptionProvider for Args {
             drive_pool: self.drive_pool.clone(),
             auto_rip: self.auto_rip,
             tonemap: self.tonemap.clone(),
+            ignore_errors: self.ignore_errors,
             ..Default::default()
         }
     }

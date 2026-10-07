@@ -1212,6 +1212,34 @@ fn handle_client(mut stream: TcpStream, drive_path: &str) -> Result<()> {
         let history = load_history(None);
         let json_body = serde_json::to_string(&history).unwrap_or_else(|_| "[]".to_string());
         send_http_response(&mut stream, "200 OK", "application/json", &json_body)?;
+    } else if method_str == "GET" && path_str.starts_with("/api/thumbnail") {
+        let title_num: u32 = parse_query_param(&path_str, "title")
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(1);
+        let time_sec: f64 = parse_query_param(&path_str, "time")
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(120.0);
+        let drive = parse_query_param(&path_str, "drive")
+            .unwrap_or_else(|| drive_path.to_string());
+
+        let temp_thumb = std::env::temp_dir().join(format!("dvd_ripper_thumb_{}.jpg", title_num));
+        let ffmpeg_path = std::env::var("FFMPEG").unwrap_or_else(|_| "ffmpeg".to_string());
+
+        match crate::ffmpeg::generate_title_thumbnail(&ffmpeg_path, std::path::Path::new(&drive), title_num, time_sec, &temp_thumb) {
+            Ok(_) => {
+                if let Ok(bytes) = std::fs::read(&temp_thumb) {
+                    let resp = build_http_response_bytes("200 OK", "image/jpeg", &bytes);
+                    stream.write_all(&resp)?;
+                } else {
+                    let body = "{\"success\":false,\"message\":\"Thumbnail file not readable\"}";
+                    send_http_response(&mut stream, "500 Internal Server Error", "application/json", body)?;
+                }
+            }
+            Err(e) => {
+                let body = format!("{{\"success\":false,\"message\":\"Failed to generate thumbnail: {}\"}}", e);
+                send_http_response(&mut stream, "500 Internal Server Error", "application/json", &body)?;
+            }
+        }
     } else if method_str == "GET" && path_str == "/api/queue/list" {
         let jobs = crate::queue::list_jobs();
         let json_body = serde_json::to_string(&jobs).unwrap_or_else(|_| "[]".to_string());

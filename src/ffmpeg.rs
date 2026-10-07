@@ -9,7 +9,7 @@ use std::process::Command;
 use anyhow::{anyhow, Context, Result};
 
 use crate::cli::Args;
-use crate::utils::{extract_kv_field, format_episode_name, format_title_folder_name, parse_duration};
+use crate::utils::{extract_kv_field, format_title_folder_name, parse_duration};
 
 /// Formats a TV season and episode number into a standardized episode code string (e.g., "S01E05").
 #[allow(dead_code)]
@@ -173,13 +173,14 @@ pub fn resolve_output_path(
     crate::utils::ensure_path_contained(&films_root, &target_path)
 }
 
-/// Resolves the absolute output file path for a TV series episode (e.g. TV/The Office (2005)/Season 01/The Office - S01E01.mpg).
-pub fn resolve_tv_output_path(
+/// Resolves the absolute output file path for a TV series episode with optional episode title.
+pub fn resolve_tv_output_path_with_title(
     args: &Args,
     show_name: Option<&str>,
     show_year: Option<u32>,
     season: u32,
     episode_num: u32,
+    episode_title: Option<&str>,
 ) -> Result<PathBuf> {
     let extension = if args.mkv {
         "mkv"
@@ -192,7 +193,8 @@ pub fn resolve_tv_output_path(
     let clean_show = crate::utils::sanitize_filename(name);
     let show_folder = format_title_folder_name(&clean_show, show_year);
     let season_folder = format!("Season {:02}", season);
-    let filename = format!("{}.{}", format_episode_name(&clean_show, season, episode_num), extension);
+    let base_name = crate::utils::format_episode_name_with_title(&clean_show, season, episode_num, episode_title);
+    let filename = format!("{}.{}", base_name, extension);
 
     let tv_root = resolve_tv_root(&args.out_dir);
 
@@ -203,6 +205,17 @@ pub fn resolve_tv_output_path(
 
     let target_path = ensure_absolute_parent_dir(target_candidate, args.no_overwrite)?;
     crate::utils::ensure_path_contained(&tv_root, &target_path)
+}
+
+/// Resolves the absolute output file path for a TV series episode (e.g. TV/The Office (2005)/Season 01/The Office - S01E01.mpg).
+pub fn resolve_tv_output_path(
+    args: &Args,
+    show_name: Option<&str>,
+    show_year: Option<u32>,
+    season: u32,
+    episode_num: u32,
+) -> Result<PathBuf> {
+    resolve_tv_output_path_with_title(args, show_name, show_year, season, episode_num, None)
 }
 
 /// Structure representing a detected TV episode title on a DVD disc.
@@ -927,6 +940,58 @@ pub fn detect_longest_title(ffmpeg_path: &str, dvd_path: &Path) -> u32 {
     detect_best_title(ffmpeg_path, dvd_path, None)
 }
 
+/// Builds the FFmpeg Command configured to capture a single thumbnail frame snapshot.
+pub fn build_thumbnail_command(
+    ffmpeg_path: &str,
+    dvd_path: &Path,
+    title_num: u32,
+    timestamp_secs: f64,
+    output_thumb: &Path,
+) -> Command {
+    let mut cmd = Command::new(ffmpeg_path);
+    crate::utils::configure_silent_command(&mut cmd);
+    cmd.arg("-nostdin");
+    cmd.arg("-y");
+
+    let seek_str = if timestamp_secs > 0.0 {
+        crate::utils::format_duration_hhmmss(timestamp_secs)
+    } else {
+        "00:02:00".to_string()
+    };
+
+    cmd.arg("-ss").arg(&seek_str);
+    cmd.arg("-f").arg("dvdvideo");
+    if title_num > 0 {
+        cmd.arg("-title").arg(title_num.to_string());
+    }
+    cmd.arg("-i").arg(dvd_path);
+    cmd.arg("-vframes").arg("1");
+    cmd.arg("-q:v").arg("3");
+    cmd.arg(output_thumb);
+    cmd
+}
+
+/// Generates a video thumbnail JPEG snapshot from a DVD title track using FFmpeg.
+pub fn generate_title_thumbnail(
+    ffmpeg_path: &str,
+    dvd_path: &Path,
+    title_num: u32,
+    timestamp_secs: f64,
+    output_thumb: &Path,
+) -> Result<PathBuf> {
+    if let Some(parent) = output_thumb.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+
+    let mut cmd = build_thumbnail_command(ffmpeg_path, dvd_path, title_num, timestamp_secs, output_thumb);
+    let status = cmd.status().context("Failed to spawn FFmpeg thumbnail snapshot command")?;
+    if !status.success() {
+        return Err(anyhow!("FFmpeg thumbnail extraction failed with status: {}", status));
+    }
+
+    Ok(output_thumb.to_path_buf())
+}
+
 /// Builds the FFmpeg Command configured with arguments according to CLI options.
 pub fn build_ffmpeg_command(
     args: &Args,
@@ -938,6 +1003,11 @@ pub fn build_ffmpeg_command(
     crate::utils::configure_silent_command(&mut cmd);
     cmd.arg("-nostdin");
     cmd.arg("-stats");
+
+    if args.ignore_errors {
+        cmd.arg("-fflags").arg("+genpts+discardcorrupt");
+        cmd.arg("-err_detect").arg("ignore_err");
+    }
 
     cmd.arg("-f").arg("dvdvideo");
     cmd.arg("-trim").arg("0");
@@ -1018,7 +1088,12 @@ pub fn build_ffmpeg_command(
                         format!("{},format=nv12,hwupload", vf_filters.join(","))
                     };
                     cmd.arg("-vf").arg(vf_str);
-                    cmd.arg("-c:v").arg("h264_vaapi");
+                    let enc = match codec.as_str() {
+                        "hevc" | "h265" => "hevc_vaapi",
+                        "av1" => "av1_vaapi",
+                        _ => "h264_vaapi",
+                    };
+                    cmd.arg("-c:v").arg(enc);
                     cmd.arg("-c:a").arg("aac");
                     cmd.arg("-b:a").arg("128k");
                 }
@@ -1026,7 +1101,12 @@ pub fn build_ffmpeg_command(
                     if !vf_filters.is_empty() {
                         cmd.arg("-vf").arg(vf_filters.join(","));
                     }
-                    cmd.arg("-c:v").arg("h264_nvenc");
+                    let enc = match codec.as_str() {
+                        "hevc" | "h265" => "hevc_nvenc",
+                        "av1" => "av1_nvenc",
+                        _ => "h264_nvenc",
+                    };
+                    cmd.arg("-c:v").arg(enc);
                     cmd.arg("-preset").arg(&args.preset);
                     cmd.arg("-c:a").arg("aac");
                     cmd.arg("-b:a").arg("128k");
@@ -1035,7 +1115,12 @@ pub fn build_ffmpeg_command(
                     if !vf_filters.is_empty() {
                         cmd.arg("-vf").arg(vf_filters.join(","));
                     }
-                    cmd.arg("-c:v").arg("h264_qsv");
+                    let enc = match codec.as_str() {
+                        "hevc" | "h265" => "hevc_qsv",
+                        "av1" => "av1_qsv",
+                        _ => "h264_qsv",
+                    };
+                    cmd.arg("-c:v").arg(enc);
                     cmd.arg("-preset").arg(&args.preset);
                     cmd.arg("-c:a").arg("aac");
                     cmd.arg("-b:a").arg("128k");
@@ -1090,6 +1175,10 @@ pub enum ProgressEvent {
     DetectedTitle {
         title_num: u32,
         duration_secs: f64,
+    },
+    TitleThumbnailReady {
+        title_num: u32,
+        image_bytes: Vec<u8>,
     },
     Progress {
         percent: f64,
@@ -2125,6 +2214,106 @@ mod tests {
             }
             _ => panic!("Expected FatalError, got {:?}", outcome),
         }
+    }
+
+    #[test]
+    fn test_build_ffmpeg_command_ignore_errors() {
+        let args_enabled = Args {
+            ignore_errors: true,
+            ..Default::default()
+        };
+        let out_path = PathBuf::from("output.mp4");
+        let cmd = build_ffmpeg_command(&args_enabled, Path::new("D:\\"), &out_path, 1);
+        let cmd_args: Vec<String> = cmd.get_args().map(|s| s.to_string_lossy().to_string()).collect();
+        assert!(cmd_args.contains(&"-fflags".to_string()));
+        assert!(cmd_args.contains(&"+genpts+discardcorrupt".to_string()));
+        assert!(cmd_args.contains(&"-err_detect".to_string()));
+        assert!(cmd_args.contains(&"ignore_err".to_string()));
+
+        let args_disabled = Args {
+            ignore_errors: false,
+            ..Default::default()
+        };
+        let cmd2 = build_ffmpeg_command(&args_disabled, Path::new("D:\\"), &out_path, 1);
+        let cmd2_args: Vec<String> = cmd2.get_args().map(|s| s.to_string_lossy().to_string()).collect();
+        assert!(!cmd2_args.contains(&"ignore_err".to_string()));
+    }
+
+    #[test]
+    fn test_build_ffmpeg_command_hwaccel_hevc_and_av1() {
+        let out_path = PathBuf::from("output.mp4");
+
+        // NVENC HEVC & AV1
+        let args_nvenc_hevc = Args {
+            transcode: true,
+            hwaccel: "nvenc".to_string(),
+            codec: "hevc".to_string(),
+            ..Default::default()
+        };
+        let cmd = build_ffmpeg_command(&args_nvenc_hevc, Path::new("D:\\"), &out_path, 1);
+        let cmd_args: Vec<String> = cmd.get_args().map(|s| s.to_string_lossy().to_string()).collect();
+        assert!(cmd_args.contains(&"hevc_nvenc".to_string()));
+
+        let args_nvenc_av1 = Args {
+            transcode: true,
+            hwaccel: "nvenc".to_string(),
+            codec: "av1".to_string(),
+            ..Default::default()
+        };
+        let cmd_av1 = build_ffmpeg_command(&args_nvenc_av1, Path::new("D:\\"), &out_path, 1);
+        let cmd_av1_args: Vec<String> = cmd_av1.get_args().map(|s| s.to_string_lossy().to_string()).collect();
+        assert!(cmd_av1_args.contains(&"av1_nvenc".to_string()));
+
+        // QSV HEVC
+        let args_qsv_hevc = Args {
+            transcode: true,
+            hwaccel: "qsv".to_string(),
+            codec: "hevc".to_string(),
+            ..Default::default()
+        };
+        let cmd_qsv = build_ffmpeg_command(&args_qsv_hevc, Path::new("D:\\"), &out_path, 1);
+        let cmd_qsv_args: Vec<String> = cmd_qsv.get_args().map(|s| s.to_string_lossy().to_string()).collect();
+        assert!(cmd_qsv_args.contains(&"hevc_qsv".to_string()));
+    }
+
+    #[test]
+    fn test_resolve_tv_output_path_with_title() {
+        let temp = TestTempDir::new("tv_output_title");
+        let out_dir_str = temp.0.to_string_lossy().to_string();
+
+        let args = Args {
+            out_dir: out_dir_str,
+            tv: true,
+            ..Default::default()
+        };
+
+        let path = resolve_tv_output_path_with_title(
+            &args,
+            Some("The Office"),
+            Some(2005),
+            1,
+            2,
+            Some("Diversity Day"),
+        ).unwrap();
+
+        let path_str = path.to_string_lossy();
+        assert!(path_str.contains("The Office (2005)"));
+        assert!(path_str.contains("Season 01"));
+        assert!(path_str.contains("The Office - S01E02 - Diversity Day.mp4"));
+    }
+
+    #[test]
+    fn test_build_thumbnail_command() {
+        let out_thumb = PathBuf::from("test_thumb.jpg");
+        let cmd = build_thumbnail_command("ffmpeg", Path::new("D:\\"), 2, 120.0, &out_thumb);
+        let args: Vec<String> = cmd.get_args().map(|s| s.to_string_lossy().to_string()).collect();
+
+        assert!(args.contains(&"-ss".to_string()));
+        assert!(args.contains(&"00:02:00".to_string()));
+        assert!(args.contains(&"-title".to_string()));
+        assert!(args.contains(&"2".to_string()));
+        assert!(args.contains(&"-vframes".to_string()));
+        assert!(args.contains(&"1".to_string()));
     }
 }
 

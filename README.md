@@ -24,12 +24,10 @@ A fast, portable DVD backup utility written in Rust featuring both a **Portable 
 - **Output File Overwrite Protection**: Automatic duplicate file collision resolution (`--no-overwrite`) appending incremental numeric suffixes (`Title_1.mpg`, `Title_2.mpg`).
 - **Portable Multi-OS Installer**: Built-in installer (`dvd-ripper-installer`) supporting user and system-wide installation, FFmpeg dependency auditing, and system PATH configuration on Windows, Linux, and macOS.
 - **Persistent Ripping History**: Tracks all completed and cancelled backup events in a structured `ripping_history.json` database log.
-- **TV Series Multi-Episode Ripping Mode**: Probes disc titles to detect individual TV episodes, automatically filtering out short intros (<10m) and "Play All" composite titles. Automatically structures files into Plex/Jellyfin standard TV naming: `TV/<Show Name> (<Year>)/Season <SS>/<Show Name> - S<SS>E<EE>.<ext>`.
-- **Automatic Movie & TV Show Identification**: Reads DVD volume labels (via Windows Win32 API / Linux ISO-9660 reader), queries OMDb and IMDb APIs to fetch title, release year, genre, director, cast, IMDb rating, plot summary, and official poster thumbnail. Automatically sets TV mode when a TV series disc is detected.
-- **Smart Movie Title Selection**: Probes DVD titles with optimized FFmpeg flags (`-analyzeduration 500000 -probesize 500000`) and selects the DVD title that best matches the movie's expected running time (or longest duration), bypassing studio intros, FBI warnings, and bonus features.
-- **Hardware Acceleration Support**: Supports embedded and GPU hardware video acceleration (`--hwaccel` copy, v4l2m2m, vaapi, nvenc, qsv).
-- **Fast Lossless Remuxing (Default)**: Losslessly copies raw video and audio streams (`-c copy`) into an MPEG program stream container for maximum extraction speed.
-- **H.264 / AAC Transcoding**: Optional high-quality transcoding mode (`--transcode`) using `libx264` and `aac` with customizable encoding presets.
+- **TV Series Multi-Episode Ripping & TVMaze Auto-Naming**: Automatically detects individual TV episodes and resolves actual episode titles from the TVMaze API (`TV/<Show Name> (<Year>)/Season <SS>/<Show Name> - S<SS>E<EE> - <Episode Title>.<ext>`), with clean offline fallback.
+- **Scratched Disc & Bad-Sector Fault Tolerance**: Automatically applies fault-tolerant demuxing (`--ignore-errors`, `-err_detect ignore_err -fflags +genpts+discardcorrupt`) to navigate past dirty discs, surface scratches, and copy-protection bad sector traps (ARccOS/RipGuard) without crashing.
+- **Hardware Acceleration for Next-Gen Codecs (AV1 & HEVC)**: Supports GPU hardware video encoding (`--hwaccel nvenc|qsv|vaapi`) paired with modern video codecs (`--codec hevc|av1`), automatically routing to `hevc_nvenc`, `av1_nvenc`, `hevc_qsv`, `av1_qsv`, `hevc_vaapi`, and `av1_vaapi`.
+- **Fast Optical Title Thumbnail Snapshot Generator**: Extracts instant preview thumbnails (`GET /api/thumbnail?title=N`) from optical DVD titles via FFmpeg frame grabs for visual verification prior to ripping.
 - **Dual Execution Modes**: Launching without flags opens the native GUI window. Command-line users can pass `--cli`, `--daemon`, or standard CLI arguments for terminal workflows and automation scripts.
 
 ---

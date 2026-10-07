@@ -52,6 +52,7 @@ pub struct AppConfig {
     pub ocr: Option<bool>,
     pub ocr_lang: Option<String>,
     pub tesseract: Option<String>,
+    pub ignore_errors: Option<bool>,
 }
 
 fn try_load_config_file(path: &Path) -> Option<AppConfig> {
@@ -288,6 +289,9 @@ pub fn apply_config_defaults(args: &mut Args, config: &AppConfig) {
         if args.tesseract == "tesseract" {
             args.tesseract = val.clone();
         }
+    }
+    if let Some(val) = config.ignore_errors {
+        args.ignore_errors = val;
     }
 }
 

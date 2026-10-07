@@ -5,7 +5,7 @@
  * @brief Cross-platform desktop graphical user interface powered by eframe/egui.
  */
 
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{channel, Receiver, Sender};
@@ -59,6 +59,8 @@ pub struct DvdRipperApp {
     rating: String,
     raw_poster_bytes: Option<Vec<u8>>,
     poster_texture: Option<egui::TextureHandle>,
+    title_thumbnails: HashMap<u32, (Vec<u8>, Option<egui::TextureHandle>)>,
+    is_fetching_thumb: bool,
     // Stream & Notification options
     all_audio: bool,
     normalize_audio: bool,
@@ -168,6 +170,8 @@ impl Default for DvdRipperApp {
             rating: String::new(),
             raw_poster_bytes: None,
             poster_texture: None,
+            title_thumbnails: HashMap::new(),
+            is_fetching_thumb: false,
 
             show_search_modal: false,
             search_candidates: Vec::new(),
@@ -282,6 +286,7 @@ impl DvdRipperApp {
             drive_pool: None,
             auto_rip: false,
             tonemap: None,
+            ignore_errors: true,
         }
     }
 
@@ -344,6 +349,15 @@ impl DvdRipperApp {
                     title_num: best_title,
                     duration_secs: best_dur.unwrap_or(0.0),
                 });
+                let temp_thumb = std::env::temp_dir().join(format!("dvd_thumb_title_{}.jpg", best_title));
+                if crate::ffmpeg::generate_title_thumbnail("ffmpeg", &dvd_path, best_title, 120.0, &temp_thumb).is_ok() {
+                    if let Ok(bytes) = std::fs::read(&temp_thumb) {
+                        let _ = tx.send(ProgressEvent::TitleThumbnailReady {
+                            title_num: best_title,
+                            image_bytes: bytes,
+                        });
+                    }
+                }
             }
 
             let search_term = if let Some(q) = query_override {
@@ -417,6 +431,34 @@ impl DvdRipperApp {
                 episodes.len()
             )));
             let _ = tx.send(ProgressEvent::TvEpisodesDetected(episodes));
+        });
+    }
+
+    fn trigger_thumbnail_preview(&mut self, title_num: u32) {
+        if self.is_fetching_thumb || self.is_ripping {
+            return;
+        }
+        let target_title = if title_num == 0 { 1 } else { title_num };
+        let drive = self.input_drive.clone();
+        let ffmpeg_path = self.ffmpeg_path.clone();
+        let tx = self.event_tx.clone();
+        self.is_fetching_thumb = true;
+        self.status_message = format!("Capturing preview thumbnail for Title #{}...", target_title);
+
+        std::thread::spawn(move || {
+            let dvd_path = normalize_dvd_path(&drive);
+            let temp_thumb = std::env::temp_dir().join(format!("dvd_thumb_title_{}.jpg", target_title));
+            let ffmpeg = if ffmpeg_path.is_empty() { "ffmpeg" } else { &ffmpeg_path };
+            if crate::ffmpeg::generate_title_thumbnail(ffmpeg, &dvd_path, target_title, 120.0, &temp_thumb).is_ok() {
+                if let Ok(bytes) = std::fs::read(&temp_thumb) {
+                    let _ = tx.send(ProgressEvent::TitleThumbnailReady {
+                        title_num: target_title,
+                        image_bytes: bytes,
+                    });
+                }
+            } else {
+                let _ = tx.send(ProgressEvent::Log(format!("Thumbnail snapshot extraction failed for Title #{}", target_title)));
+            }
         });
     }
 
@@ -704,6 +746,22 @@ impl DvdRipperApp {
                 }
             }
         }
+
+        for (title_num, (bytes, texture)) in &mut self.title_thumbnails {
+            if texture.is_none() {
+                if let Ok(image) = image::load_from_memory(bytes) {
+                    let rgba = image.to_rgba8();
+                    let size = [rgba.width() as _, rgba.height() as _];
+                    let pixels = rgba.into_raw();
+                    let color_image = egui::ColorImage::from_rgba_unmultiplied(size, &pixels);
+                    *texture = Some(ctx.load_texture(
+                        format!("title_thumb_{}", title_num),
+                        color_image,
+                        Default::default(),
+                    ));
+                }
+            }
+        }
     }
 
     pub fn process_events(&mut self) {
@@ -783,6 +841,10 @@ impl DvdRipperApp {
                     } else {
                         self.detect_status = format!("Auto-selected Title #{}", title_num);
                     }
+                }
+                ProgressEvent::TitleThumbnailReady { title_num, image_bytes } => {
+                    self.is_fetching_thumb = false;
+                    self.title_thumbnails.insert(title_num, (image_bytes, None));
                 }
                 ProgressEvent::Progress { percent, fps, speed } => {
                     if !self.is_ripping {
@@ -1028,6 +1090,19 @@ impl eframe::App for DvdRipperApp {
                             if self.title_number == 0 {
                                 ui.label(egui::RichText::new("(Auto)").weak().small());
                             }
+
+                            let active_title = if self.title_number == 0 { 1 } else { self.title_number };
+                            if let Some((_, Some(texture))) = self.title_thumbnails.get(&active_title) {
+                                ui.add(
+                                    egui::Image::new(texture)
+                                        .max_height(32.0)
+                                        .rounding(3.0)
+                                ).on_hover_text(format!("Title #{} video preview snapshot (00:02:00)", active_title));
+                            } else {
+                                if ui.small_button("📸 Preview").on_hover_text("Capture live video thumbnail snapshot from this title").clicked() {
+                                    self.trigger_thumbnail_preview(self.title_number);
+                                }
+                            }
                         }
                     });
 
@@ -1164,22 +1239,40 @@ impl eframe::App for DvdRipperApp {
 
                             if !self.detected_episodes.is_empty() {
                                 ui.label(egui::RichText::new(format!("Detected Episodes ({}):", self.detected_episodes.len())).strong().small());
+                                let mut preview_req = None;
                                 egui::ScrollArea::vertical()
                                     .id_salt("detected_episodes_scroll")
                                     .max_height(60.0)
                                     .show(ui, |ui| {
                                         for ep in &self.detected_episodes {
-                                            ui.label(
-                                                egui::RichText::new(format!(
-                                                    "• {} (Title #{}, {:.0} mins)",
-                                                    ep.formatted_name,
-                                                    ep.title_num,
-                                                    ep.duration_secs / 60.0
-                                                ))
-                                                .small(),
-                                            );
+                                            ui.horizontal(|ui| {
+                                                if let Some((_, Some(texture))) = self.title_thumbnails.get(&ep.title_num) {
+                                                    ui.add(
+                                                        egui::Image::new(texture)
+                                                            .max_height(24.0)
+                                                            .rounding(2.0)
+                                                    );
+                                                }
+                                                ui.label(
+                                                    egui::RichText::new(format!(
+                                                        "• {} (Title #{}, {:.0} mins)",
+                                                        ep.formatted_name,
+                                                        ep.title_num,
+                                                        ep.duration_secs / 60.0
+                                                    ))
+                                                    .small(),
+                                                );
+                                                if !self.title_thumbnails.contains_key(&ep.title_num) {
+                                                    if ui.small_button("📸").on_hover_text("Preview this episode title").clicked() {
+                                                        preview_req = Some(ep.title_num);
+                                                    }
+                                                }
+                                            });
                                         }
                                     });
+                                if let Some(t) = preview_req {
+                                    self.trigger_thumbnail_preview(t);
+                                }
                             }
                         });
                     }
