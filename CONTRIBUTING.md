@@ -21,7 +21,7 @@ We are committed to providing a welcoming, inclusive, and harassment-free enviro
 ### 2.2 Building the Project
 ```bash
 # Clone the repository
-git clone https://github.com/roberttizz1/dvd-ripper.git
+git clone https://github.com/clockworkengineer/dvd-ripper.git
 cd dvd-ripper
 
 # Build in debug mode

@@ -1291,7 +1291,7 @@ impl DvdRipperApp {
                         ui.end_row();
 
                         ui.label(egui::RichText::new("GitHub:").strong());
-                        ui.hyperlink_to("github.com/roberttizz1/dvd-ripper", "https://github.com/roberttizz1/dvd-ripper");
+                        ui.hyperlink_to("github.com/clockworkengineer/dvd-ripper", "https://github.com/clockworkengineer/dvd-ripper");
                         ui.end_row();
 
                         ui.label(egui::RichText::new("Support:").strong());

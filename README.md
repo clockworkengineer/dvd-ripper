@@ -1,5 +1,11 @@
 # DVD Ripper (`dvd-ripper`)
 
+[![CI](https://github.com/clockworkengineer/dvd-ripper/actions/workflows/ci.yml/badge.svg)](https://github.com/clockworkengineer/dvd-ripper/actions/workflows/ci.yml)
+[![Release](https://github.com/clockworkengineer/dvd-ripper/actions/workflows/release.yml/badge.svg)](https://github.com/clockworkengineer/dvd-ripper/releases)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Rust](https://img.shields.io/badge/Rust-2024%20Edition-orange.svg?logo=rust)](https://www.rust-lang.org)
+[![Docker](https://img.shields.io/badge/Docker-Ready-2496ED.svg?logo=docker&logoColor=white)](Dockerfile)
+
 A fast, portable DVD backup utility written in Rust featuring both a **Portable Native Desktop GUI** (powered by [`eframe`/`egui`](https://github.com/emilk/egui)) and a full **Command Line Interface (CLI)**.
 
 `dvd-ripper` uses FFmpeg's native `dvdvideo` demuxer to rip titles directly from optical DVD drives. It automatically retrieves volume labels, queries online database APIs (OMDb / IMDb) to identify movies & TV series, displays high-resolution poster thumbnails and plot summaries, automatically detects multi-episode TV series discs, structures output directories into named movie (`Films/`) or TV series (`TV/Show Name (Year)/Season SS/`) folders, and provides real-time progress bars and live log streaming.
@@ -8,6 +14,7 @@ A fast, portable DVD backup utility written in Rust featuring both a **Portable 
 
 ## 🌟 Key Features
 
+- **1:1 Archival ISO Disc Dump**: Bit-exact optical disc imaging (`--iso`) with sector-by-sector copying, dynamic progress tracking, and zero quality loss.
 - **Multi-Disc TV Box Set Auto-Stitching**: Automatically calculates cumulative episode numbering (`S01E01–E04` -> `S01E05–E08`) across multi-disc TV show season box sets (`--auto-boxset`) using persistent local state tracking (`~/.dvd-ripper/boxsets.json`).
 - **Video Deinterlacing & Denoising Quality Suite**: Eliminates motion comb artifacts on 480i/576i DVD streams using motion-adaptive deinterlacing (`--deinterlace`, `--deinterlace-algo bwdif|yadif|w3fdif`) and 3D spatial/temporal noise reduction (`--denoise hqdn3d`).
 - **Enterprise Disk Space Guard**: Inspects target partition free disk space (`--min-free-gb 10`) using OS storage APIs before starting rip jobs, preventing incomplete output files or disk exhaustion.
@@ -81,13 +88,21 @@ For full details on folder naming and media server sidecar files, see:
 
 ## 🚀 Installation & Building
 
-### Option 1: Automatic Cross-Platform Installer (Recommended)
+### Option 1: Unix One-Line Quick Install (Linux & macOS)
 
-DVD Ripper includes a portable, multi-OS installer (`dvd-ripper-installer`) that handles binary installation, FFmpeg auditing, system PATH configuration, and Linux systemd/udev service setup:
+Quickly fetch and install the latest pre-compiled release binary directly into `~/.local/bin`:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/clockworkengineer/dvd-ripper/master/scripts/install.sh | bash
+```
+
+### Option 2: Automatic Cross-Platform Installer (Windows, Linux, macOS)
+
+DVD Ripper includes a portable, multi-OS installer (`dvd-ripper-installer`) that handles binary installation, FFmpeg auditing, Windows registry/Unix shell PATH configuration, and Linux systemd/udev service setup:
 
 ```bash
 # Clone the repository
-git clone https://github.com/your-username/dvd-ripper.git
+git clone https://github.com/clockworkengineer/dvd-ripper.git
 cd dvd-ripper
 
 # Build the release binaries
@@ -110,7 +125,27 @@ Options:
   -y, --yes        Non-interactive mode (automatically answer yes to prompts)
 ```
 
-### Option 2: Direct Binary Execution
+### Option 3: Docker & NAS Appliance (Unraid, TrueNAS, Synology)
+
+Deploy `dvd-ripper` in automated daemon mode on your home server or NAS with optical drive passthrough:
+
+```bash
+# Launch via Docker Compose
+docker compose up -d
+```
+
+Or run directly via Docker CLI:
+```bash
+docker run -d \
+  --name dvd-ripper \
+  --restart unless-stopped \
+  --device /dev/sr0:/dev/sr0 \
+  -v /path/to/media:/output \
+  -v /path/to/config:/config \
+  ghcr.io/clockworkengineer/dvd-ripper:latest
+```
+
+### Option 4: Direct Binary Execution
 
 The compiled single executable will be saved at `target/release/dvd-ripper.exe` (or `target/release/dvd-ripper` on Linux/macOS). You can run or move this binary directly.
 
