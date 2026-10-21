@@ -3,27 +3,11 @@
  * @brief IMDb / OMDb suggestion API client and rich movie metadata models.
  */
 use anyhow::{Context, Result, anyhow};
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use std::path::PathBuf;
 
-/// Represents full metadata details for a movie or TV show.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct FilmMetadata {
-    pub title: String,
-    pub year: Option<u32>,
-    pub runtime_secs: Option<f64>,
-    #[allow(dead_code)]
-    pub poster_url: Option<String>,
-    pub plot: Option<String>,
-    pub genre: Option<String>,
-    pub director: Option<String>,
-    pub actors: Option<String>,
-    pub rating: Option<String>,
-    pub is_series: bool,
-    #[allow(dead_code)]
-    pub total_seasons: Option<u32>,
-    pub poster_bytes: Option<Vec<u8>>,
-}
+/// Re-export unified FilmMetadata entity from the domain layer.
+pub use crate::domain::entities::media::FilmMetadata;
 
 /// Represents a single movie/series search result from the OMDb database.
 #[derive(Deserialize, Debug)]

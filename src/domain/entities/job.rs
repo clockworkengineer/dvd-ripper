@@ -20,7 +20,7 @@ pub struct RipProgress {
 }
 
 /// Historical record of a completed or cancelled rip.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct RipRecord {
     pub title: String,
     pub media_type: String,

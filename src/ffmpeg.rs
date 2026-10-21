@@ -1247,6 +1247,7 @@ pub enum ProgressEvent {
 }
 
 /// Executes FFmpeg child process and parses output line-by-line to render dynamic progress bar.
+#[allow(dead_code)]
 pub fn run_ffmpeg_with_progress(
     args: &Args,
     dvd_path: &Path,

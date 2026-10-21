@@ -1,5 +1,4 @@
 use anyhow::Result;
-use serde::{Deserialize, Serialize};
 /**
  * @file history.rs
  * @brief Persistent history log for completed DVD ripping jobs.
@@ -9,26 +8,8 @@ use std::path::{Path, PathBuf};
 
 const HISTORY_FILE: &str = "ripping_history.json";
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct RipRecord {
-    pub timestamp: String,
-    pub title: String,
-    pub media_type: String,
-    pub output_path: String,
-    pub status: String,
-}
-
-impl RipRecord {
-    pub fn new(title: &str, media_type: &str, output_path: &str, status: &str) -> Self {
-        Self {
-            timestamp: crate::utils::now_timestamp_str(),
-            title: title.to_string(),
-            media_type: media_type.to_string(),
-            output_path: output_path.to_string(),
-            status: status.to_string(),
-        }
-    }
-}
+/// Re-export unified RipRecord entity from the domain layer.
+pub use crate::domain::entities::job::RipRecord;
 
 /// Formats a clean user-facing media display title (e.g. "Aliens (1986)" or "The Office - S01E05").
 #[allow(dead_code)]

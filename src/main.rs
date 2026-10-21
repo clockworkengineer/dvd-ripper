@@ -30,7 +30,7 @@ use std::path::PathBuf;
 use cli::Args;
 use daemon::run_daemon;
 use dvd::{get_volume_label, normalize_dvd_path};
-use ffmpeg::{detect_tv_episodes, resolve_output_path, run_ffmpeg_with_progress};
+use ffmpeg::{detect_tv_episodes, resolve_output_path};
 use imdb::{fetch_search_candidates, lookup_film_details, lookup_omdb_by_id};
 use utils::sanitize_filename;
 
@@ -67,22 +67,46 @@ pub struct AppContainer {
 
 impl AppContainer {
     pub fn build_production(ffmpeg_bin: &str) -> Self {
-        let notifier = Arc::new(
-            crate::infrastructure::notifications::CompositeNotifier::new(vec![
-                Box::new(crate::infrastructure::notifications::WebhookNotifier::new(
-                    "", None,
-                )),
-                Box::new(crate::infrastructure::notifications::MqttNotifier::new(
-                    "localhost:1883",
-                    "dvd-ripper",
-                )),
-                Box::new(crate::infrastructure::notifications::MediaServerNotifier::new()),
-            ]),
-        );
+        let args = Args {
+            ffmpeg: ffmpeg_bin.to_string(),
+            ..Default::default()
+        };
+        Self::build_from_args(&args)
+    }
+
+    pub fn build_from_args(args: &Args) -> Self {
+        let mut notifiers: Vec<Box<dyn crate::domain::ports::notification::Notifier>> = Vec::new();
+
+        if let Some(ref webhook) = args.webhook_url
+            && !webhook.trim().is_empty()
+        {
+            notifiers.push(Box::new(
+                crate::infrastructure::notifications::WebhookNotifier::new(
+                    webhook.trim(),
+                    args.webhook_secret.clone(),
+                ),
+            ));
+        }
+
+        if let Some(ref mqtt) = args.mqtt_broker
+            && !mqtt.trim().is_empty()
+        {
+            notifiers.push(Box::new(
+                crate::infrastructure::notifications::MqttNotifier::new(mqtt.trim(), "dvd-ripper"),
+            ));
+        }
+
+        notifiers.push(Box::new(
+            crate::infrastructure::notifications::MediaServerNotifier::new(),
+        ));
+
+        let notifier =
+            Arc::new(crate::infrastructure::notifications::CompositeNotifier::new(notifiers));
 
         Self {
-            transcoder: Arc::new(crate::infrastructure::ffmpeg::FfmpegTranscoder::new(
-                ffmpeg_bin,
+            transcoder: Arc::new(crate::infrastructure::ffmpeg::FfmpegTranscoder::with_args(
+                &args.ffmpeg,
+                args.clone(),
             )),
             metadata_provider: Arc::new(
                 crate::infrastructure::metadata::OmdbMetadataProvider::new(None),
@@ -93,6 +117,30 @@ impl AppContainer {
             disk_guard: Arc::new(crate::infrastructure::storage::SystemDiskSpaceGuard::new()),
             dialog_service: Arc::new(crate::infrastructure::system::NativeFileDialogService::new()),
         }
+    }
+
+    pub fn rip_single_title_use_case(
+        &self,
+    ) -> application::rip_single_title::RipSingleTitleUseCase {
+        application::rip_single_title::RipSingleTitleUseCase::new(
+            self.transcoder.clone(),
+            self.notifier.clone(),
+            self.disk_guard.clone(),
+            self.history_repo.clone(),
+        )
+    }
+
+    pub fn rip_tv_batch_use_case(&self) -> application::rip_tv_batch::RipTvBatchUseCase {
+        application::rip_tv_batch::RipTvBatchUseCase::new(
+            self.transcoder.clone(),
+            self.notifier.clone(),
+            self.disk_guard.clone(),
+            self.history_repo.clone(),
+        )
+    }
+
+    pub fn probe_disc_use_case(&self) -> application::probe_disc::ProbeDiscUseCase {
+        application::probe_disc::ProbeDiscUseCase::new(Some(self.metadata_provider.clone()))
     }
 }
 
@@ -350,7 +398,7 @@ fn main() -> Result<()> {
     let mut args = Args::parse();
     let app_initializer = AppInitializer;
     let _cfg = app_initializer.bootstrap(&mut args);
-    let _container = AppContainer::build_production(&args.ffmpeg);
+    let container = AppContainer::build_from_args(&args);
 
     if args.daemon {
         return run_daemon(args, 10);
@@ -508,13 +556,18 @@ fn main() -> Result<()> {
                 let mut ep_args = args.clone();
                 ep_args.title = ep.title_num;
 
-                run_ffmpeg_with_progress(
-                    &ep_args,
-                    &dvd_path,
-                    &ep_output,
-                    &display_title,
-                    Some(ep.duration_secs),
-                )?;
+                let req = crate::application::rip_single_title::RipSingleTitleRequest {
+                    source_dvd: dvd_path.clone(),
+                    title_number: ep.title_num,
+                    output_path: ep_output.clone(),
+                    display_title: display_title.clone(),
+                    expected_duration_secs: Some(ep.duration_secs),
+                    metadata: None,
+                    min_free_gb: args.min_free_gb,
+                };
+                container
+                    .rip_single_title_use_case()
+                    .execute(&req, None, None)?;
                 let _ =
                     crate::ocr::process_subtitle_ocr_sidecar(&ep_args, &ep_output, &display_title);
                 last_output_file = Some(ep_output);
@@ -563,7 +616,18 @@ fn main() -> Result<()> {
                 ep_num,
                 ep_title.as_deref(),
             );
-            run_ffmpeg_with_progress(&args, &dvd_path, &ep_output, &ep_name, film_runtime)?;
+            let req = crate::application::rip_single_title::RipSingleTitleRequest {
+                source_dvd: dvd_path.clone(),
+                title_number: args.title,
+                output_path: ep_output.clone(),
+                display_title: ep_name.clone(),
+                expected_duration_secs: film_runtime,
+                metadata: None,
+                min_free_gb: args.min_free_gb,
+            };
+            container
+                .rip_single_title_use_case()
+                .execute(&req, None, None)?;
             let _ = crate::ocr::process_subtitle_ocr_sidecar(&args, &ep_output, &ep_name);
             last_output_file = Some(ep_output);
         }
@@ -576,13 +640,18 @@ fn main() -> Result<()> {
         );
 
         let display_title = title_name.as_deref().unwrap_or("Unknown DVD Title");
-        run_ffmpeg_with_progress(
-            &args,
-            &dvd_path,
-            &absolute_output,
-            display_title,
-            film_runtime,
-        )?;
+        let req = crate::application::rip_single_title::RipSingleTitleRequest {
+            source_dvd: dvd_path.clone(),
+            title_number: args.title,
+            output_path: absolute_output.clone(),
+            display_title: display_title.to_string(),
+            expected_duration_secs: film_runtime,
+            metadata: None,
+            min_free_gb: args.min_free_gb,
+        };
+        container
+            .rip_single_title_use_case()
+            .execute(&req, None, None)?;
         let _ = crate::ocr::process_subtitle_ocr_sidecar(&args, &absolute_output, display_title);
         last_output_file = Some(absolute_output);
     }
