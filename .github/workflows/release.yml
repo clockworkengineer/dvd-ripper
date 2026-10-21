@@ -1,0 +1,127 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build-release:
+    name: Build (${{ matrix.target }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            bin_suffix: .exe
+            archive_ext: zip
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            bin_suffix: ''
+            archive_ext: tar.gz
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            bin_suffix: ''
+            archive_ext: tar.gz
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            bin_suffix: ''
+            archive_ext: tar.gz
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install system dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libasound2-dev libudev-dev pkg-config
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Build release binaries
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Package Windows Artifacts
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ver = "${{ github.ref_name }}"
+          $distName = "dvd-ripper-$ver-${{ matrix.target }}"
+          New-Item -ItemType Directory -Path $distName
+          Copy-Item target/${{ matrix.target }}/release/dvd-ripper.exe $distName/
+          Copy-Item target/${{ matrix.target }}/release/dvd-ripper-installer.exe $distName/
+          Copy-Item dvd-ripper.toml.example $distName/
+          Copy-Item README.md $distName/
+          Copy-Item LICENSE $distName/
+          New-Item -ItemType Directory -Path "$distName/assets"
+          Copy-Item assets/icon.ico "$distName/assets/"
+          Compress-Archive -Path $distName -DestinationPath "$distName.zip"
+          Get-FileHash "$distName.zip" -Algorithm SHA256 | Out-File -FilePath "$distName.zip.sha256"
+
+      - name: Package Unix Artifacts
+        if: runner.os != 'Windows'
+        run: |
+          VER="${{ github.ref_name }}"
+          DIST="dvd-ripper-$VER-${{ matrix.target }}"
+          mkdir -p "$DIST"
+          cp target/${{ matrix.target }}/release/dvd-ripper "$DIST/"
+          cp target/${{ matrix.target }}/release/dvd-ripper-installer "$DIST/"
+          cp dvd-ripper.toml.example "$DIST/"
+          cp README.md "$DIST/"
+          cp LICENSE "$DIST/"
+          if [ -d "contrib" ]; then
+            cp -r contrib "$DIST/"
+          fi
+          tar -czf "$DIST.tar.gz" "$DIST"
+          shasum -a 256 "$DIST.tar.gz" > "$DIST.tar.gz.sha256"
+
+      - name: Upload Release Asset
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.target }}-package
+          path: |
+            dvd-ripper-*.*
+            *.sha256
+
+  publish-github-release:
+    name: Publish GitHub Release
+    needs: build-release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist-release
+
+      - name: Consolidate Checksums
+        run: |
+          mkdir -p release-assets
+          find dist-release -type f \( -name "*.zip" -o -name "*.tar.gz" \) -exec cp {} release-assets/ \;
+          cd release-assets
+          sha256sum * > SHA256SUMS.txt
+          cd ..
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            release-assets/*
+            release-assets/SHA256SUMS.txt
+          generate_release_notes: true
+          draft: false
+          prerelease: false
