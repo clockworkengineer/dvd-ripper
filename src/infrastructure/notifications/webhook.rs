@@ -1,5 +1,5 @@
-use anyhow::Result;
 use crate::domain::ports::notification::{NotificationEvent, Notifier};
+use anyhow::Result;
 
 /// Dispatches JSON notifications via HTTP webhook (Discord, Slack, Ntfy, generic POST).
 #[derive(Debug, Clone)]
@@ -20,21 +20,35 @@ impl WebhookNotifier {
 impl Notifier for WebhookNotifier {
     fn send(&self, event: &NotificationEvent) -> Result<()> {
         let (title, status, message) = match event {
-            NotificationEvent::RipStarted { title, drive } => {
-                (*title, "Started", format!("Began ripping '{}' from drive {}", title, drive))
-            }
+            NotificationEvent::RipStarted { title, drive } => (
+                *title,
+                "Started",
+                format!("Began ripping '{}' from drive {}", title, drive),
+            ),
             NotificationEvent::RipProgress { title, percent } => {
                 (*title, "Progress", format!("{:.1}% complete", percent))
             }
-            NotificationEvent::RipSuccess { title, output_file, duration_secs } => {
-                (*title, "Success", format!("Successfully ripped to '{}' ({:.1}s)", output_file, duration_secs))
-            }
-            NotificationEvent::RipFailed { title, error_message } => {
-                (*title, "Failed", format!("Rip failed: {}", error_message))
-            }
-            NotificationEvent::RipCancelled { title } => {
-                (*title, "Cancelled", "Rip job was cancelled by user".to_string())
-            }
+            NotificationEvent::RipSuccess {
+                title,
+                output_file,
+                duration_secs,
+            } => (
+                *title,
+                "Success",
+                format!(
+                    "Successfully ripped to '{}' ({:.1}s)",
+                    output_file, duration_secs
+                ),
+            ),
+            NotificationEvent::RipFailed {
+                title,
+                error_message,
+            } => (*title, "Failed", format!("Rip failed: {}", error_message)),
+            NotificationEvent::RipCancelled { title } => (
+                *title,
+                "Cancelled",
+                "Rip job was cancelled by user".to_string(),
+            ),
         };
 
         crate::mqtt::send_webhook_notification(

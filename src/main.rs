@@ -4,12 +4,11 @@
  * @file main.rs
  * @brief DVD Ripper entry point supporting both GUI and CLI modes for Movies & TV Series.
  */
-
 mod api;
+pub mod application;
 mod cli;
 mod config;
 mod daemon;
-pub mod application;
 pub mod domain;
 mod dvd;
 mod ffmpeg;
@@ -24,16 +23,14 @@ mod ocr;
 mod queue;
 mod utils;
 
-use std::path::PathBuf;
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use clap::Parser;
+use std::path::PathBuf;
 
 use cli::Args;
 use daemon::run_daemon;
 use dvd::{get_volume_label, normalize_dvd_path};
-use ffmpeg::{
-    detect_tv_episodes, resolve_output_path, run_ffmpeg_with_progress,
-};
+use ffmpeg::{detect_tv_episodes, resolve_output_path, run_ffmpeg_with_progress};
 use imdb::{fetch_search_candidates, lookup_film_details, lookup_omdb_by_id};
 use utils::sanitize_filename;
 
@@ -49,13 +46,13 @@ impl AppInitializer {
     }
 }
 
-use std::sync::Arc;
 use crate::domain::ports::dialogs::FileDialogService;
 use crate::domain::ports::metadata::MetadataProvider;
 use crate::domain::ports::notification::Notifier;
 use crate::domain::ports::optical_drive::DriveDetector;
 use crate::domain::ports::storage::{DiskSpaceGuard, HistoryRepository};
 use crate::domain::ports::transcoder::Transcoder;
+use std::sync::Arc;
 
 /// Dependency Inversion (DIP/SOLID): Composition Root service container encapsulating production dependencies.
 pub struct AppContainer {
@@ -70,15 +67,26 @@ pub struct AppContainer {
 
 impl AppContainer {
     pub fn build_production(ffmpeg_bin: &str) -> Self {
-        let notifier = Arc::new(crate::infrastructure::notifications::CompositeNotifier::new(vec![
-            Box::new(crate::infrastructure::notifications::WebhookNotifier::new("", None)),
-            Box::new(crate::infrastructure::notifications::MqttNotifier::new("localhost:1883", "dvd-ripper")),
-            Box::new(crate::infrastructure::notifications::MediaServerNotifier::new()),
-        ]));
+        let notifier = Arc::new(
+            crate::infrastructure::notifications::CompositeNotifier::new(vec![
+                Box::new(crate::infrastructure::notifications::WebhookNotifier::new(
+                    "", None,
+                )),
+                Box::new(crate::infrastructure::notifications::MqttNotifier::new(
+                    "localhost:1883",
+                    "dvd-ripper",
+                )),
+                Box::new(crate::infrastructure::notifications::MediaServerNotifier::new()),
+            ]),
+        );
 
         Self {
-            transcoder: Arc::new(crate::infrastructure::ffmpeg::FfmpegTranscoder::new(ffmpeg_bin)),
-            metadata_provider: Arc::new(crate::infrastructure::metadata::OmdbMetadataProvider::new(None)),
+            transcoder: Arc::new(crate::infrastructure::ffmpeg::FfmpegTranscoder::new(
+                ffmpeg_bin,
+            )),
+            metadata_provider: Arc::new(
+                crate::infrastructure::metadata::OmdbMetadataProvider::new(None),
+            ),
             drive_detector: Arc::new(crate::infrastructure::optical::SystemDriveDetector::new()),
             notifier,
             history_repo: Arc::new(crate::infrastructure::storage::JsonHistoryRepository::new()),
@@ -104,7 +112,10 @@ impl PathResolver for DefaultPathResolver {
 }
 
 /// Resolves film metadata, release year, running time, and cover poster bytes for CLI mode execution.
-fn resolve_cli_metadata(args: &mut Args, volume_label: Option<&str>) -> (Option<String>, Option<u32>, Option<f64>, Option<Vec<u8>>) {
+fn resolve_cli_metadata(
+    args: &mut Args,
+    volume_label: Option<&str>,
+) -> (Option<String>, Option<u32>, Option<f64>, Option<Vec<u8>>) {
     // 0. Disc Fingerprint Cache Auto-Match
     let fp_hash = dvd::compute_disc_fingerprint(&args.input);
     if let Some(cached_meta) = imdb::lookup_fingerprint_cache(&fp_hash) {
@@ -113,11 +124,19 @@ fn resolve_cli_metadata(args: &mut Args, volume_label: Option<&str>) -> (Option<
             .runtime_secs
             .map(|r| format!(", {:.0} mins", r / 60.0))
             .unwrap_or_default();
-        println!("[Fingerprint Auto-Match] Found cached disc ID '{}': {} ({:?}{})", fp_hash, clean_name, cached_meta.year, runtime_desc);
+        println!(
+            "[Fingerprint Auto-Match] Found cached disc ID '{}': {} ({:?}{})",
+            fp_hash, clean_name, cached_meta.year, runtime_desc
+        );
         if cached_meta.is_series {
             args.tv = true;
         }
-        return (Some(clean_name), cached_meta.year, cached_meta.runtime_secs, cached_meta.poster_bytes);
+        return (
+            Some(clean_name),
+            cached_meta.year,
+            cached_meta.runtime_secs,
+            cached_meta.poster_bytes,
+        );
     }
 
     // 1. Direct IMDb ID selection
@@ -129,14 +148,25 @@ fn resolve_cli_metadata(args: &mut Args, volume_label: Option<&str>) -> (Option<
                 .runtime_secs
                 .map(|r| format!(", {:.0} mins", r / 60.0))
                 .unwrap_or_default();
-            println!("IMDb ID Match: {} ({:?}{})", clean_name, meta.year, runtime_desc);
+            println!(
+                "IMDb ID Match: {} ({:?}{})",
+                clean_name, meta.year, runtime_desc
+            );
             if meta.is_series {
                 println!("Media identified as TV Series.");
                 args.tv = true;
             }
-            return (Some(clean_name), meta.year, meta.runtime_secs, meta.poster_bytes);
+            return (
+                Some(clean_name),
+                meta.year,
+                meta.runtime_secs,
+                meta.poster_bytes,
+            );
         } else {
-            println!("Warning: Could not fetch details for IMDb ID '{}'.", imdb_id);
+            println!(
+                "Warning: Could not fetch details for IMDb ID '{}'.",
+                imdb_id
+            );
         }
     }
 
@@ -193,7 +223,10 @@ fn resolve_cli_metadata(args: &mut Args, volume_label: Option<&str>) -> (Option<
                 println!("  [0] Skip candidate selection / use auto-detection");
 
                 use std::io::{self, Write};
-                print!("Select entry [1-{}, default 1, 0 to skip]: ", candidates.len());
+                print!(
+                    "Select entry [1-{}, default 1, 0 to skip]: ",
+                    candidates.len()
+                );
                 let _ = io::stdout().flush();
                 let mut input = String::new();
                 if io::stdin().read_line(&mut input).is_ok() {
@@ -211,21 +244,29 @@ fn resolve_cli_metadata(args: &mut Args, volume_label: Option<&str>) -> (Option<
             }
         }
 
-        if let Some(imdb_id) = selected_candidate_id {
-            if let Some(meta) = lookup_omdb_by_id(&imdb_id) {
-                let clean_name = sanitize_filename(&meta.title);
-                let runtime_desc = meta
-                    .runtime_secs
-                    .map(|r| format!(", {:.0} mins", r / 60.0))
-                    .unwrap_or_default();
-                println!("Selected Metadata: {} ({:?}{})", clean_name, meta.year, runtime_desc);
-                if meta.is_series {
-                    println!("Media identified as TV Series.");
-                    args.tv = true;
-                }
-                imdb::save_fingerprint_cache(&fp_hash, &meta);
-                return (Some(clean_name), meta.year, meta.runtime_secs, meta.poster_bytes);
+        if let Some(imdb_id) = selected_candidate_id
+            && let Some(meta) = lookup_omdb_by_id(&imdb_id)
+        {
+            let clean_name = sanitize_filename(&meta.title);
+            let runtime_desc = meta
+                .runtime_secs
+                .map(|r| format!(", {:.0} mins", r / 60.0))
+                .unwrap_or_default();
+            println!(
+                "Selected Metadata: {} ({:?}{})",
+                clean_name, meta.year, runtime_desc
+            );
+            if meta.is_series {
+                println!("Media identified as TV Series.");
+                args.tv = true;
             }
+            imdb::save_fingerprint_cache(&fp_hash, &meta);
+            return (
+                Some(clean_name),
+                meta.year,
+                meta.runtime_secs,
+                meta.poster_bytes,
+            );
         }
 
         // Fallback to lookup_film_details if no candidate selected or search returned empty
@@ -236,16 +277,27 @@ fn resolve_cli_metadata(args: &mut Args, volume_label: Option<&str>) -> (Option<
                     .runtime_secs
                     .map(|r| format!(", {:.0} mins", r / 60.0))
                     .unwrap_or_default();
-                println!("Metadata Result: {} ({:?}{})", clean_name, meta.year, runtime_desc);
+                println!(
+                    "Metadata Result: {} ({:?}{})",
+                    clean_name, meta.year, runtime_desc
+                );
                 if meta.is_series {
                     println!("Media identified as TV Series.");
                     args.tv = true;
                 }
                 imdb::save_fingerprint_cache(&fp_hash, &meta);
-                return (Some(clean_name), meta.year, meta.runtime_secs, meta.poster_bytes);
+                return (
+                    Some(clean_name),
+                    meta.year,
+                    meta.runtime_secs,
+                    meta.poster_bytes,
+                );
             }
             Err(e) => {
-                println!("Warning: Failed to look up metadata details for '{}': {}", query, e);
+                println!(
+                    "Warning: Failed to look up metadata details for '{}': {}",
+                    query, e
+                );
             }
         }
     } else {
@@ -325,13 +377,19 @@ fn main() -> Result<()> {
 
     if args.benchmark {
         println!("\n--- [Optical Drive Throughput Benchmark Diagnostic] ---");
-        println!("Running 10-second optical sector read speed test on '{}'...", dvd_path.display());
+        println!(
+            "Running 10-second optical sector read speed test on '{}'...",
+            dvd_path.display()
+        );
         match dvd::run_drive_benchmark(&args.ffmpeg, &dvd_path, 10) {
             Ok(report) => {
                 println!("  • Drive Path     : {}", report.drive_path);
                 println!("  • Test Duration  : {} seconds", report.test_duration_secs);
                 println!("  • Read Throughput: {:.2} MB/s", report.read_speed_mbps);
-                println!("  • Demux Rate     : {:.2} MB/s ({} FPS)", report.demux_speed_mbps, report.fps);
+                println!(
+                    "  • Demux Rate     : {:.2} MB/s ({} FPS)",
+                    report.demux_speed_mbps, report.fps
+                );
                 println!("  • Performance    : {}", report.rating_summary);
             }
             Err(e) => {
@@ -357,13 +415,20 @@ fn main() -> Result<()> {
 
     // Check disk space threshold guard with optional fallback directory
     let fb_dir = args.fallback_out_dir.as_deref().map(std::path::Path::new);
-    let resolved_out_dir = crate::utils::check_disk_space_guard_with_fallback(std::path::Path::new(&args.out_dir), fb_dir, args.min_free_gb)?;
+    let resolved_out_dir = crate::utils::check_disk_space_guard_with_fallback(
+        std::path::Path::new(&args.out_dir),
+        fb_dir,
+        args.min_free_gb,
+    )?;
     args.out_dir = resolved_out_dir.to_string_lossy().to_string();
 
     // 3. Execution path for Archival 1:1 ISO dump vs TV series vs Movie
     if args.iso {
         let absolute_output = resolve_output_path(&args, title_name.as_deref(), title_year)?;
-        println!("Archival ISO dump will be saved to: {}", absolute_output.display());
+        println!(
+            "Archival ISO dump will be saved to: {}",
+            absolute_output.display()
+        );
         let label = volume_label.as_deref();
         crate::iso::dump_disc_to_iso(&args.input, &absolute_output, label, None, None)?;
         println!("\nSuccessfully completed archival 1:1 ISO dump of disc!");
@@ -407,10 +472,15 @@ fn main() -> Result<()> {
 
             println!("Found {} episode titles on disc.", episodes.len());
 
-            let tvmaze_episodes = crate::infrastructure::metadata::fetch_tvmaze_episodes(show_name).unwrap_or_default();
+            let tvmaze_episodes = crate::infrastructure::metadata::fetch_tvmaze_episodes(show_name)
+                .unwrap_or_default();
 
             for (idx, ep) in episodes.iter().enumerate() {
-                let ep_title = crate::infrastructure::metadata::find_episode_title(&tvmaze_episodes, args.season, ep.episode_num);
+                let ep_title = crate::infrastructure::metadata::find_episode_title(
+                    &tvmaze_episodes,
+                    args.season,
+                    ep.episode_num,
+                );
                 let display_title = if let Some(ref t) = ep_title {
                     format!("{} - {}", ep.formatted_name, t)
                 } else {
@@ -445,16 +515,21 @@ fn main() -> Result<()> {
                     &display_title,
                     Some(ep.duration_secs),
                 )?;
-                let _ = crate::ocr::process_subtitle_ocr_sidecar(&ep_args, &ep_output, &display_title);
+                let _ =
+                    crate::ocr::process_subtitle_ocr_sidecar(&ep_args, &ep_output, &display_title);
                 last_output_file = Some(ep_output);
             }
 
             if args.auto_boxset && !episodes.is_empty() {
                 let count = episodes.len() as u32;
-                let new_last = crate::queue::record_boxset_episodes_ripped(show_name, args.season, count);
+                let new_last =
+                    crate::queue::record_boxset_episodes_ripped(show_name, args.season, count);
                 println!(
                     "\nAuto BoxSet Mode: Recorded {} episodes ripped for '{}' S{:02}. Next disc will start at E{:02}.",
-                    count, show_name, args.season, new_last + 1
+                    count,
+                    show_name,
+                    args.season,
+                    new_last + 1
                 );
             }
 
@@ -465,8 +540,13 @@ fn main() -> Result<()> {
             } else {
                 1
             };
-            let tvmaze_episodes = crate::infrastructure::metadata::fetch_tvmaze_episodes(show_name).unwrap_or_default();
-            let ep_title = crate::infrastructure::metadata::find_episode_title(&tvmaze_episodes, args.season, ep_num);
+            let tvmaze_episodes = crate::infrastructure::metadata::fetch_tvmaze_episodes(show_name)
+                .unwrap_or_default();
+            let ep_title = crate::infrastructure::metadata::find_episode_title(
+                &tvmaze_episodes,
+                args.season,
+                ep_num,
+            );
             let ep_output = crate::ffmpeg::resolve_tv_output_path_with_title(
                 &args,
                 Some(show_name),
@@ -477,22 +557,23 @@ fn main() -> Result<()> {
             )?;
             println!("Output file will be saved to: {}", ep_output.display());
 
-            let ep_name = crate::utils::format_episode_name_with_title(show_name, args.season, ep_num, ep_title.as_deref());
-            run_ffmpeg_with_progress(
-                &args,
-                &dvd_path,
-                &ep_output,
-                &ep_name,
-                film_runtime,
-            )?;
+            let ep_name = crate::utils::format_episode_name_with_title(
+                show_name,
+                args.season,
+                ep_num,
+                ep_title.as_deref(),
+            );
+            run_ffmpeg_with_progress(&args, &dvd_path, &ep_output, &ep_name, film_runtime)?;
             let _ = crate::ocr::process_subtitle_ocr_sidecar(&args, &ep_output, &ep_name);
             last_output_file = Some(ep_output);
         }
     } else {
         // Standard Movie execution path
-        let absolute_output =
-            resolve_output_path(&args, title_name.as_deref(), title_year)?;
-        println!("Output file will be saved to: {}", absolute_output.display());
+        let absolute_output = resolve_output_path(&args, title_name.as_deref(), title_year)?;
+        println!(
+            "Output file will be saved to: {}",
+            absolute_output.display()
+        );
 
         let display_title = title_name.as_deref().unwrap_or("Unknown DVD Title");
         run_ffmpeg_with_progress(
@@ -510,18 +591,27 @@ fn main() -> Result<()> {
         let _ = utils::save_cover_artworks(out_file, bytes);
     }
 
-    if args.nfo {
-        if let Some(ref out_file) = last_output_file {
-            let media_type = if args.tv { "TV Series" } else { "Movie" };
-            let title = title_name.as_deref().unwrap_or("DVD Rip");
-            let _ = utils::generate_nfo_file(out_file, title, title_year, None, None, None, media_type, args.tags.as_deref());
-        }
+    if args.nfo
+        && let Some(ref out_file) = last_output_file
+    {
+        let media_type = if args.tv { "TV Series" } else { "Movie" };
+        let title = title_name.as_deref().unwrap_or("DVD Rip");
+        let _ = utils::generate_nfo_file(
+            out_file,
+            title,
+            title_year,
+            None,
+            None,
+            None,
+            media_type,
+            args.tags.as_deref(),
+        );
     }
 
-    if args.checksum {
-        if let Some(ref out_file) = last_output_file {
-            let _ = utils::generate_checksum_file(out_file);
-        }
+    if args.checksum
+        && let Some(ref out_file) = last_output_file
+    {
+        let _ = utils::generate_checksum_file(out_file);
     }
 
     if let Some(ref audit_path) = args.audit_log {
@@ -531,14 +621,19 @@ fn main() -> Result<()> {
             "dvd_path": dvd_path,
             "output_file": last_output_file
         });
-        let _ = utils::append_audit_log_entry(std::path::Path::new(audit_path), "RipCompleted", &details);
+        let _ = utils::append_audit_log_entry(
+            std::path::Path::new(audit_path),
+            "RipCompleted",
+            &details,
+        );
     }
 
     if let Some(days) = args.auto_cleanup_days {
         let _ = crate::history::purge_expired_rip_records(days, None);
     }
 
-    if let (Some(script), Some(out_file)) = (args.post_script.as_deref(), last_output_file.as_ref()) {
+    if let (Some(script), Some(out_file)) = (args.post_script.as_deref(), last_output_file.as_ref())
+    {
         let media_type = if args.tv { "TV Series" } else { "Movie" };
         let title = title_name.as_deref().unwrap_or("DVD Rip");
         let _ = utils::run_post_processing_hook(script, out_file, title, media_type, title_year);
@@ -550,7 +645,10 @@ fn main() -> Result<()> {
         println!("\nEjecting DVD disc from drive...");
         let _ = dvd::eject_disc(&dvd_path.to_string_lossy());
         if let Some(secs) = args.eject_autoclose {
-            println!("[Drive Tray] Waiting {} seconds before auto-closing drive tray...", secs);
+            println!(
+                "[Drive Tray] Waiting {} seconds before auto-closing drive tray...",
+                secs
+            );
             std::thread::sleep(std::time::Duration::from_secs(secs));
             let _ = dvd::close_disc_tray(&dvd_path.to_string_lossy());
         }

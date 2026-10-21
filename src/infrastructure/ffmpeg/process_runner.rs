@@ -1,12 +1,13 @@
-use std::path::Path;
-use std::sync::atomic::AtomicBool;
-use std::sync::mpsc::{Receiver, Sender};
-use std::sync::Arc;
-use anyhow::Result;
 use crate::cli::Args;
 use crate::ffmpeg::ProgressEvent;
+use anyhow::Result;
+use std::path::Path;
+use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
+use std::sync::mpsc::{Receiver, Sender};
 
 /// Executes an FFmpeg transcode process with live stderr progress parsing and graceful cancellation support.
+#[allow(clippy::too_many_arguments)]
 pub fn run_ffmpeg_process(
     args: &Args,
     dvd_path: &Path,

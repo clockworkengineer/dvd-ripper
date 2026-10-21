@@ -1,9 +1,10 @@
 #[cfg(test)]
+#[allow(clippy::module_inception)]
 mod tests {
+    use anyhow::{Result, anyhow};
     use std::path::{Path, PathBuf};
     use std::sync::atomic::AtomicBool;
     use std::sync::{Arc, Mutex};
-    use anyhow::{anyhow, Result};
 
     use crate::application::probe_disc::ProbeDiscUseCase;
     use crate::application::rip_single_title::{RipSingleTitleRequest, RipSingleTitleUseCase};
@@ -32,7 +33,10 @@ mod tests {
             observer: Option<&dyn ProgressObserver>,
             _cancel_flag: Option<Arc<AtomicBool>>,
         ) -> Result<()> {
-            self.calls.lock().unwrap().push(job.display_title.to_string());
+            self.calls
+                .lock()
+                .unwrap()
+                .push(job.display_title.to_string());
             if let Some(obs) = observer {
                 obs.on_progress(50.0, "60", "2.0x");
                 obs.on_log("Mock transcode step");
@@ -55,9 +59,14 @@ mod tests {
         fn send(&self, event: &NotificationEvent) -> Result<()> {
             let desc = match event {
                 NotificationEvent::RipStarted { title, .. } => format!("Started: {}", title),
-                NotificationEvent::RipProgress { title, percent } => format!("Progress: {} {:.0}%", title, percent),
+                NotificationEvent::RipProgress { title, percent } => {
+                    format!("Progress: {} {:.0}%", title, percent)
+                }
                 NotificationEvent::RipSuccess { title, .. } => format!("Success: {}", title),
-                NotificationEvent::RipFailed { title, error_message } => format!("Failed: {} ({})", title, error_message),
+                NotificationEvent::RipFailed {
+                    title,
+                    error_message,
+                } => format!("Failed: {} ({})", title, error_message),
                 NotificationEvent::RipCancelled { title } => format!("Cancelled: {}", title),
             };
             self.events.lock().unwrap().push(desc);
@@ -135,7 +144,11 @@ mod tests {
         fn get_details_by_id(&self, _id: &str) -> Result<Option<FilmMetadata>> {
             Ok(self.film.clone())
         }
-        fn get_details_by_title_and_year(&self, _title: &str, _year: Option<u32>) -> Result<Option<FilmMetadata>> {
+        fn get_details_by_title_and_year(
+            &self,
+            _title: &str,
+            _year: Option<u32>,
+        ) -> Result<Option<FilmMetadata>> {
             Ok(self.film.clone())
         }
     }
@@ -193,13 +206,30 @@ mod tests {
         assert!(res.is_ok());
 
         // Verifications
-        assert_eq!(transcoder.calls.lock().unwrap().as_slice(), &["Test Movie (2024)"]);
-        assert_eq!(observer.progresses.lock().unwrap().as_slice(), &[50.0, 100.0]);
-        assert_eq!(observer.logs.lock().unwrap().as_slice(), &["Mock transcode step"]);
+        assert_eq!(
+            transcoder.calls.lock().unwrap().as_slice(),
+            &["Test Movie (2024)"]
+        );
+        assert_eq!(
+            observer.progresses.lock().unwrap().as_slice(),
+            &[50.0, 100.0]
+        );
+        assert_eq!(
+            observer.logs.lock().unwrap().as_slice(),
+            &["Mock transcode step"]
+        );
 
         let events = notifier.events.lock().unwrap();
-        assert!(events.iter().any(|e| e.starts_with("Started: Test Movie (2024)")));
-        assert!(events.iter().any(|e| e.starts_with("Success: Test Movie (2024)")));
+        assert!(
+            events
+                .iter()
+                .any(|e| e.starts_with("Started: Test Movie (2024)"))
+        );
+        assert!(
+            events
+                .iter()
+                .any(|e| e.starts_with("Success: Test Movie (2024)"))
+        );
 
         let recs = history.records.lock().unwrap();
         assert_eq!(recs.len(), 1);
@@ -233,7 +263,11 @@ mod tests {
 
         let res = use_case.execute(&req, None, None);
         assert!(res.is_err());
-        assert!(res.unwrap_err().to_string().contains("insufficient free space"));
+        assert!(
+            res.unwrap_err()
+                .to_string()
+                .contains("insufficient free space")
+        );
 
         // Transcoder must never have been called
         assert!(transcoder.calls.lock().unwrap().is_empty());
@@ -250,12 +284,8 @@ mod tests {
         let disk_guard = Arc::new(MockDiskSpaceGuard { allow: true });
         let history = Arc::new(MockHistoryRepository::default());
 
-        let use_case = RipSingleTitleUseCase::new(
-            transcoder,
-            notifier.clone(),
-            disk_guard,
-            history.clone(),
-        );
+        let use_case =
+            RipSingleTitleUseCase::new(transcoder, notifier.clone(), disk_guard, history.clone());
 
         let req = RipSingleTitleRequest {
             source_dvd: PathBuf::from("D:\\"),
@@ -285,12 +315,8 @@ mod tests {
         let disk_guard = Arc::new(MockDiskSpaceGuard { allow: true });
         let history = Arc::new(MockHistoryRepository::default());
 
-        let batch_use_case = RipTvBatchUseCase::new(
-            transcoder.clone(),
-            notifier,
-            disk_guard,
-            history.clone(),
-        );
+        let batch_use_case =
+            RipTvBatchUseCase::new(transcoder.clone(), notifier, disk_guard, history.clone());
 
         let episodes = vec![
             TvEpisodeInfo {
@@ -341,21 +367,15 @@ mod tests {
         let disk_guard = Arc::new(MockDiskSpaceGuard { allow: true });
         let history = Arc::new(MockHistoryRepository::default());
 
-        let batch_use_case = RipTvBatchUseCase::new(
-            transcoder,
-            notifier.clone(),
-            disk_guard,
-            history,
-        );
+        let batch_use_case =
+            RipTvBatchUseCase::new(transcoder, notifier.clone(), disk_guard, history);
 
-        let episodes = vec![
-            TvEpisodeInfo {
-                title_num: 1,
-                episode_num: 1,
-                duration_secs: 1500.0,
-                formatted_name: "Episode 1".to_string(),
-            },
-        ];
+        let episodes = vec![TvEpisodeInfo {
+            title_num: 1,
+            episode_num: 1,
+            duration_secs: 1500.0,
+            formatted_name: "Episode 1".to_string(),
+        }];
 
         let cancel_flag = Arc::new(AtomicBool::new(true)); // Pre-cancelled
 
@@ -381,9 +401,18 @@ mod tests {
     #[test]
     fn test_probe_disc_use_case() {
         let titles = vec![
-            DvdTitleInfo { title_num: 99, duration_secs: 7500.0 }, // Decoy
-            DvdTitleInfo { title_num: 1, duration_secs: 7520.0 },  // Genuine feature
-            DvdTitleInfo { title_num: 5, duration_secs: 120.0 },   // Trailer
+            DvdTitleInfo {
+                title_num: 99,
+                duration_secs: 7500.0,
+            }, // Decoy
+            DvdTitleInfo {
+                title_num: 1,
+                duration_secs: 7520.0,
+            }, // Genuine feature
+            DvdTitleInfo {
+                title_num: 5,
+                duration_secs: 120.0,
+            }, // Trailer
         ];
 
         let mock_drive = MockOpticalDrive {
@@ -406,6 +435,9 @@ mod tests {
 
         assert_eq!(result.primary_title_num, 1);
         assert!(result.metadata.is_some());
-        assert_eq!(result.metadata.unwrap().title, "John Wick: Chapter 3 - Parabellum");
+        assert_eq!(
+            result.metadata.unwrap().title,
+            "John Wick: Chapter 3 - Parabellum"
+        );
     }
 }

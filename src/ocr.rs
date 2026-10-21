@@ -1,13 +1,12 @@
 #![allow(dead_code)]
 
+use anyhow::{Context, Result};
 /**
  * @file ocr.rs
  * @brief Optical Character Recognition (OCR) engine for converting DVD VobSub bitmap subtitles into text .srt files.
  */
-
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use anyhow::{Context, Result};
 
 /// Represents an individual subtitle cue entry formatted for SubRip (.srt).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -84,12 +83,15 @@ pub struct SrtDocument {
 
 impl SrtDocument {
     pub fn new() -> Self {
-        Self { entries: Vec::new() }
+        Self {
+            entries: Vec::new(),
+        }
     }
 
     pub fn add_entry(&mut self, start_ms: u64, end_ms: u64, text: &str) {
         let index = (self.entries.len() + 1) as u32;
-        self.entries.push(SrtEntry::new(index, start_ms, end_ms, text));
+        self.entries
+            .push(SrtEntry::new(index, start_ms, end_ms, text));
     }
 
     /// Renders the entire document as a UTF-8 SubRip (.srt) formatted string.
@@ -115,20 +117,28 @@ impl SrtDocument {
         let raw_cues = blocks.split("\n\n");
 
         for cue in raw_cues {
-            let lines: Vec<&str> = cue.lines().map(|s| s.trim()).filter(|s| !s.is_empty()).collect();
+            let lines: Vec<&str> = cue
+                .lines()
+                .map(|s| s.trim())
+                .filter(|s| !s.is_empty())
+                .collect();
             if lines.len() >= 2 {
-                let timing_line = if lines[0].contains("-->") { lines[0] } else { lines[1] };
+                let timing_line = if lines[0].contains("-->") {
+                    lines[0]
+                } else {
+                    lines[1]
+                };
                 let text_start = if lines[0].contains("-->") { 1 } else { 2 };
 
                 let timing_parts: Vec<&str> = timing_line.split("-->").collect();
-                if timing_parts.len() == 2 {
-                    if let (Some(start), Some(end)) = (
+                if timing_parts.len() == 2
+                    && let (Some(start), Some(end)) = (
                         SrtEntry::parse_timestamp(timing_parts[0]),
                         SrtEntry::parse_timestamp(timing_parts[1]),
-                    ) {
-                        let text = lines[text_start..].join("\n");
-                        doc.add_entry(start, end, &text);
-                    }
+                    )
+                {
+                    let text = lines[text_start..].join("\n");
+                    doc.add_entry(start, end, &text);
                 }
             }
         }
@@ -139,7 +149,10 @@ impl SrtDocument {
 /// Resolves the destination external .srt file path alongside a media file (e.g., "Movie (2000).eng.srt").
 pub fn resolve_external_srt_path(video_path: &Path, lang: Option<&str>) -> PathBuf {
     let parent = video_path.parent().unwrap_or_else(|| Path::new(""));
-    let stem = video_path.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_else(|| "output".to_string());
+    let stem = video_path
+        .file_stem()
+        .map(|s| s.to_string_lossy().to_string())
+        .unwrap_or_else(|| "output".to_string());
     let filename = if let Some(code) = lang {
         let clean_code = code.trim().to_lowercase();
         if clean_code.is_empty() {
@@ -200,7 +213,9 @@ impl OcrProcessor for TesseractOcrProcessor {
             .arg("--psm")
             .arg("6")
             .output()
-            .with_context(|| format!("Failed to execute Tesseract binary '{}'", self.binary_path))?;
+            .with_context(|| {
+                format!("Failed to execute Tesseract binary '{}'", self.binary_path)
+            })?;
 
         if output.status.success() {
             let text = String::from_utf8_lossy(&output.stdout).trim().to_string();
@@ -220,7 +235,9 @@ pub struct MockOcrProcessor {
 
 impl MockOcrProcessor {
     pub fn new(text: &str) -> Self {
-        Self { simulated_text: text.to_string() }
+        Self {
+            simulated_text: text.to_string(),
+        }
     }
 }
 
@@ -247,28 +264,47 @@ pub fn process_subtitle_ocr_sidecar(
     let lang_code = args.ocr_lang.as_str();
     let srt_path = resolve_external_srt_path(video_output_path, Some(lang_code));
 
-    println!("[Subtitle OCR] Preparing SubRip (.srt) subtitle generation for '{}'...", title_display);
+    println!(
+        "[Subtitle OCR] Preparing SubRip (.srt) subtitle generation for '{}'...",
+        title_display
+    );
     let tesseract_ok = is_tesseract_available(&args.tesseract);
 
     if tesseract_ok {
-        println!("[Subtitle OCR] Tesseract engine detected at '{}'. Extracting subtitle stream with language '{}'...", args.tesseract, lang_code);
+        println!(
+            "[Subtitle OCR] Tesseract engine detected at '{}'. Extracting subtitle stream with language '{}'...",
+            args.tesseract, lang_code
+        );
     } else {
-        println!("[Subtitle OCR] Notice: Tesseract executable not found at '{}'. Generating initial sidecar text subtitle placeholder.", args.tesseract);
+        println!(
+            "[Subtitle OCR] Notice: Tesseract executable not found at '{}'. Generating initial sidecar text subtitle placeholder.",
+            args.tesseract
+        );
     }
 
     let mut doc = SrtDocument::new();
     doc.add_entry(
         1000,
         5000,
-        &format!("[Subtitles: {} - Transcribed via dvd-ripper OCR]", title_display),
+        &format!(
+            "[Subtitles: {} - Transcribed via dvd-ripper OCR]",
+            title_display
+        ),
     );
 
     if let Err(e) = doc.save_to_file(&srt_path) {
-        eprintln!("[Subtitle OCR] Warning: Could not write .srt sidecar file to '{}': {}", srt_path.display(), e);
+        eprintln!(
+            "[Subtitle OCR] Warning: Could not write .srt sidecar file to '{}': {}",
+            srt_path.display(),
+            e
+        );
         return Ok(None);
     }
 
-    println!("[Subtitle OCR] ✓ Subtitle sidecar written to: {}", srt_path.display());
+    println!(
+        "[Subtitle OCR] ✓ Subtitle sidecar written to: {}",
+        srt_path.display()
+    );
     Ok(Some(srt_path))
 }
 
@@ -298,7 +334,10 @@ mod tests {
 
         let srt_text = doc.to_srt_string();
         assert!(srt_text.contains("1\n00:00:01,000 --> 00:00:03,500\nFirst dialogue line"));
-        assert!(srt_text.contains("2\n00:00:04,000 --> 00:00:07,250\nSecond dialogue line\nwith two rows"));
+        assert!(
+            srt_text
+                .contains("2\n00:00:04,000 --> 00:00:07,250\nSecond dialogue line\nwith two rows")
+        );
 
         let reparsed = SrtDocument::from_srt_string(&srt_text);
         assert_eq!(reparsed.entries.len(), 2);
@@ -311,10 +350,16 @@ mod tests {
     fn test_resolve_external_srt_path() {
         let video = Path::new("Films/Aliens (1986)/Aliens (1986).mp4");
         let srt_eng = resolve_external_srt_path(video, Some("eng"));
-        assert_eq!(srt_eng, PathBuf::from("Films/Aliens (1986)/Aliens (1986).eng.srt"));
+        assert_eq!(
+            srt_eng,
+            PathBuf::from("Films/Aliens (1986)/Aliens (1986).eng.srt")
+        );
 
         let srt_default = resolve_external_srt_path(video, None);
-        assert_eq!(srt_default, PathBuf::from("Films/Aliens (1986)/Aliens (1986).srt"));
+        assert_eq!(
+            srt_default,
+            PathBuf::from("Films/Aliens (1986)/Aliens (1986).srt")
+        );
     }
 
     #[test]

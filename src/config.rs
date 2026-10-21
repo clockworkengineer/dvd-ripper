@@ -1,12 +1,11 @@
+use crate::cli::Args;
+use serde::{Deserialize, Serialize};
 /**
  * @file config.rs
  * @brief Persistent TOML configuration file loader for dvd-ripper user defaults.
  */
-
 use std::fs;
 use std::path::Path;
-use serde::{Deserialize, Serialize};
-use crate::cli::Args;
 
 /// Application configuration structure stored in dvd-ripper.toml or ~/.dvd-ripper/config.toml
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -57,13 +56,12 @@ pub struct AppConfig {
 }
 
 fn try_load_config_file(path: &Path) -> Option<AppConfig> {
-    if path.exists() {
-        if let Ok(content) = fs::read_to_string(path) {
-            if let Ok(cfg) = parse_config_toml(&content) {
-                println!("[Config] Loaded configuration from '{}'", path.display());
-                return Some(cfg);
-            }
-        }
+    if path.exists()
+        && let Ok(content) = fs::read_to_string(path)
+        && let Ok(cfg) = parse_config_toml(&content)
+    {
+        println!("[Config] Loaded configuration from '{}'", path.display());
+        return Some(cfg);
     }
     None
 }
@@ -85,10 +83,10 @@ impl ConfigRepository for FileConfigRepository {
 
 /// Loads configuration from custom path, ./dvd-ripper.toml, or ~/.dvd-ripper/config.toml
 pub fn load_config(custom_path: Option<&str>) -> AppConfig {
-    if let Some(path_str) = custom_path {
-        if let Some(cfg) = try_load_config_file(Path::new(path_str)) {
-            return cfg;
-        }
+    if let Some(path_str) = custom_path
+        && let Some(cfg) = try_load_config_file(Path::new(path_str))
+    {
+        return cfg;
     }
 
     if let Some(cfg) = try_load_config_file(Path::new("dvd-ripper.toml")) {
@@ -103,19 +101,21 @@ pub fn load_config(custom_path: Option<&str>) -> AppConfig {
     AppConfig::default()
 }
 
-
 /// Returns the default global configuration file path (~/.dvd-ripper/config.toml).
+#[allow(dead_code)]
 pub fn get_default_config_path() -> std::path::PathBuf {
     crate::utils::get_app_data_dir().join("config.toml")
 }
 
 /// Saves an AppConfig struct to the default configuration file (~/.dvd-ripper/config.toml).
+#[allow(dead_code)]
 pub fn save_default_config(config: &AppConfig) -> anyhow::Result<()> {
     let target = get_default_config_path();
     save_config(config, &target)
 }
 
 /// Saves an AppConfig struct to TOML file using atomic file write.
+#[allow(dead_code)]
 pub fn save_config(config: &AppConfig, target_path: &Path) -> anyhow::Result<()> {
     let toml_str = toml::to_string_pretty(config)?;
     crate::utils::atomic_write_file(target_path, toml_str)?;
@@ -130,25 +130,25 @@ pub fn parse_config_toml(content: &str) -> anyhow::Result<AppConfig> {
 
 /// Merges loaded TOML config options into CLI Args if CLI flags were omitted.
 pub fn apply_config_defaults(args: &mut Args, config: &AppConfig) {
-    if let Some(ref val) = config.out_dir {
-        if args.out_dir == "Films" {
-            args.out_dir = val.clone();
-        }
+    if let Some(ref val) = config.out_dir
+        && args.out_dir == "Films"
+    {
+        args.out_dir = val.clone();
     }
-    if let Some(ref val) = config.codec {
-        if args.codec == "h264" {
-            args.codec = val.clone();
-        }
+    if let Some(ref val) = config.codec
+        && args.codec == "h264"
+    {
+        args.codec = val.clone();
     }
-    if let Some(ref val) = config.profile {
-        if args.profile == "standard" {
-            args.profile = val.clone();
-        }
+    if let Some(ref val) = config.profile
+        && args.profile == "standard"
+    {
+        args.profile = val.clone();
     }
-    if let Some(ref val) = config.preset {
-        if args.preset == "veryfast" {
-            args.preset = val.clone();
-        }
+    if let Some(ref val) = config.preset
+        && args.preset == "veryfast"
+    {
+        args.preset = val.clone();
     }
     if args.mqtt_broker.is_none() {
         args.mqtt_broker = config.mqtt_broker.clone();
@@ -180,43 +180,43 @@ pub fn apply_config_defaults(args: &mut Args, config: &AppConfig) {
     if args.post_script.is_none() {
         args.post_script = config.post_script.clone();
     }
-    if let Some(val) = config.auto_boxset {
-        if !args.auto_boxset {
-            args.auto_boxset = val;
-        }
+    if let Some(val) = config.auto_boxset
+        && !args.auto_boxset
+    {
+        args.auto_boxset = val;
     }
-    if let Some(val) = config.deinterlace {
-        if !args.deinterlace {
-            args.deinterlace = val;
-        }
+    if let Some(val) = config.deinterlace
+        && !args.deinterlace
+    {
+        args.deinterlace = val;
     }
     if args.deinterlace_algo.is_none() {
         args.deinterlace_algo = config.deinterlace_algo.clone();
     }
-    if let Some(val) = config.denoise {
-        if !args.denoise {
-            args.denoise = val;
-        }
+    if let Some(val) = config.denoise
+        && !args.denoise
+    {
+        args.denoise = val;
     }
-    if let Some(val) = config.min_free_gb {
-        if args.min_free_gb == 10 {
-            args.min_free_gb = val;
-        }
+    if let Some(val) = config.min_free_gb
+        && args.min_free_gb == 10
+    {
+        args.min_free_gb = val;
     }
-    if let Some(val) = config.no_eject {
-        if !args.no_eject {
-            args.no_eject = val;
-        }
+    if let Some(val) = config.no_eject
+        && !args.no_eject
+    {
+        args.no_eject = val;
     }
-    if let Some(val) = config.sub_forced_only {
-        if !args.sub_forced_only {
-            args.sub_forced_only = val;
-        }
+    if let Some(val) = config.sub_forced_only
+        && !args.sub_forced_only
+    {
+        args.sub_forced_only = val;
     }
-    if let Some(val) = config.sub_external_srt {
-        if !args.sub_external_srt {
-            args.sub_external_srt = val;
-        }
+    if let Some(val) = config.sub_external_srt
+        && !args.sub_external_srt
+    {
+        args.sub_external_srt = val;
     }
     if args.audio_track.is_none() {
         args.audio_track = config.audio_track;
@@ -224,31 +224,31 @@ pub fn apply_config_defaults(args: &mut Args, config: &AppConfig) {
     if args.audit_log.is_none() {
         args.audit_log = config.audit_log.clone();
     }
-    if let Some(val) = config.spindown {
-        if !args.spindown {
-            args.spindown = val;
-        }
+    if let Some(val) = config.spindown
+        && !args.spindown
+    {
+        args.spindown = val;
     }
-    if let Some(val) = config.sub_default {
-        if !args.sub_default {
-            args.sub_default = val;
-        }
+    if let Some(val) = config.sub_default
+        && !args.sub_default
+    {
+        args.sub_default = val;
     }
     if args.tags.is_none() {
         args.tags = config.tags.clone();
     }
-    if let Some(val) = config.checksum {
-        if !args.checksum {
-            args.checksum = val;
-        }
+    if let Some(val) = config.checksum
+        && !args.checksum
+    {
+        args.checksum = val;
     }
     if args.fallback_out_dir.is_none() {
         args.fallback_out_dir = config.fallback_out_dir.clone();
     }
-    if let Some(val) = config.sub_burnin {
-        if !args.sub_burnin {
-            args.sub_burnin = val;
-        }
+    if let Some(val) = config.sub_burnin
+        && !args.sub_burnin
+    {
+        args.sub_burnin = val;
     }
     if args.norm_target.is_none() {
         args.norm_target = config.norm_target;
@@ -268,36 +268,36 @@ pub fn apply_config_defaults(args: &mut Args, config: &AppConfig) {
     if args.drive_pool.is_none() {
         args.drive_pool = config.drive_pool.clone();
     }
-    if !args.auto_rip {
-        if let Some(auto) = config.auto_rip {
-            args.auto_rip = auto;
-        }
+    if !args.auto_rip
+        && let Some(auto) = config.auto_rip
+    {
+        args.auto_rip = auto;
     }
     if args.tonemap.is_none() {
         args.tonemap = config.tonemap.clone();
     }
-    if let Some(val) = config.ocr {
-        if !args.ocr {
-            args.ocr = val;
-        }
+    if let Some(val) = config.ocr
+        && !args.ocr
+    {
+        args.ocr = val;
     }
-    if let Some(ref val) = config.ocr_lang {
-        if args.ocr_lang == "eng" {
-            args.ocr_lang = val.clone();
-        }
+    if let Some(ref val) = config.ocr_lang
+        && args.ocr_lang == "eng"
+    {
+        args.ocr_lang = val.clone();
     }
-    if let Some(ref val) = config.tesseract {
-        if args.tesseract == "tesseract" {
-            args.tesseract = val.clone();
-        }
+    if let Some(ref val) = config.tesseract
+        && args.tesseract == "tesseract"
+    {
+        args.tesseract = val.clone();
     }
     if let Some(val) = config.ignore_errors {
         args.ignore_errors = val;
     }
-    if let Some(val) = config.iso {
-        if !args.iso {
-            args.iso = val;
-        }
+    if let Some(val) = config.iso
+        && !args.iso
+    {
+        args.iso = val;
     }
 }
 

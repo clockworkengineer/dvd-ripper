@@ -1,6 +1,6 @@
+use crate::cli::Args;
 use std::path::Path;
 use std::process::Command;
-use crate::cli::Args;
 
 /// Builds an FFmpeg Command configured with parameters for the specified input title and target output.
 pub fn build_ffmpeg_command(

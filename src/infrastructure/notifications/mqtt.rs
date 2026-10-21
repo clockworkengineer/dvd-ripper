@@ -1,5 +1,5 @@
-use anyhow::Result;
 use crate::domain::ports::notification::{NotificationEvent, Notifier};
+use anyhow::Result;
 
 /// Dispatches notifications over MQTT 3.1.1 byte packets.
 #[derive(Debug, Clone)]

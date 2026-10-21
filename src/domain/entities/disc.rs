@@ -1,5 +1,5 @@
-use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
 
 /// Basic probed duration and title index for a DVD title track.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

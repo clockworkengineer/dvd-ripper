@@ -2,7 +2,6 @@
  * @file tvmaze.rs
  * @brief TVMaze REST API client for fetching TV series episode names and metadata.
  */
-
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 
@@ -33,8 +32,8 @@ struct TvMazeShowResponse {
 
 /// Parses TVMaze JSON response into a list of TV episodes.
 pub fn parse_tvmaze_response(json_str: &str) -> Result<Vec<TvMazeEpisode>> {
-    let show: TvMazeShowResponse = serde_json::from_str(json_str)
-        .context("Failed to parse TVMaze show response")?;
+    let show: TvMazeShowResponse =
+        serde_json::from_str(json_str).context("Failed to parse TVMaze show response")?;
     Ok(show.embedded.map(|e| e.episodes).unwrap_or_default())
 }
 
@@ -68,7 +67,11 @@ pub fn fetch_tvmaze_episodes(show_name: &str) -> Result<Vec<TvMazeEpisode>> {
 }
 
 /// Finds the episode title for a specific season and episode number.
-pub fn find_episode_title(episodes: &[TvMazeEpisode], season: u32, episode_num: u32) -> Option<String> {
+pub fn find_episode_title(
+    episodes: &[TvMazeEpisode],
+    season: u32,
+    episode_num: u32,
+) -> Option<String> {
     episodes
         .iter()
         .find(|ep| ep.season == season && ep.number == Some(episode_num))

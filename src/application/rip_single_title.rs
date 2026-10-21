@@ -1,7 +1,7 @@
-use std::path::PathBuf;
-use std::sync::atomic::AtomicBool;
-use std::sync::Arc;
 use anyhow::Result;
+use std::path::PathBuf;
+use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 
 use crate::domain::entities::job::RipRecord;
 use crate::domain::entities::media::FilmMetadata;
@@ -59,7 +59,8 @@ impl RipSingleTitleUseCase {
         let parent_dir = request.output_path.parent().unwrap_or(&request.output_path);
 
         // 1. Check disk space guard
-        self.disk_guard.check_free_space(parent_dir, request.min_free_gb)?;
+        self.disk_guard
+            .check_free_space(parent_dir, request.min_free_gb)?;
 
         // 2. Notify start
         let drive_str = request.source_dvd.to_string_lossy();
@@ -98,7 +99,11 @@ impl RipSingleTitleUseCase {
                 // Append record to history
                 let record = RipRecord::new(
                     &request.display_title,
-                    if request.metadata.as_ref().map_or(false, |m| m.is_series) { "tv" } else { "movie" },
+                    if request.metadata.as_ref().is_some_and(|m| m.is_series) {
+                        "tv"
+                    } else {
+                        "movie"
+                    },
                     &out_str,
                     "Completed",
                 );
@@ -117,12 +122,7 @@ impl RipSingleTitleUseCase {
                 let err_str = e.to_string();
                 let out_str = request.output_path.to_string_lossy();
 
-                let record = RipRecord::new(
-                    &request.display_title,
-                    "unknown",
-                    &out_str,
-                    "Failed",
-                );
+                let record = RipRecord::new(&request.display_title, "unknown", &out_str, "Failed");
                 let _ = self.history_repo.append_record(&record, None);
 
                 let _ = self.notifier.send(&NotificationEvent::RipFailed {

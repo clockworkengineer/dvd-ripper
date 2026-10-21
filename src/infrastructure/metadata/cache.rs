@@ -1,12 +1,11 @@
+use crate::domain::entities::media::FilmMetadata;
+use anyhow::Result;
+use serde::{Deserialize, Serialize};
 /**
  * @file cache.rs
  * @brief On-disk disc fingerprint and media metadata caching for instant recognition.
  */
-
 use std::path::PathBuf;
-use anyhow::Result;
-use serde::{Deserialize, Serialize};
-use crate::domain::entities::media::FilmMetadata;
 
 /// On-disk cache entry mapping a disc volume fingerprint to verified media metadata and ripping settings.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -63,10 +62,12 @@ impl DiskFingerprintCache {
     /// Looks up full CachedDiscEntry including title number and TV series settings.
     pub fn lookup_entry(&self, fingerprint: &str) -> Option<CachedDiscEntry> {
         let path = Self::cache_file_path();
-        if let Some(map) = crate::utils::load_json_file::<std::collections::HashMap<String, CachedDiscEntry>>(&path) {
-            if let Some(entry) = map.get(fingerprint) {
-                return Some(entry.clone());
-            }
+        if let Some(map) = crate::utils::load_json_file::<
+            std::collections::HashMap<String, CachedDiscEntry>,
+        >(&path)
+            && let Some(entry) = map.get(fingerprint)
+        {
+            return Some(entry.clone());
         }
 
         // Fallback to legacy fingerprints.json if present

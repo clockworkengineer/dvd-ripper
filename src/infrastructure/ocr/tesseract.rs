@@ -1,6 +1,6 @@
-use std::path::Path;
+use crate::ocr::{OcrProcessor, is_tesseract_available};
 use anyhow::Result;
-use crate::ocr::{is_tesseract_available, OcrProcessor};
+use std::path::Path;
 
 /// Tesseract-backed OCR processor implementing domain character recognition.
 #[derive(Debug, Clone)]

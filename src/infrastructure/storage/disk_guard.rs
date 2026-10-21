@@ -1,6 +1,6 @@
-use std::path::Path;
-use anyhow::{anyhow, Result};
 use crate::domain::ports::storage::DiskSpaceGuard;
+use anyhow::{Result, anyhow};
+use std::path::Path;
 
 /// Implementation of DiskSpaceGuard querying filesystem free capacity.
 #[derive(Debug, Default, Clone)]
@@ -23,7 +23,9 @@ impl DiskSpaceGuard for SystemDiskSpaceGuard {
             let free_gb = free_bytes as f64 / (1024.0 * 1024.0 * 1024.0);
             return Err(anyhow!(
                 "Disk Space Guard Safeguard Triggered: Only {:.2} GB free space available in '{}', but minimum threshold is {} GB.",
-                free_gb, path.display(), min_free_gb
+                free_gb,
+                path.display(),
+                min_free_gb
             ));
         }
         Ok(())

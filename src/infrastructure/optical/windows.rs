@@ -1,7 +1,7 @@
-use std::path::{Path, PathBuf};
-use anyhow::{anyhow, Result};
 use crate::domain::entities::disc::{DiscCopyProtectionReport, DvdTitleInfo};
 use crate::domain::ports::optical_drive::{DriveDetector, OpticalDrive};
+use anyhow::{Result, anyhow};
+use std::path::{Path, PathBuf};
 
 /// Concrete OpticalDrive implementation for Windows / POSIX environments.
 #[derive(Debug, Clone)]
@@ -56,7 +56,10 @@ impl OpticalDrive for PhysicalOpticalDrive {
         if crate::dvd::eject_disc(&p) {
             Ok(())
         } else {
-            Err(anyhow!("Failed to eject disc drive at {}", self.drive_path.display()))
+            Err(anyhow!(
+                "Failed to eject disc drive at {}",
+                self.drive_path.display()
+            ))
         }
     }
 }

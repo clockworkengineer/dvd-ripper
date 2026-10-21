@@ -1,13 +1,11 @@
+use serde::{Deserialize, Serialize};
 /**
  * @file queue.rs
  * @brief Thread-safe priority job queue manager for multi-disc appliance ripping.
  */
-
 use std::sync::{Arc, Mutex, OnceLock};
-use serde::{Deserialize, Serialize};
 
 use std::path::PathBuf;
-
 
 /// Represents a single queued ripping job item.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -36,7 +34,10 @@ pub fn format_queue_summary(active_count: usize, total_queued: usize) -> String 
     if total_queued == 0 && active_count == 0 {
         "Job queue is empty".to_string()
     } else {
-        format!("Queue status: {} total queued ({} active)", total_queued, active_count)
+        format!(
+            "Queue status: {} total queued ({} active)",
+            total_queued, active_count
+        )
     }
 }
 
@@ -60,7 +61,6 @@ fn resolve_boxsets_path(custom_path: Option<&str>) -> PathBuf {
     crate::utils::get_app_file_path("boxsets.json")
 }
 
-
 /// Loads persistent box set records from ~/.dvd-ripper/boxsets.json
 pub fn load_boxsets(custom_path: Option<&str>) -> Vec<BoxSetRecord> {
     let p = resolve_boxsets_path(custom_path);
@@ -72,7 +72,6 @@ pub fn save_boxsets(records: &[BoxSetRecord], custom_path: Option<&str>) -> anyh
     let p = resolve_boxsets_path(custom_path);
     crate::utils::save_json_file(&p, &records)
 }
-
 
 /// Trait defining job queue repository contract (ISP/DIP).
 #[allow(dead_code)]
@@ -124,7 +123,6 @@ impl JobQueueRepository for FileJobQueueRepository {
 
 /// Enqueues a new ripping job item into the queue.
 pub fn add_job(title: &str, media_type: &str, drive: &str) -> String {
-
     let id = format!("job_{}", uuid_v4_short());
     let item = JobItem {
         id: id.clone(),
@@ -247,7 +245,6 @@ pub fn reset_boxset_tracker(show_name: &str, season: u32) -> bool {
     }
 }
 
-
 /// Returns a copy of all tracked box set records.
 pub fn list_boxsets() -> Vec<BoxSetRecord> {
     let handle = get_boxset_manager_handle();
@@ -352,7 +349,11 @@ mod tests {
         assert_eq!(new_last_2, 8);
 
         let boxsets = list_boxsets();
-        assert!(boxsets.iter().any(|b| b.show_name == show && b.last_episode == 8));
+        assert!(
+            boxsets
+                .iter()
+                .any(|b| b.show_name == show && b.last_episode == 8)
+        );
 
         let reset = reset_boxset_tracker(show, season);
         assert!(reset);
@@ -364,6 +365,9 @@ mod tests {
     #[test]
     fn test_format_queue_summary() {
         assert_eq!(format_queue_summary(0, 0), "Job queue is empty");
-        assert_eq!(format_queue_summary(1, 3), "Queue status: 3 total queued (1 active)");
+        assert_eq!(
+            format_queue_summary(1, 3),
+            "Queue status: 3 total queued (1 active)"
+        );
     }
 }

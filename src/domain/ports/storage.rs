@@ -1,10 +1,17 @@
-use std::path::Path;
 use anyhow::Result;
+use std::path::Path;
 
 /// Abstraction for persistent application history storage.
 pub trait HistoryRepository: Send + Sync {
-    fn load_history(&self, custom_path: Option<&Path>) -> Vec<crate::domain::entities::job::RipRecord>;
-    fn append_record(&self, record: &crate::domain::entities::job::RipRecord, custom_path: Option<&Path>) -> Result<()>;
+    fn load_history(
+        &self,
+        custom_path: Option<&Path>,
+    ) -> Vec<crate::domain::entities::job::RipRecord>;
+    fn append_record(
+        &self,
+        record: &crate::domain::entities::job::RipRecord,
+        custom_path: Option<&Path>,
+    ) -> Result<()>;
     fn clear_history(&self, custom_path: Option<&Path>) -> Result<()>;
 }
 

@@ -1,5 +1,5 @@
-use anyhow::Result;
 use crate::domain::ports::notification::{NotificationEvent, Notifier};
+use anyhow::Result;
 
 /// Composite notifier that dispatches events to multiple registered Notifier implementations (Composite Pattern).
 pub struct CompositeNotifier {
@@ -20,7 +20,10 @@ impl Notifier for CompositeNotifier {
     fn send(&self, event: &NotificationEvent) -> Result<()> {
         for n in &self.notifiers {
             if let Err(e) = n.send(event) {
-                eprintln!("[CompositeNotifier Warning] Failed to dispatch notification: {}", e);
+                eprintln!(
+                    "[CompositeNotifier Warning] Failed to dispatch notification: {}",
+                    e
+                );
             }
         }
         Ok(())

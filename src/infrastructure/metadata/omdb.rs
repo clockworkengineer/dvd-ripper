@@ -1,6 +1,6 @@
-use anyhow::Result;
 use crate::domain::entities::media::{FilmMetadata, SearchCandidate};
 use crate::domain::ports::metadata::MetadataProvider;
+use anyhow::Result;
 
 /// Concrete OMDb REST API metadata provider implementing the domain MetadataProvider port.
 #[derive(Debug, Default, Clone)]
@@ -10,7 +10,9 @@ pub struct OmdbMetadataProvider {
 
 impl OmdbMetadataProvider {
     pub fn new(api_key: Option<String>) -> Self {
-        Self { custom_api_key: api_key }
+        Self {
+            custom_api_key: api_key,
+        }
     }
 }
 
@@ -47,7 +49,11 @@ impl MetadataProvider for OmdbMetadataProvider {
         Ok(res)
     }
 
-    fn get_details_by_title_and_year(&self, title: &str, year: Option<u32>) -> Result<Option<FilmMetadata>> {
+    fn get_details_by_title_and_year(
+        &self,
+        title: &str,
+        year: Option<u32>,
+    ) -> Result<Option<FilmMetadata>> {
         let q = if let Some(y) = year {
             format!("{} {}", title, y)
         } else {

@@ -2,8 +2,7 @@
  * @file imdb.rs
  * @brief IMDb / OMDb suggestion API client and rich movie metadata models.
  */
-
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result, anyhow};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
@@ -25,8 +24,6 @@ pub struct FilmMetadata {
     pub total_seasons: Option<u32>,
     pub poster_bytes: Option<Vec<u8>>,
 }
-
-
 
 /// Represents a single movie/series search result from the OMDb database.
 #[derive(Deserialize, Debug)]
@@ -103,22 +100,17 @@ pub struct ImdbSuggestResponse {
 pub fn parse_runtime_minutes(s: &str) -> Option<f64> {
     let clean = s.trim_end_matches("min").trim();
     let mins: f64 = clean.parse().ok()?;
-    if mins > 0.0 {
-        Some(mins * 60.0)
-    } else {
-        None
-    }
+    if mins > 0.0 { Some(mins * 60.0) } else { None }
 }
 
 /// Parses a release year string (e.g. "1986", "1986–", "2021-05-14") into a valid 4-digit u32 year (1888..=2100).
 pub fn parse_year_from_str(s: &str) -> Option<u32> {
     let clean: String = s.chars().filter(|c| c.is_ascii_digit()).collect();
-    if clean.len() >= 4 {
-        if let Ok(yr) = clean[..4].parse::<u32>() {
-            if (1888..=2100).contains(&yr) {
-                return Some(yr);
-            }
-        }
+    if clean.len() >= 4
+        && let Ok(yr) = clean[..4].parse::<u32>()
+        && (1888..=2100).contains(&yr)
+    {
+        return Some(yr);
     }
     None
 }
@@ -164,7 +156,6 @@ fn get_http_client() -> reqwest::blocking::Client {
     crate::utils::get_http_client()
 }
 
-
 /// Helper: Constructs a reqwest::Url with query parameter tuples.
 #[allow(dead_code)]
 pub fn build_api_url(endpoint: &str, params: &[(&str, &str)]) -> Result<reqwest::Url> {
@@ -180,14 +171,19 @@ pub fn build_imdb_search_url(base_url: &str, api_key: &str, query: &str) -> Resu
 /// Formats a raw IMDb rating string into a standardized rating badge string (e.g., "8.4" -> "IMDb: 8.4").
 #[allow(dead_code)]
 pub fn format_imdb_rating(rating: Option<&str>) -> String {
-    rating.map(|r| format!("IMDb: {}", r)).unwrap_or_else(|| "IMDb: N/A".to_string())
+    rating
+        .map(|r| format!("IMDb: {}", r))
+        .unwrap_or_else(|| "IMDb: N/A".to_string())
 }
 
 /// Normalizes and validates an IMDb ID string (e.g. " tt0090605 " -> Some("tt0090605")).
 #[allow(dead_code)]
 pub fn normalize_imdb_id(raw_id: &str) -> Option<String> {
     let trimmed = raw_id.trim();
-    if trimmed.starts_with("tt") && trimmed.len() >= 9 && trimmed[2..].chars().all(|c| c.is_ascii_digit()) {
+    if trimmed.starts_with("tt")
+        && trimmed.len() >= 9
+        && trimmed[2..].chars().all(|c| c.is_ascii_digit())
+    {
         Some(trimmed.to_string())
     } else {
         None
@@ -217,7 +213,11 @@ impl SearchResultItem {
     #[allow(dead_code)]
     pub fn formatted_label(&self) -> String {
         let yr = self.year.map(|y| format!(" ({})", y)).unwrap_or_default();
-        let type_desc = if !self.type_field.is_empty() { format!(" [{}]", self.type_field) } else { String::new() };
+        let type_desc = if !self.type_field.is_empty() {
+            format!(" [{}]", self.type_field)
+        } else {
+            String::new()
+        };
         format!("{}{}{}", self.title, yr, type_desc)
     }
 }
@@ -244,7 +244,10 @@ impl From<&OmdbSearchItem> for SearchResultItem {
             title: item.title.clone().unwrap_or_default(),
             year: yr,
             imdb_id: item.imdb_id.clone().unwrap_or_default(),
-            type_field: item.type_field.clone().unwrap_or_else(|| "movie".to_string()),
+            type_field: item
+                .type_field
+                .clone()
+                .unwrap_or_else(|| "movie".to_string()),
             poster_url: item.poster.clone(),
         }
     }
@@ -268,7 +271,7 @@ pub fn fetch_search_candidates(query: &str) -> Vec<SearchResultItem> {
     if !parsed_info.clean_title.is_empty() {
         search_terms.push(normalize_search_title(&parsed_info.clean_title));
     }
-    let cleaned_raw = query.replace('_', " ").replace('-', " ").trim().to_lowercase();
+    let cleaned_raw = query.replace(['_', '-'], " ").trim().to_lowercase();
     if !cleaned_raw.is_empty() && !search_terms.contains(&cleaned_raw) {
         search_terms.push(cleaned_raw);
     }
@@ -280,29 +283,30 @@ pub fn fetch_search_candidates(query: &str) -> Vec<SearchResultItem> {
     for term in search_terms {
         let encoded = crate::utils::encode_url_query_value(&term);
         let url = format!("https://www.omdbapi.com/?s={}&apikey=trilogy", encoded);
-        if let Ok(resp) = client.get(&url).send() {
-            if let Ok(text) = resp.text() {
-                if let Ok(omdb_search) = serde_json::from_str::<OmdbSearchResponse>(&text) {
-                    if omdb_search.response.as_deref() == Some("True") {
-                        if let Some(items) = omdb_search.search {
-                            for item in items {
-                                if let (Some(t), Some(id)) = (item.title, item.imdb_id) {
-                                    let y = item.year.as_deref().and_then(|yr| yr.get(..4)).and_then(|yr| yr.parse::<u32>().ok());
-                                    let type_field = item.type_field.unwrap_or_else(|| "movie".to_string());
-                                    let poster_url = item.poster.filter(|p| p != "N/A");
-                                    let candidate = SearchResultItem {
-                                        title: t,
-                                        year: y,
-                                        imdb_id: id,
-                                        type_field,
-                                        poster_url,
-                                    };
-                                    if !results.contains(&candidate) {
-                                        results.push(candidate);
-                                    }
-                                }
-                            }
-                        }
+        if let Ok(resp) = client.get(&url).send()
+            && let Ok(text) = resp.text()
+            && let Ok(omdb_search) = serde_json::from_str::<OmdbSearchResponse>(&text)
+            && omdb_search.response.as_deref() == Some("True")
+            && let Some(items) = omdb_search.search
+        {
+            for item in items {
+                if let (Some(t), Some(id)) = (item.title, item.imdb_id) {
+                    let y = item
+                        .year
+                        .as_deref()
+                        .and_then(|yr| yr.get(..4))
+                        .and_then(|yr| yr.parse::<u32>().ok());
+                    let type_field = item.type_field.unwrap_or_else(|| "movie".to_string());
+                    let poster_url = item.poster.filter(|p| p != "N/A");
+                    let candidate = SearchResultItem {
+                        title: t,
+                        year: y,
+                        imdb_id: id,
+                        type_field,
+                        poster_url,
+                    };
+                    if !results.contains(&candidate) {
+                        results.push(candidate);
                     }
                 }
             }
@@ -322,51 +326,50 @@ pub fn lookup_omdb_by_id(imdb_id: &str) -> Option<FilmMetadata> {
     let text = resp.text().ok()?;
     let omdb: OmdbResponse = serde_json::from_str(&text).ok()?;
 
-    if omdb.response.as_deref() == Some("True") {
-        if let Some(title) = omdb.title {
-            let year = omdb
-                .year
-                .as_deref()
-                .and_then(|y| y.get(..4))
-                .and_then(|y| y.parse::<u32>().ok());
-            let runtime_secs = omdb.runtime.as_deref().and_then(parse_runtime_minutes);
-            let poster_url = omdb.poster.filter(|p| p != "N/A");
-            let plot = omdb.plot.filter(|p| p != "N/A");
-            let genre = omdb.genre.filter(|g| g != "N/A");
-            let director = omdb.director.filter(|d| d != "N/A");
-            let actors = omdb.actors.filter(|a| a != "N/A");
-            let rating = omdb.imdb_rating.filter(|r| r != "N/A");
+    if omdb.response.as_deref() == Some("True")
+        && let Some(title) = omdb.title
+    {
+        let year = omdb
+            .year
+            .as_deref()
+            .and_then(|y| y.get(..4))
+            .and_then(|y| y.parse::<u32>().ok());
+        let runtime_secs = omdb.runtime.as_deref().and_then(parse_runtime_minutes);
+        let poster_url = omdb.poster.filter(|p| p != "N/A");
+        let plot = omdb.plot.filter(|p| p != "N/A");
+        let genre = omdb.genre.filter(|g| g != "N/A");
+        let director = omdb.director.filter(|d| d != "N/A");
+        let actors = omdb.actors.filter(|a| a != "N/A");
+        let rating = omdb.imdb_rating.filter(|r| r != "N/A");
 
-            let is_series = omdb.type_field.as_deref() == Some("series");
-            let total_seasons = omdb
-                .total_seasons
-                .as_deref()
-                .and_then(|s| s.parse::<u32>().ok());
+        let is_series = omdb.type_field.as_deref() == Some("series");
+        let total_seasons = omdb
+            .total_seasons
+            .as_deref()
+            .and_then(|s| s.parse::<u32>().ok());
 
-            let mut poster_bytes = None;
-            if let Some(ref p_url) = poster_url {
-                if let Ok(p_resp) = client.get(p_url).send() {
-                    if let Ok(bytes) = p_resp.bytes() {
-                        poster_bytes = Some(bytes.to_vec());
-                    }
-                }
-            }
-
-            return Some(FilmMetadata {
-                title,
-                year,
-                runtime_secs,
-                poster_url,
-                plot,
-                genre,
-                director,
-                actors,
-                rating,
-                is_series,
-                total_seasons,
-                poster_bytes,
-            });
+        let mut poster_bytes = None;
+        if let Some(ref p_url) = poster_url
+            && let Ok(p_resp) = client.get(p_url).send()
+            && let Ok(bytes) = p_resp.bytes()
+        {
+            poster_bytes = Some(bytes.to_vec());
         }
+
+        return Some(FilmMetadata {
+            title,
+            year,
+            runtime_secs,
+            poster_url,
+            plot,
+            genre,
+            director,
+            actors,
+            rating,
+            is_series,
+            total_seasons,
+            poster_bytes,
+        });
     }
     None
 }
@@ -375,19 +378,20 @@ pub fn lookup_omdb_by_id(imdb_id: &str) -> Option<FilmMetadata> {
 pub fn lookup_omdb_search(query: &str) -> Option<FilmMetadata> {
     let client = get_http_client();
     let encoded_query = query.replace(' ', "+");
-    let url = format!("https://www.omdbapi.com/?s={}&apikey=trilogy", encoded_query);
+    let url = format!(
+        "https://www.omdbapi.com/?s={}&apikey=trilogy",
+        encoded_query
+    );
     let resp = client.get(&url).send().ok()?;
     let text = resp.text().ok()?;
     let omdb_search: OmdbSearchResponse = serde_json::from_str(&text).ok()?;
 
-    if omdb_search.response.as_deref() == Some("True") {
-        if let Some(items) = omdb_search.search {
-            if let Some(first) = items.first() {
-                if let Some(ref imdb_id) = first.imdb_id {
-                    return lookup_omdb_by_id(imdb_id);
-                }
-            }
-        }
+    if omdb_search.response.as_deref() == Some("True")
+        && let Some(items) = omdb_search.search
+        && let Some(first) = items.first()
+        && let Some(ref imdb_id) = first.imdb_id
+    {
+        return lookup_omdb_by_id(imdb_id);
     }
     None
 }
@@ -398,7 +402,6 @@ pub trait MetadataResolver {
     fn name(&self) -> &str;
     fn resolve(&self, query: &str) -> Option<FilmMetadata>;
 }
-
 
 /// Concrete OMDb metadata resolver implementation.
 #[derive(Debug, Default)]
@@ -455,59 +458,60 @@ impl HttpClientProvider for DefaultHttpClientProvider {
 
 /// Queries OMDb API for movie title, release year, running time, plot summary, and poster image.
 pub fn lookup_omdb_details(query: &str) -> Option<FilmMetadata> {
-
     let client = get_http_client();
     let encoded_query = crate::utils::encode_url_query_value(query);
-    let url = format!("https://www.omdbapi.com/?t={}&apikey=trilogy", encoded_query);
+    let url = format!(
+        "https://www.omdbapi.com/?t={}&apikey=trilogy",
+        encoded_query
+    );
     let resp = client.get(&url).send().ok()?;
     let text = resp.text().ok()?;
     let omdb: OmdbResponse = serde_json::from_str(&text).ok()?;
 
-    if omdb.response.as_deref() == Some("True") {
-        if let Some(title) = omdb.title {
-            let year = omdb
-                .year
-                .as_deref()
-                .and_then(|y| y.get(..4))
-                .and_then(|y| y.parse::<u32>().ok());
-            let runtime_secs = omdb.runtime.as_deref().and_then(parse_runtime_minutes);
-            let poster_url = omdb.poster.filter(|p| p != "N/A");
-            let plot = omdb.plot.filter(|p| p != "N/A");
-            let genre = omdb.genre.filter(|g| g != "N/A");
-            let director = omdb.director.filter(|d| d != "N/A");
-            let actors = omdb.actors.filter(|a| a != "N/A");
-            let rating = omdb.imdb_rating.filter(|r| r != "N/A");
+    if omdb.response.as_deref() == Some("True")
+        && let Some(title) = omdb.title
+    {
+        let year = omdb
+            .year
+            .as_deref()
+            .and_then(|y| y.get(..4))
+            .and_then(|y| y.parse::<u32>().ok());
+        let runtime_secs = omdb.runtime.as_deref().and_then(parse_runtime_minutes);
+        let poster_url = omdb.poster.filter(|p| p != "N/A");
+        let plot = omdb.plot.filter(|p| p != "N/A");
+        let genre = omdb.genre.filter(|g| g != "N/A");
+        let director = omdb.director.filter(|d| d != "N/A");
+        let actors = omdb.actors.filter(|a| a != "N/A");
+        let rating = omdb.imdb_rating.filter(|r| r != "N/A");
 
-            let is_series = omdb.type_field.as_deref() == Some("series");
-            let total_seasons = omdb
-                .total_seasons
-                .as_deref()
-                .and_then(|s| s.parse::<u32>().ok());
+        let is_series = omdb.type_field.as_deref() == Some("series");
+        let total_seasons = omdb
+            .total_seasons
+            .as_deref()
+            .and_then(|s| s.parse::<u32>().ok());
 
-            let mut poster_bytes = None;
-            if let Some(ref p_url) = poster_url {
-                if let Ok(p_resp) = client.get(p_url).send() {
-                    if let Ok(bytes) = p_resp.bytes() {
-                        poster_bytes = Some(bytes.to_vec());
-                    }
-                }
-            }
-
-            return Some(FilmMetadata {
-                title,
-                year,
-                runtime_secs,
-                poster_url,
-                plot,
-                genre,
-                director,
-                actors,
-                rating,
-                is_series,
-                total_seasons,
-                poster_bytes,
-            });
+        let mut poster_bytes = None;
+        if let Some(ref p_url) = poster_url
+            && let Ok(p_resp) = client.get(p_url).send()
+            && let Ok(bytes) = p_resp.bytes()
+        {
+            poster_bytes = Some(bytes.to_vec());
         }
+
+        return Some(FilmMetadata {
+            title,
+            year,
+            runtime_secs,
+            poster_url,
+            plot,
+            genre,
+            director,
+            actors,
+            rating,
+            is_series,
+            total_seasons,
+            poster_bytes,
+        });
     }
 
     // If exact title match failed, try search query endpoint (e.g. for volume titles like "kill bill vol1")
@@ -524,20 +528,21 @@ pub fn normalize_search_title(title: &str) -> String {
         title.to_string()
     };
 
-    clean = clean.replace("vol1", "vol 1")
-                 .replace("vol2", "vol 2")
-                 .replace("vol3", "vol 3")
-                 .replace("vol4", "vol 4");
+    clean = clean
+        .replace("vol1", "vol 1")
+        .replace("vol2", "vol 2")
+        .replace("vol3", "vol 3")
+        .replace("vol4", "vol 4");
 
     clean
 }
 
 /// Queries OMDb or IMDb APIs to resolve a raw DVD volume label or show title to full metadata.
 pub fn lookup_film_details(query: &str) -> Result<FilmMetadata> {
-    if query.starts_with("disc_") {
-        if let Some(cached) = lookup_fingerprint_cache(query) {
-            return Ok(cached);
-        }
+    if query.starts_with("disc_")
+        && let Some(cached) = lookup_fingerprint_cache(query)
+    {
+        return Ok(cached);
     }
 
     let parsed_info = crate::utils::parse_season_disc_from_label(query);
@@ -556,11 +561,7 @@ pub fn lookup_film_details(query: &str) -> Result<FilmMetadata> {
         }
     }
 
-    let cleaned_raw: String = query
-        .replace('_', " ")
-        .replace('-', " ")
-        .trim()
-        .to_lowercase();
+    let cleaned_raw: String = query.replace(['_', '-'], " ").trim().to_lowercase();
 
     if cleaned_raw.is_empty() {
         return Err(anyhow!("Cleaned query is empty"));
@@ -598,7 +599,10 @@ pub fn lookup_film_details(query: &str) -> Result<FilmMetadata> {
     }
 
     // Fallback to IMDb Suggest API
-    let first_char = cleaned.chars().next().ok_or_else(|| anyhow!("Empty query"))?;
+    let first_char = cleaned
+        .chars()
+        .next()
+        .ok_or_else(|| anyhow!("Empty query"))?;
 
     let mut url = reqwest::Url::parse("https://sg.media-imdb.com")?;
     url.set_path(&format!("suggests/{}/{}.json", first_char, cleaned));
@@ -650,7 +654,8 @@ pub fn lookup_tmdb_details(query: &str) -> Option<FilmMetadata> {
     let url = reqwest::Url::parse_with_params(
         "https://api.themoviedb.org/3/search/multi",
         &[("api_key", api_key.as_str()), ("query", query)],
-    ).ok()?;
+    )
+    .ok()?;
 
     let text = client.get(url).send().ok()?.text().ok()?;
     let resp: TmdbSearchContainer = serde_json::from_str(&text).ok()?;
@@ -672,10 +677,10 @@ pub fn lookup_tmdb_details(query: &str) -> Option<FilmMetadata> {
     if let Some(path) = item.poster_path {
         let full_url = format!("https://image.tmdb.org/t/p/w500{}", path);
         poster_url = Some(full_url.clone());
-        if let Ok(p_resp) = client.get(&full_url).send() {
-            if let Ok(bytes) = p_resp.bytes() {
-                poster_bytes = Some(bytes.to_vec());
-            }
+        if let Ok(p_resp) = client.get(&full_url).send()
+            && let Ok(bytes) = p_resp.bytes()
+        {
+            poster_bytes = Some(bytes.to_vec());
         }
     }
 
@@ -706,33 +711,30 @@ pub fn fetch_tv_episode_title(show_name: &str, season: u32, episode_num: u32) ->
     if let Ok(url) = reqwest::Url::parse_with_params(
         "https://api.themoviedb.org/3/search/tv",
         &[("api_key", api_key), ("query", &clean_show)],
-    ) {
-        if let Ok(resp) = client.get(url).send() {
-            if let Ok(text) = resp.text() {
-                if let Ok(data) = serde_json::from_str::<TmdbSearchContainer>(&text) {
-                    if let Some(show) = data.results.and_then(|r| r.into_iter().next()) {
-                        if let Some(show_id) = show.id {
-                            let ep_url = format!(
-                                "https://api.themoviedb.org/3/tv/{}/season/{}/episode/{}",
-                                show_id, season, episode_num
-                            );
-                            if let Ok(ep_url_parsed) = reqwest::Url::parse_with_params(&ep_url, &[("api_key", api_key)]) {
-                                if let Ok(ep_resp) = client.get(ep_url_parsed).send() {
-                                    if let Ok(ep_text) = ep_resp.text() {
-                                        if let Ok(ep_json) = serde_json::from_str::<serde_json::Value>(&ep_text) {
-                                            if let Some(ep_name) = ep_json.get("name").and_then(|n| n.as_str()) {
-                                                if !ep_name.is_empty() {
-                                                    return format!("{} - S{:02}E{:02} - {}", clean_show, season, episode_num, crate::utils::sanitize_filename(ep_name));
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
+    ) && let Ok(resp) = client.get(url).send()
+        && let Ok(text) = resp.text()
+        && let Ok(data) = serde_json::from_str::<TmdbSearchContainer>(&text)
+        && let Some(show) = data.results.and_then(|r| r.into_iter().next())
+        && let Some(show_id) = show.id
+    {
+        let ep_url = format!(
+            "https://api.themoviedb.org/3/tv/{}/season/{}/episode/{}",
+            show_id, season, episode_num
+        );
+        if let Ok(ep_url_parsed) = reqwest::Url::parse_with_params(&ep_url, &[("api_key", api_key)])
+            && let Ok(ep_resp) = client.get(ep_url_parsed).send()
+            && let Ok(ep_text) = ep_resp.text()
+            && let Ok(ep_json) = serde_json::from_str::<serde_json::Value>(&ep_text)
+            && let Some(ep_name) = ep_json.get("name").and_then(|n| n.as_str())
+            && !ep_name.is_empty()
+        {
+            return format!(
+                "{} - S{:02}E{:02} - {}",
+                clean_show,
+                season,
+                episode_num,
+                crate::utils::sanitize_filename(ep_name)
+            );
         }
     }
 
@@ -744,7 +746,6 @@ fn resolve_fingerprint_cache_path() -> PathBuf {
     let _ = crate::utils::ensure_parent_dir(&base);
     base
 }
-
 
 /// Looks up cached metadata by disc fingerprint hash string.
 pub fn lookup_fingerprint_cache(hash: &str) -> Option<FilmMetadata> {
@@ -761,7 +762,6 @@ pub fn save_fingerprint_cache(hash: &str, meta: &FilmMetadata) {
     map.insert(hash.to_string(), meta.clone());
     let _ = crate::utils::save_json_file(&path, &map);
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -842,8 +842,15 @@ mod tests {
 
     #[test]
     fn test_build_api_url() {
-        let url = build_api_url("https://api.omdbapi.com", &[("apikey", "demo"), ("t", "Aliens")]).unwrap();
-        assert_eq!(url.as_str(), "https://api.omdbapi.com/?apikey=demo&t=Aliens");
+        let url = build_api_url(
+            "https://api.omdbapi.com",
+            &[("apikey", "demo"), ("t", "Aliens")],
+        )
+        .unwrap();
+        assert_eq!(
+            url.as_str(),
+            "https://api.omdbapi.com/?apikey=demo&t=Aliens"
+        );
     }
 
     #[test]
@@ -862,7 +869,10 @@ mod tests {
 
     #[test]
     fn test_normalize_imdb_id() {
-        assert_eq!(normalize_imdb_id(" tt0090605 "), Some("tt0090605".to_string()));
+        assert_eq!(
+            normalize_imdb_id(" tt0090605 "),
+            Some("tt0090605".to_string())
+        );
         assert_eq!(normalize_imdb_id("invalid"), None);
     }
 
@@ -877,7 +887,10 @@ mod tests {
     #[test]
     fn test_build_imdb_search_url() {
         let url = build_imdb_search_url("https://api.omdbapi.com", "demo", "Aliens").unwrap();
-        assert_eq!(url.as_str(), "https://api.omdbapi.com/?apikey=demo&s=Aliens");
+        assert_eq!(
+            url.as_str(),
+            "https://api.omdbapi.com/?apikey=demo&s=Aliens"
+        );
     }
 
     #[test]

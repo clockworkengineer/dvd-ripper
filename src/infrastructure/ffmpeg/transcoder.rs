@@ -1,7 +1,7 @@
-use std::sync::atomic::AtomicBool;
-use std::sync::Arc;
-use anyhow::Result;
 use crate::domain::ports::transcoder::{ProgressObserver, TranscodeJob, Transcoder};
+use anyhow::Result;
+use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 
 /// Concrete FFmpeg subprocess transcoder implementing the domain Transcoder port.
 #[derive(Debug, Clone)]
@@ -65,7 +65,11 @@ impl Transcoder for FfmpegTranscoder {
             if let Ok(events) = obs_thread.join() {
                 for event in events {
                     match event {
-                        crate::ffmpeg::ProgressEvent::Progress { percent, fps, speed } => {
+                        crate::ffmpeg::ProgressEvent::Progress {
+                            percent,
+                            fps,
+                            speed,
+                        } => {
                             obs.on_progress(percent, &fps, &speed);
                         }
                         crate::ffmpeg::ProgressEvent::Log(line) => {

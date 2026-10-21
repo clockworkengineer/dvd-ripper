@@ -1,16 +1,15 @@
+use anyhow::{Context, Result, anyhow};
+use clap::Parser;
 /**
  * @file installer.rs
  * @brief Standalone Portable Multi-OS Rust Installer & Setup Engine for DVD Ripper.
  * Supporting Windows, Linux, and macOS (User & System-wide installation, PATH management, FFmpeg auditing, systemd/udev setup, and uninstallation).
  */
-
 use std::env;
 use std::fs;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use anyhow::{anyhow, Context, Result};
-use clap::Parser;
 
 /// Standalone Cross-Platform Installer for DVD Ripper.
 #[derive(Parser, Debug)]
@@ -80,7 +79,10 @@ fn main() -> Result<()> {
     let binary_name = target_binary_name();
     let target_binary = target_dir.join(binary_name);
 
-    println!("[+] Installation Target Path: {}\n", target_binary.display());
+    println!(
+        "[+] Installation Target Path: {}\n",
+        target_binary.display()
+    );
 
     if !args.yes {
         print!("Proceed with installation? [Y/n]: ");
@@ -97,28 +99,37 @@ fn main() -> Result<()> {
     // 4. Copy executable binary
     println!("\n[1/4] Copying binary executable...");
     if let Some(parent) = target_binary.parent() {
-        fs::create_dir_all(parent)
-            .with_context(|| format!("Failed to create destination directory: {}", parent.display()))?;
+        fs::create_dir_all(parent).with_context(|| {
+            format!(
+                "Failed to create destination directory: {}",
+                parent.display()
+            )
+        })?;
     }
 
     // If overwriting an existing running binary, handle file locks gracefully
-    if target_binary.exists() {
-        if let Err(_err) = fs::remove_file(&target_binary) {
-            #[cfg(windows)]
-            {
-                // On Windows, if the file is locked by a running instance, terminate it before updating
-                println!("      [*] Existing binary is running. Terminating previous process...");
-                let _ = Command::new("taskkill")
-                    .args(["/F", "/IM", "dvd-ripper.exe"])
-                    .output();
-                std::thread::sleep(std::time::Duration::from_millis(500));
-                let _ = fs::remove_file(&target_binary);
-            }
+    if target_binary.exists()
+        && let Err(_err) = fs::remove_file(&target_binary)
+    {
+        #[cfg(windows)]
+        {
+            // On Windows, if the file is locked by a running instance, terminate it before updating
+            println!("      [*] Existing binary is running. Terminating previous process...");
+            let _ = Command::new("taskkill")
+                .args(["/F", "/IM", "dvd-ripper.exe"])
+                .output();
+            std::thread::sleep(std::time::Duration::from_millis(500));
+            let _ = fs::remove_file(&target_binary);
         }
     }
 
-    fs::copy(&source_binary, &target_binary)
-        .with_context(|| format!("Failed to copy binary from {} to {}", source_binary.display(), target_binary.display()))?;
+    fs::copy(&source_binary, &target_binary).with_context(|| {
+        format!(
+            "Failed to copy binary from {} to {}",
+            source_binary.display(),
+            target_binary.display()
+        )
+    })?;
 
     #[cfg(unix)]
     {
@@ -191,7 +202,11 @@ fn audit_ffmpeg() -> Result<()> {
 
 /// Resolves source binary executable location.
 fn find_source_binary() -> Result<PathBuf> {
-    let binary_name = if cfg!(windows) { "dvd-ripper.exe" } else { "dvd-ripper" };
+    let binary_name = if cfg!(windows) {
+        "dvd-ripper.exe"
+    } else {
+        "dvd-ripper"
+    };
     let current_exe = env::current_exe().unwrap_or_default();
     let current_dir = env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
 
@@ -199,14 +214,15 @@ fn find_source_binary() -> Result<PathBuf> {
         current_dir.join(binary_name),
         current_dir.join("target").join("release").join(binary_name),
         current_dir.join("target").join("debug").join(binary_name),
-        current_exe.parent().map(|p| p.join(binary_name)).unwrap_or_default(),
+        current_exe
+            .parent()
+            .map(|p| p.join(binary_name))
+            .unwrap_or_default(),
     ];
 
     for candidate in &candidates {
-        if candidate.exists() && candidate.is_file() {
-            if candidate != &current_exe {
-                return Ok(candidate.clone());
-            }
+        if candidate.exists() && candidate.is_file() && candidate != &current_exe {
+            return Ok(candidate.clone());
         }
     }
 
@@ -223,7 +239,8 @@ fn resolve_target_dir(args: &InstallerArgs) -> Result<PathBuf> {
 
     if args.system {
         if cfg!(windows) {
-            let program_files = env::var("ProgramFiles").unwrap_or_else(|_| "C:\\Program Files".to_string());
+            let program_files =
+                env::var("ProgramFiles").unwrap_or_else(|_| "C:\\Program Files".to_string());
             Ok(PathBuf::from(program_files).join("DVD Ripper"))
         } else {
             Ok(PathBuf::from("/usr/local/bin"))
@@ -256,8 +273,7 @@ fn configure_path(target_dir: &Path) -> Result<()> {
                  [Environment]::SetEnvironmentVariable('Path', $newPath, 'User'); \
                  Write-Host 'PATH updated successfully.'; \
              }} else {{ Write-Host 'Directory already present in PATH.'; }}",
-            safe_target,
-            safe_target
+            safe_target, safe_target
         );
         let output = Command::new("powershell")
             .args(["-NoProfile", "-Command", &ps_cmd])
@@ -275,7 +291,10 @@ fn configure_path(target_dir: &Path) -> Result<()> {
         if path_env.split(':').any(|p| Path::new(p) == target_dir) {
             println!("      [+] Installation directory is already present in PATH.");
         } else {
-            println!("      [!] Installation directory '{}' is not yet in PATH.", target_str);
+            println!(
+                "      [!] Installation directory '{}' is not yet in PATH.",
+                target_str
+            );
             let home = env::var("HOME").unwrap_or_default();
             let rc_files = [".bashrc", ".zshrc", ".profile"];
             for rc in &rc_files {
@@ -307,7 +326,10 @@ fn configure_system_services(args: &InstallerArgs) -> Result<()> {
         if service_src.exists() {
             let service_dst = Path::new("/etc/systemd/system/dvd-ripper.service");
             if fs::copy(service_src, service_dst).is_ok() {
-                println!("      [+] Installed systemd unit: {}", service_dst.display());
+                println!(
+                    "      [+] Installed systemd unit: {}",
+                    service_dst.display()
+                );
                 let _ = Command::new("systemctl").arg("daemon-reload").status();
             }
         }
@@ -316,7 +338,9 @@ fn configure_system_services(args: &InstallerArgs) -> Result<()> {
             let rules_dst = Path::new("/etc/udev/rules.d/99-dvd-ripper.rules");
             if fs::copy(rules_src, rules_dst).is_ok() {
                 println!("      [+] Installed udev rules: {}", rules_dst.display());
-                let _ = Command::new("udevadm").args(["control", "--reload-rules"]).status();
+                let _ = Command::new("udevadm")
+                    .args(["control", "--reload-rules"])
+                    .status();
             }
         }
     } else {
@@ -345,8 +369,12 @@ fn run_uninstall(args: &InstallerArgs) -> Result<()> {
         let rules_dst = Path::new("/etc/udev/rules.d/99-dvd-ripper.rules");
 
         if service_dst.exists() {
-            let _ = Command::new("systemctl").args(["stop", "dvd-ripper.service"]).status();
-            let _ = Command::new("systemctl").args(["disable", "dvd-ripper.service"]).status();
+            let _ = Command::new("systemctl")
+                .args(["stop", "dvd-ripper.service"])
+                .status();
+            let _ = Command::new("systemctl")
+                .args(["disable", "dvd-ripper.service"])
+                .status();
             let _ = fs::remove_file(service_dst);
             println!("[+] Removed systemd service.");
         }
@@ -359,11 +387,9 @@ fn run_uninstall(args: &InstallerArgs) -> Result<()> {
         let _ = Command::new("systemctl").arg("daemon-reload").status();
     }
 
-    if target_dir.exists() {
-        if fs::read_dir(&target_dir).map_or(false, |mut i| i.next().is_none()) {
-            let _ = fs::remove_dir(&target_dir);
-            println!("[+] Removed empty directory: {}", target_dir.display());
-        }
+    if target_dir.exists() && fs::read_dir(&target_dir).is_ok_and(|mut i| i.next().is_none()) {
+        let _ = fs::remove_dir(&target_dir);
+        println!("[+] Removed empty directory: {}", target_dir.display());
     }
 
     remove_shortcuts();
@@ -418,10 +444,16 @@ fn create_shortcuts(target_exe: &Path) -> Result<()> {
             }
             Ok(out) => {
                 let err = String::from_utf8_lossy(&out.stderr);
-                println!("      [!] Notice: Could not register shortcuts: {}", err.trim());
+                println!(
+                    "      [!] Notice: Could not register shortcuts: {}",
+                    err.trim()
+                );
             }
             Err(e) => {
-                println!("      [!] Notice: PowerShell not available to create shortcuts: {}", e);
+                println!(
+                    "      [!] Notice: PowerShell not available to create shortcuts: {}",
+                    e
+                );
             }
         }
     }
@@ -443,7 +475,10 @@ fn create_shortcuts(target_exe: &Path) -> Result<()> {
                 target_exe.display()
             );
             if fs::write(&desktop_file, content).is_ok() {
-                println!("      [+] Created desktop launcher: {}", desktop_file.display());
+                println!(
+                    "      [+] Created desktop launcher: {}",
+                    desktop_file.display()
+                );
             }
         }
     }
@@ -475,7 +510,8 @@ fn remove_shortcuts() {
     #[cfg(unix)]
     {
         if let Ok(home) = std::env::var("HOME") {
-            let desktop_file = PathBuf::from(home).join(".local/share/applications/dvd-ripper.desktop");
+            let desktop_file =
+                PathBuf::from(home).join(".local/share/applications/dvd-ripper.desktop");
             if desktop_file.exists() {
                 let _ = fs::remove_file(desktop_file);
                 println!("[+] Removed desktop launcher.");
@@ -485,7 +521,6 @@ fn remove_shortcuts() {
 }
 
 fn target_binary_name() -> &'static str {
-
     if cfg!(windows) {
         "dvd-ripper.exe"
     } else {
@@ -494,7 +529,6 @@ fn target_binary_name() -> &'static str {
 }
 
 #[cfg(test)]
-
 mod tests {
     use super::*;
 
@@ -509,7 +543,10 @@ mod tests {
             yes: true,
         };
         let dir = resolve_target_dir(&args).unwrap();
-        assert!(dir.to_string_lossy().contains("dvd-ripper") || dir.to_string_lossy().contains(".local"));
+        assert!(
+            dir.to_string_lossy().contains("dvd-ripper")
+                || dir.to_string_lossy().contains(".local")
+        );
     }
 
     #[test]

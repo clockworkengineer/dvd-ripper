@@ -2,7 +2,6 @@
  * @file cli.rs
  * @brief Command line argument parsing definitions.
  */
-
 use clap::Parser;
 
 /// Command line arguments parsed by clap.
@@ -563,6 +562,7 @@ impl Args {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn new_tv(
         input: String,
         out_dir: String,
@@ -734,6 +734,7 @@ impl From<&Args> for TvModeConfig {
 }
 
 #[cfg(test)]
+#[allow(clippy::field_reassign_with_default)]
 mod tests {
     use super::*;
 
@@ -828,11 +829,13 @@ mod tests {
         assert_eq!(storage_cfg.out_dir, "Films");
 
         let integration_cfg: IntegrationConfig = (&args).into();
-        assert_eq!(integration_cfg.webhook_url.as_deref(), Some("https://hooks.example.com"));
+        assert_eq!(
+            integration_cfg.webhook_url.as_deref(),
+            Some("https://hooks.example.com")
+        );
 
         let tv_cfg: TvModeConfig = (&args).into();
         assert!(tv_cfg.tv);
         assert_eq!(tv_cfg.season, 2);
     }
 }
-

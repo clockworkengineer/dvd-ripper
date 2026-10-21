@@ -1,8 +1,8 @@
-use std::fs;
-use std::path::{Path, PathBuf};
-use anyhow::Result;
 use crate::domain::entities::job::RipRecord;
 use crate::domain::ports::storage::HistoryRepository;
+use anyhow::Result;
+use std::fs;
+use std::path::{Path, PathBuf};
 
 const HISTORY_FILE: &str = "ripping_history.json";
 

@@ -1,22 +1,21 @@
+use anyhow::{Result, anyhow};
 /**
  * @file mqtt.rs
  * @brief Binary MQTT 3.1.1 Home Assistant telemetry and multi-service webhook notification engine.
  */
-
 use std::io::Write;
 use std::net::TcpStream;
 use std::time::Duration;
-use anyhow::{anyhow, Result};
 
 /// Validates and normalizes network host and port addresses.
 pub fn sanitize_network_address(host: &str, default_port: u16) -> String {
     let trimmed = host.trim();
     if let Some((h, p)) = trimmed.split_once(':') {
         let clean_h = h.trim();
-        if let Ok(port) = p.trim().parse::<u16>() {
-            if (1..=65535).contains(&port) {
-                return format!("{}:{}", clean_h, port);
-            }
+        if let Ok(port) = p.trim().parse::<u16>()
+            && (1..=65535).contains(&port)
+        {
+            return format!("{}:{}", clean_h, port);
         }
         format!("{}:{}", clean_h, default_port)
     } else {
@@ -114,8 +113,14 @@ pub fn publish_ha_discovery(socket: &mut TcpStream) -> Result<()> {
     let status_config = r#"{"name":"DVD Ripper Status","unique_id":"dvd_ripper_status","state_topic":"dvd_ripper/state","value_template":"{{ value_json.status }}"}"#;
     let progress_config = r#"{"name":"DVD Ripper Progress","unique_id":"dvd_ripper_progress","state_topic":"dvd_ripper/progress","unit_of_measurement":"%","value_template":"{{ value_json.progress }}"}"#;
 
-    let status_packet = build_mqtt_publish_packet("homeassistant/sensor/dvd_ripper_status/config", status_config);
-    let progress_packet = build_mqtt_publish_packet("homeassistant/sensor/dvd_ripper_progress/config", progress_config);
+    let status_packet = build_mqtt_publish_packet(
+        "homeassistant/sensor/dvd_ripper_status/config",
+        status_config,
+    );
+    let progress_packet = build_mqtt_publish_packet(
+        "homeassistant/sensor/dvd_ripper_progress/config",
+        progress_config,
+    );
 
     socket.write_all(&status_packet)?;
     socket.write_all(&progress_packet)?;
@@ -132,7 +137,9 @@ pub fn publish_mqtt_status(
     let host_port = format_broker_address(broker);
 
     let stream = TcpStream::connect_timeout(
-        &host_port.parse().map_err(|e| anyhow!("Invalid broker address: {}", e))?,
+        &host_port
+            .parse()
+            .map_err(|e| anyhow!("Invalid broker address: {}", e))?,
         Duration::from_secs(3),
     );
 
@@ -166,7 +173,10 @@ pub fn publish_mqtt_status(
         let _ = socket.write_all(&progress_pkt);
     }
 
-    println!("[MQTT Telemetry] Broadcasted payload to {}: {}", broker, state_payload);
+    println!(
+        "[MQTT Telemetry] Broadcasted payload to {}: {}",
+        broker, state_payload
+    );
     Ok(())
 }
 
@@ -187,7 +197,6 @@ pub fn build_webhook_payload(disc_name: &str, status: &str, message: &str) -> St
     serde_json::to_string(&payload_obj).unwrap_or_default()
 }
 
-
 pub fn send_webhook_notification(
     webhook_url: &str,
     disc_name: &str,
@@ -202,16 +211,20 @@ pub fn send_webhook_notification(
         .post(webhook_url)
         .header("Content-Type", "application/json");
 
-    if let Some(secret) = webhook_secret {
-        if !secret.trim().is_empty() {
-            req = req.header("Authorization", format!("Bearer {}", secret.trim()));
-            req = req.header("X-Webhook-Secret", secret.trim());
-        }
+    if let Some(secret) = webhook_secret
+        && !secret.trim().is_empty()
+    {
+        req = req.header("Authorization", format!("Bearer {}", secret.trim()));
+        req = req.header("X-Webhook-Secret", secret.trim());
     }
 
     let resp = req.body(payload).send()?;
 
-    println!("[Webhook Telemetry] Sent notification to {} (HTTP {})", webhook_url, resp.status());
+    println!(
+        "[Webhook Telemetry] Sent notification to {} (HTTP {})",
+        webhook_url,
+        resp.status()
+    );
     Ok(())
 }
 
@@ -257,15 +270,27 @@ mod tests {
     #[test]
     fn test_format_broker_address() {
         assert_eq!(format_broker_address("192.168.1.50"), "192.168.1.50:1883");
-        assert_eq!(format_broker_address("192.168.1.50:18833"), "192.168.1.50:18833");
+        assert_eq!(
+            format_broker_address("192.168.1.50:18833"),
+            "192.168.1.50:18833"
+        );
         assert_eq!(format_broker_address("mqtt.local:8883"), "mqtt.local:8883");
     }
 
     #[test]
     fn test_sanitize_network_address() {
-        assert_eq!(sanitize_network_address(" 192.168.1.100 ", 8080), "192.168.1.100:8080");
-        assert_eq!(sanitize_network_address("localhost:9090", 8080), "localhost:9090");
-        assert_eq!(sanitize_network_address("192.168.1.1:999999", 8080), "192.168.1.1:8080");
+        assert_eq!(
+            sanitize_network_address(" 192.168.1.100 ", 8080),
+            "192.168.1.100:8080"
+        );
+        assert_eq!(
+            sanitize_network_address("localhost:9090", 8080),
+            "localhost:9090"
+        );
+        assert_eq!(
+            sanitize_network_address("192.168.1.1:999999", 8080),
+            "192.168.1.1:8080"
+        );
     }
 
     #[test]
@@ -297,8 +322,14 @@ mod tests {
 
     #[test]
     fn test_format_mqtt_topic() {
-        assert_eq!(format_mqtt_topic("dvd-ripper", "status"), "dvd-ripper/status");
-        assert_eq!(format_mqtt_topic("/dvd-ripper/", "/status/"), "dvd-ripper/status");
+        assert_eq!(
+            format_mqtt_topic("dvd-ripper", "status"),
+            "dvd-ripper/status"
+        );
+        assert_eq!(
+            format_mqtt_topic("/dvd-ripper/", "/status/"),
+            "dvd-ripper/status"
+        );
     }
 
     #[test]

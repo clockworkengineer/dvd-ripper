@@ -1,6 +1,6 @@
-use std::path::{Path, PathBuf};
-use anyhow::Result;
 use crate::domain::entities::disc::{DiscCopyProtectionReport, DvdTitleInfo};
+use anyhow::Result;
+use std::path::{Path, PathBuf};
 
 /// Hardware abstraction for an optical drive device.
 pub trait OpticalDrive: Send + Sync {

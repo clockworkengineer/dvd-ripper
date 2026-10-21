@@ -1,6 +1,10 @@
 /target
 *.mp4
 *.mpg
+*.iso
 ripping_history.json
 /Films/*
+/TV/*
+NonExistent/
+/dist/
 .vscode/

@@ -1,12 +1,11 @@
+use anyhow::{Context, Result, anyhow};
 /**
  * @file ffmpeg.rs
  * @brief FFmpeg process invocation and real-time progress parsing.
  */
-
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use anyhow::{anyhow, Context, Result};
 
 use crate::cli::Args;
 use crate::utils::{extract_kv_field, format_title_folder_name, parse_duration};
@@ -22,7 +21,6 @@ pub fn format_episode_code(season: u32, episode: u32) -> String {
 pub fn format_episode_filename(show_name: &str, season: u32, episode: u32) -> String {
     crate::utils::format_episode_name(show_name, season, episode)
 }
-
 
 /// Helper: Checks if the path component is named "films" (case-insensitive)
 fn is_named_films(path: &Path) -> bool {
@@ -92,9 +90,18 @@ fn ensure_absolute_parent_dir(path: PathBuf, no_overwrite: bool) -> Result<PathB
     };
 
     if no_overwrite && absolute_output.exists() {
-        let parent = absolute_output.parent().unwrap_or_else(|| Path::new("")).to_path_buf();
-        let stem = absolute_output.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
-        let ext = absolute_output.extension().map(|e| e.to_string_lossy().to_string()).unwrap_or_default();
+        let parent = absolute_output
+            .parent()
+            .unwrap_or_else(|| Path::new(""))
+            .to_path_buf();
+        let stem = absolute_output
+            .file_stem()
+            .map(|s| s.to_string_lossy().to_string())
+            .unwrap_or_default();
+        let ext = absolute_output
+            .extension()
+            .map(|e| e.to_string_lossy().to_string())
+            .unwrap_or_default();
 
         let mut counter = 1;
         loop {
@@ -159,7 +166,9 @@ pub fn resolve_output_path(
     let target_candidate = if let Some(name) = film_name {
         let clean_name = crate::utils::sanitize_filename(name);
         let segment = format_title_folder_name(&clean_name, film_year);
-        films_root.join(&segment).join(format!("{}.{}", segment, extension))
+        films_root
+            .join(&segment)
+            .join(format!("{}.{}", segment, extension))
     } else if let Some(ref out) = args.output {
         let out_path = PathBuf::from(out);
         if out_path.is_absolute() {
@@ -195,15 +204,17 @@ pub fn resolve_tv_output_path_with_title(
     let clean_show = crate::utils::sanitize_filename(name);
     let show_folder = format_title_folder_name(&clean_show, show_year);
     let season_folder = format!("Season {:02}", season);
-    let base_name = crate::utils::format_episode_name_with_title(&clean_show, season, episode_num, episode_title);
+    let base_name = crate::utils::format_episode_name_with_title(
+        &clean_show,
+        season,
+        episode_num,
+        episode_title,
+    );
     let filename = format!("{}.{}", base_name, extension);
 
     let tv_root = resolve_tv_root(&args.out_dir);
 
-    let target_candidate = tv_root
-        .join(show_folder)
-        .join(season_folder)
-        .join(filename);
+    let target_candidate = tv_root.join(show_folder).join(season_folder).join(filename);
 
     let target_path = ensure_absolute_parent_dir(target_candidate, args.no_overwrite)?;
     crate::utils::ensure_path_contained(&tv_root, &target_path)
@@ -233,10 +244,7 @@ pub struct TvEpisodeInfo {
 pub use crate::domain::entities::disc::DvdTitleInfo;
 
 /// Attempts single-pass fast probing of all DVD title tracks on disc in one process call.
-pub fn probe_dvd_titles_fast(
-    ffmpeg_path: &str,
-    dvd_path: &Path,
-) -> Vec<DvdTitleInfo> {
+pub fn probe_dvd_titles_fast(ffmpeg_path: &str, dvd_path: &Path) -> Vec<DvdTitleInfo> {
     let mut titles = Vec::new();
     let mut cmd = Command::new(ffmpeg_path);
     crate::utils::configure_silent_command(&mut cmd);
@@ -260,12 +268,14 @@ pub fn probe_dvd_titles_fast(
 
         for line in stderr.lines() {
             let line_trimmed = line.trim();
-            if line_trimmed.starts_with("Program ") || line_trimmed.starts_with("title ") || line_trimmed.starts_with("Title ") {
-                if let Some(num_str) = line_trimmed.split_whitespace().nth(1) {
-                    let clean_num = num_str.trim_matches(':').trim_matches('#');
-                    if let Ok(n) = clean_num.parse::<u32>() {
-                        current_title_num = Some(n);
-                    }
+            if (line_trimmed.starts_with("Program ")
+                || line_trimmed.starts_with("title ")
+                || line_trimmed.starts_with("Title "))
+                && let Some(num_str) = line_trimmed.split_whitespace().nth(1)
+            {
+                let clean_num = num_str.trim_matches(':').trim_matches('#');
+                if let Ok(n) = clean_num.parse::<u32>() {
+                    current_title_num = Some(n);
                 }
             }
 
@@ -353,12 +363,24 @@ pub fn resolve_subtitle_codec(sub_format: Option<&str>) -> &'static str {
 
 /// Formats a human-readable title auto-detection summary log message.
 #[allow(dead_code)]
-pub fn format_title_selection_summary(detected_title: u32, duration_opt: Option<f64>, expected_runtime_secs: Option<f64>) -> String {
-    let dur_str = duration_opt.map(|d| format!(" ({:.0} mins)", d / 60.0)).unwrap_or_default();
+pub fn format_title_selection_summary(
+    detected_title: u32,
+    duration_opt: Option<f64>,
+    expected_runtime_secs: Option<f64>,
+) -> String {
+    let dur_str = duration_opt
+        .map(|d| format!(" ({:.0} mins)", d / 60.0))
+        .unwrap_or_default();
     if expected_runtime_secs.is_some() {
-        format!("Auto-selected Title #{}{} (matched running time)", detected_title, dur_str)
+        format!(
+            "Auto-selected Title #{}{} (matched running time)",
+            detected_title, dur_str
+        )
     } else {
-        format!("Auto-selected Title #{}{} (longest duration on DVD)", detected_title, dur_str)
+        format!(
+            "Auto-selected Title #{}{} (longest duration on DVD)",
+            detected_title, dur_str
+        )
     }
 }
 
@@ -394,7 +416,6 @@ impl EncoderProfileProvider for StandardEncoderProfileProvider {
 /// Resolves default encoder quality parameters (preset, CRF, audio bitrate) based on profile name.
 #[allow(dead_code)]
 pub fn resolve_encoder_defaults(profile: &str) -> EncoderDefaults {
-
     match profile.to_lowercase().as_str() {
         "mobile" => EncoderDefaults {
             preset: "fast",
@@ -461,7 +482,7 @@ pub fn is_mkv_output(args: &Args, output_path: &Path) -> bool {
         || profile == "archival"
         || output_path
             .extension()
-            .map_or(false, |ext| ext.eq_ignore_ascii_case("mkv"))
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("mkv"))
 }
 
 /// Applies audio mapping and audio normalization flags to an FFmpeg command.
@@ -493,11 +514,13 @@ pub fn apply_audio_options(cmd: &mut Command, args: &Args) {
         if args.normalize_audio {
             cmd.arg("-filter:a:0").arg(&norm_filter);
         }
-        cmd.arg("-metadata:s:a:0").arg("title=Stereo AAC (Normalized)");
+        cmd.arg("-metadata:s:a:0")
+            .arg("title=Stereo AAC (Normalized)");
 
         cmd.arg("-map").arg("0:a:0?");
         cmd.arg("-c:a:1").arg("copy");
-        cmd.arg("-metadata:s:a:1").arg("title=5.1 Surround Passthrough");
+        cmd.arg("-metadata:s:a:1")
+            .arg("title=5.1 Surround Passthrough");
     } else if args.all_audio {
         cmd.arg("-map").arg("0:a");
         if args.normalize_audio {
@@ -551,7 +574,13 @@ pub fn build_video_filter_chain(args: &Args, profile: &str) -> Vec<String> {
         vf_filters.push("scale=-2:720".to_string());
     }
     if args.deinterlace {
-        let algo = match args.deinterlace_algo.as_deref().unwrap_or("bwdif").to_lowercase().as_str() {
+        let algo = match args
+            .deinterlace_algo
+            .as_deref()
+            .unwrap_or("bwdif")
+            .to_lowercase()
+            .as_str()
+        {
             "yadif" => "yadif=1:-1:0",
             "w3fdif" => "w3fdif=filter=complex",
             _ => "bwdif=mode=send_frame:parity=auto:deint=all",
@@ -570,7 +599,10 @@ pub fn build_video_filter_chain(args: &Args, profile: &str) -> Vec<String> {
             "reinhard" => "reinhard",
             _ => "mobius",
         };
-        vf_filters.push(format!("zscale=transfer=linear,tonemap=tonemap={}:desat=0", curve));
+        vf_filters.push(format!(
+            "zscale=transfer=linear,tonemap=tonemap={}:desat=0",
+            curve
+        ));
     }
     vf_filters
 }
@@ -583,7 +615,9 @@ pub trait HwAccelProvider {
 
 pub struct NvencHwAccelProvider;
 impl HwAccelProvider for NvencHwAccelProvider {
-    fn name(&self) -> &str { "nvenc" }
+    fn name(&self) -> &str {
+        "nvenc"
+    }
     fn apply(&self, cmd: &mut Command, preset: &str) {
         cmd.arg("-c:v").arg("h264_nvenc");
         cmd.arg("-preset").arg(preset);
@@ -592,7 +626,9 @@ impl HwAccelProvider for NvencHwAccelProvider {
 
 pub struct QsvHwAccelProvider;
 impl HwAccelProvider for QsvHwAccelProvider {
-    fn name(&self) -> &str { "qsv" }
+    fn name(&self) -> &str {
+        "qsv"
+    }
     fn apply(&self, cmd: &mut Command, preset: &str) {
         cmd.arg("-c:v").arg("h264_qsv");
         cmd.arg("-preset").arg(preset);
@@ -601,7 +637,9 @@ impl HwAccelProvider for QsvHwAccelProvider {
 
 pub struct VaapiHwAccelProvider;
 impl HwAccelProvider for VaapiHwAccelProvider {
-    fn name(&self) -> &str { "vaapi" }
+    fn name(&self) -> &str {
+        "vaapi"
+    }
     fn apply(&self, cmd: &mut Command, _preset: &str) {
         cmd.arg("-vaapi_device").arg("/dev/dri/renderD128");
         cmd.arg("-c:v").arg("h264_vaapi");
@@ -610,7 +648,9 @@ impl HwAccelProvider for VaapiHwAccelProvider {
 
 pub struct V4l2HwAccelProvider;
 impl HwAccelProvider for V4l2HwAccelProvider {
-    fn name(&self) -> &str { "v4l2" }
+    fn name(&self) -> &str {
+        "v4l2"
+    }
     fn apply(&self, cmd: &mut Command, _preset: &str) {
         cmd.arg("-c:v").arg("h264_v4l2m2m");
         cmd.arg("-b:v").arg("4M");
@@ -696,35 +736,34 @@ pub fn probe_dvd_titles_ifo(dvd_path: &Path) -> Option<Vec<DvdTitleInfo>> {
             ifo_dir.join(format!("VTS_{:02}_0.ifo", vtsn)),
         ];
 
-        if let Some(vts_path) = vts_candidates.into_iter().find(|p| p.exists()) {
-            if let Ok(vts_data) = std::fs::read(&vts_path) {
-                if vts_data.len() > 0xCC + 4 {
-                    let pgciti_sec = u32::from_be_bytes([
-                        vts_data[0xCC],
-                        vts_data[0xCD],
-                        vts_data[0xCE],
-                        vts_data[0xCF],
-                    ]);
-                    let pgciti_off = (pgciti_sec as usize) * 2048;
-                    if vts_ttn > 0 && pgciti_off + 8 + (vts_ttn as usize) * 8 <= vts_data.len() {
-                        let pgc_entry_off = pgciti_off + 8 + (vts_ttn as usize - 1) * 8;
-                        let pgc_start_rel = u32::from_be_bytes([
-                            vts_data[pgc_entry_off + 4],
-                            vts_data[pgc_entry_off + 5],
-                            vts_data[pgc_entry_off + 6],
-                            vts_data[pgc_entry_off + 7],
-                        ]);
-                        let pgc_off = pgciti_off + (pgc_start_rel as usize);
-                        if pgc_off + 8 <= vts_data.len() {
-                            let h_bcd = vts_data[pgc_off + 4];
-                            let m_bcd = vts_data[pgc_off + 5];
-                            let s_bcd = vts_data[pgc_off + 6];
-                            let h = (((h_bcd >> 4) * 10) + (h_bcd & 0x0F)) as f64;
-                            let m = (((m_bcd >> 4) * 10) + (m_bcd & 0x0F)) as f64;
-                            let s = (((s_bcd >> 4) * 10) + (s_bcd & 0x0F)) as f64;
-                            duration_secs = h * 3600.0 + m * 60.0 + s;
-                        }
-                    }
+        if let Some(vts_path) = vts_candidates.into_iter().find(|p| p.exists())
+            && let Ok(vts_data) = std::fs::read(&vts_path)
+            && vts_data.len() > 0xCC + 4
+        {
+            let pgciti_sec = u32::from_be_bytes([
+                vts_data[0xCC],
+                vts_data[0xCD],
+                vts_data[0xCE],
+                vts_data[0xCF],
+            ]);
+            let pgciti_off = (pgciti_sec as usize) * 2048;
+            if vts_ttn > 0 && pgciti_off + 8 + (vts_ttn as usize) * 8 <= vts_data.len() {
+                let pgc_entry_off = pgciti_off + 8 + (vts_ttn as usize - 1) * 8;
+                let pgc_start_rel = u32::from_be_bytes([
+                    vts_data[pgc_entry_off + 4],
+                    vts_data[pgc_entry_off + 5],
+                    vts_data[pgc_entry_off + 6],
+                    vts_data[pgc_entry_off + 7],
+                ]);
+                let pgc_off = pgciti_off + (pgc_start_rel as usize);
+                if pgc_off + 8 <= vts_data.len() {
+                    let h_bcd = vts_data[pgc_off + 4];
+                    let m_bcd = vts_data[pgc_off + 5];
+                    let s_bcd = vts_data[pgc_off + 6];
+                    let h = (((h_bcd >> 4) * 10) + (h_bcd & 0x0F)) as f64;
+                    let m = (((m_bcd >> 4) * 10) + (m_bcd & 0x0F)) as f64;
+                    let s = (((s_bcd >> 4) * 10) + (s_bcd & 0x0F)) as f64;
+                    duration_secs = h * 3600.0 + m * 60.0 + s;
                 }
             }
         }
@@ -748,12 +787,11 @@ pub fn probe_single_title_duration(
     dvd_path: &Path,
     title_num: u32,
 ) -> Option<f64> {
-    if let Some(titles) = probe_dvd_titles_ifo(dvd_path) {
-        if let Some(t) = titles.into_iter().find(|item| item.title_num == title_num) {
-            if t.duration_secs > 0.0 {
-                return Some(t.duration_secs);
-            }
-        }
+    if let Some(titles) = probe_dvd_titles_ifo(dvd_path)
+        && let Some(t) = titles.into_iter().find(|item| item.title_num == title_num)
+        && t.duration_secs > 0.0
+    {
+        return Some(t.duration_secs);
     }
 
     let mut cmd = Command::new(ffmpeg_path);
@@ -761,12 +799,18 @@ pub fn probe_single_title_duration(
     let output = cmd
         .stdin(std::process::Stdio::null())
         .arg("-nostdin")
-        .arg("-analyzeduration").arg("500000")
-        .arg("-probesize").arg("500000")
-        .arg("-f").arg("dvdvideo")
-        .arg("-trim").arg("0")
-        .arg("-title").arg(title_num.to_string())
-        .arg("-i").arg(dvd_path)
+        .arg("-analyzeduration")
+        .arg("500000")
+        .arg("-probesize")
+        .arg("500000")
+        .arg("-f")
+        .arg("dvdvideo")
+        .arg("-trim")
+        .arg("0")
+        .arg("-title")
+        .arg(title_num.to_string())
+        .arg("-i")
+        .arg(dvd_path)
         .output()
         .ok()?;
 
@@ -774,10 +818,10 @@ pub fn probe_single_title_duration(
     for line in stderr.lines() {
         if let Some(dur_str) = extract_kv_field(line, "Duration: ") {
             let clean = dur_str.trim_end_matches(',');
-            if let Some(secs) = parse_duration(clean) {
-                if secs > 0.0 {
-                    return Some(secs);
-                }
+            if let Some(secs) = parse_duration(clean)
+                && secs > 0.0
+            {
+                return Some(secs);
             }
         }
     }
@@ -790,10 +834,10 @@ pub fn probe_dvd_titles(
     dvd_path: &Path,
     cancel_flag: Option<&std::sync::atomic::AtomicBool>,
 ) -> Vec<DvdTitleInfo> {
-    if let Some(ifo_titles) = probe_dvd_titles_ifo(dvd_path) {
-        if ifo_titles.iter().any(|t| t.duration_secs >= 60.0) {
-            return ifo_titles;
-        }
+    if let Some(ifo_titles) = probe_dvd_titles_ifo(dvd_path)
+        && ifo_titles.iter().any(|t| t.duration_secs >= 60.0)
+    {
+        return ifo_titles;
     }
 
     let fast_results = probe_dvd_titles_fast(ffmpeg_path, dvd_path);
@@ -805,10 +849,10 @@ pub fn probe_dvd_titles(
     let mut consecutive_failures = 0;
 
     for t in 1..=99 {
-        if let Some(flag) = cancel_flag {
-            if flag.load(std::sync::atomic::Ordering::SeqCst) {
-                break;
-            }
+        if let Some(flag) = cancel_flag
+            && flag.load(std::sync::atomic::Ordering::SeqCst)
+        {
+            break;
         }
         let mut cmd = Command::new(ffmpeg_path);
         crate::utils::configure_silent_command(&mut cmd);
@@ -985,10 +1029,21 @@ pub fn generate_title_thumbnail(
         std::fs::create_dir_all(parent)?;
     }
 
-    let mut cmd = build_thumbnail_command(ffmpeg_path, dvd_path, title_num, timestamp_secs, output_thumb);
-    let status = cmd.status().context("Failed to spawn FFmpeg thumbnail snapshot command")?;
+    let mut cmd = build_thumbnail_command(
+        ffmpeg_path,
+        dvd_path,
+        title_num,
+        timestamp_secs,
+        output_thumb,
+    );
+    let status = cmd
+        .status()
+        .context("Failed to spawn FFmpeg thumbnail snapshot command")?;
     if !status.success() {
-        return Err(anyhow!("FFmpeg thumbnail extraction failed with status: {}", status));
+        return Err(anyhow!(
+            "FFmpeg thumbnail extraction failed with status: {}",
+            status
+        ));
     }
 
     Ok(output_thumb.to_path_buf())
@@ -1225,6 +1280,7 @@ pub enum RipOutcome {
     FatalError(String),
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn evaluate_rip_outcome(
     exit_status_success: bool,
     exit_code: Option<i32>,
@@ -1276,7 +1332,10 @@ pub fn evaluate_rip_outcome(
             } else {
                 String::new()
             };
-            format!("FFmpeg exited with non-zero status code: {:?}{}", exit_code, detail)
+            format!(
+                "FFmpeg exited with non-zero status code: {:?}{}",
+                exit_code, detail
+            )
         } else {
             format!(
                 "FFmpeg did not produce a valid rip at {} (output size: {} bytes; DVD demux error: {})",
@@ -1290,6 +1349,7 @@ pub fn evaluate_rip_outcome(
 }
 
 /// Executes FFmpeg child process, sending events over a channel and allowing cancellation.
+#[allow(clippy::too_many_arguments)]
 pub fn run_ffmpeg_with_channel(
     args: &Args,
     dvd_path: &Path,
@@ -1318,7 +1378,8 @@ pub fn run_ffmpeg_with_channel(
             std::io::stdout().flush().ok();
         }
 
-        let (detected, duration_opt) = detect_best_title_info(&args.ffmpeg, dvd_path, expected_runtime_secs);
+        let (detected, duration_opt) =
+            detect_best_title_info(&args.ffmpeg, dvd_path, expected_runtime_secs);
         let msg2 = if expected_runtime_secs.is_some() {
             format!("Auto-selected Title #{} (matched running time)", detected)
         } else {
@@ -1345,7 +1406,11 @@ pub fn run_ffmpeg_with_channel(
         "Performing fast, lossless stream copy (remuxing)...".to_string()
     };
 
-    let cmd_line = format!("Running command: {} {:?}", args.ffmpeg, cmd.get_args().collect::<Vec<_>>());
+    let cmd_line = format!(
+        "Running command: {} {:?}",
+        args.ffmpeg,
+        cmd.get_args().collect::<Vec<_>>()
+    );
     let rip_line = format!("Ripping Film: {}", display_title);
 
     if tx.is_none() {
@@ -1359,8 +1424,12 @@ pub fn run_ffmpeg_with_channel(
     }
 
     if absolute_output.exists() {
-        std::fs::remove_file(absolute_output)
-            .with_context(|| format!("Failed to remove existing output file {}", absolute_output.display()))?;
+        std::fs::remove_file(absolute_output).with_context(|| {
+            format!(
+                "Failed to remove existing output file {}",
+                absolute_output.display()
+            )
+        })?;
     }
 
     cmd.stdin(std::process::Stdio::null());
@@ -1381,40 +1450,41 @@ pub fn run_ffmpeg_with_channel(
     let mut empty_output = false;
     let mut css_error = false;
     let mut last_progress_secs: f64 = 0.0;
-    let mut last_error_lines: std::collections::VecDeque<String> = std::collections::VecDeque::with_capacity(10);
+    let mut last_error_lines: std::collections::VecDeque<String> =
+        std::collections::VecDeque::with_capacity(10);
 
     let mut buf = [0u8; 1024];
     let mut line_bytes = Vec::new();
 
     loop {
-        if let Some(ref flag) = cancel_flag {
-            if flag.load(std::sync::atomic::Ordering::SeqCst) {
-                let _ = child.kill();
-                let _ = child.wait();
-                if absolute_output.exists() {
-                    let _ = std::fs::remove_file(absolute_output);
-                }
-                let msg = "Ripping process cancelled by user.".to_string();
-                if let Some(ref sender) = tx {
-                    let _ = sender.send(ProgressEvent::Error(msg.clone()));
-                }
-                return Err(anyhow!(msg));
+        if let Some(ref flag) = cancel_flag
+            && flag.load(std::sync::atomic::Ordering::SeqCst)
+        {
+            let _ = child.kill();
+            let _ = child.wait();
+            if absolute_output.exists() {
+                let _ = std::fs::remove_file(absolute_output);
             }
+            let msg = "Ripping process cancelled by user.".to_string();
+            if let Some(ref sender) = tx {
+                let _ = sender.send(ProgressEvent::Error(msg.clone()));
+            }
+            return Err(anyhow!(msg));
         }
 
-        if let Some(ref rx) = cancel_rx {
-            if rx.try_recv().is_ok() {
-                let _ = child.kill();
-                let _ = child.wait();
-                if absolute_output.exists() {
-                    let _ = std::fs::remove_file(absolute_output);
-                }
-                let msg = "Ripping process cancelled by user.".to_string();
-                if let Some(ref sender) = tx {
-                    let _ = sender.send(ProgressEvent::Error(msg.clone()));
-                }
-                return Err(anyhow!(msg));
+        if let Some(ref rx) = cancel_rx
+            && rx.try_recv().is_ok()
+        {
+            let _ = child.kill();
+            let _ = child.wait();
+            if absolute_output.exists() {
+                let _ = std::fs::remove_file(absolute_output);
             }
+            let msg = "Ripping process cancelled by user.".to_string();
+            if let Some(ref sender) = tx {
+                let _ = sender.send(ProgressEvent::Error(msg.clone()));
+            }
+            return Err(anyhow!(msg));
         }
 
         let n = match stderr.read(&mut buf) {
@@ -1472,12 +1542,11 @@ pub fn run_ffmpeg_with_channel(
                     // Detect overall duration from initialization log or stream info
                     if let Some(duration_str) = extract_kv_field(&line, "Duration: ") {
                         let clean_duration = duration_str.trim_end_matches(',');
-                        if let Some(secs) = parse_duration(clean_duration) {
-                            if secs > 0.0 {
-                                if total_seconds.is_none() || total_seconds.unwrap_or(0.0) <= 0.0 {
-                                    total_seconds = Some(secs);
-                                }
-                            }
+                        if let Some(secs) = parse_duration(clean_duration)
+                            && secs > 0.0
+                            && (total_seconds.is_none() || total_seconds.unwrap_or(0.0) <= 0.0)
+                        {
+                            total_seconds = Some(secs);
                         }
                     }
 
@@ -1486,20 +1555,22 @@ pub fn run_ffmpeg_with_channel(
                         let clean_time = time_str.trim_start_matches('-');
                         if let Some(secs) = parse_duration(clean_time) {
                             last_progress_secs = secs;
-                            let speed = extract_kv_field(&line, "speed=").unwrap_or("N/A").to_string();
+                            let speed = extract_kv_field(&line, "speed=")
+                                .unwrap_or("N/A")
+                                .to_string();
                             let fps = extract_kv_field(&line, "fps=").unwrap_or("N/A").to_string();
 
                             // If encoding progresses past estimated total duration (e.g. unprobed credits/cells),
                             // dynamically expand total_seconds so progress doesn't stall at 100% prematurely.
-                            if let Some(total) = total_seconds {
-                                if secs >= total {
-                                    total_seconds = Some(secs + 30.0);
-                                }
+                            if let Some(total) = total_seconds
+                                && secs >= total
+                            {
+                                total_seconds = Some(secs + 30.0);
                             }
 
                             let percent = if let Some(total) = total_seconds {
                                 if total > 0.0 {
-                                    (secs / total * 100.0).min(99.5).max(0.0)
+                                    (secs / total * 100.0).clamp(0.0, 99.5)
                                 } else {
                                     0.0
                                 }
@@ -1507,7 +1578,14 @@ pub fn run_ffmpeg_with_channel(
                                 0.0
                             };
 
-                            crate::api::update_appliance_status("Ripping", "", display_title, percent, &fps, &speed);
+                            crate::api::update_appliance_status(
+                                "Ripping",
+                                "",
+                                display_title,
+                                percent,
+                                &fps,
+                                &speed,
+                            );
 
                             if tx.is_none() {
                                 let width = 20;
@@ -1539,16 +1617,16 @@ pub fn run_ffmpeg_with_channel(
         }
     }
 
-    if let Some(ref flag) = cancel_flag {
-        if flag.load(std::sync::atomic::Ordering::SeqCst) {
-            let _ = child.kill();
-            let _ = child.wait();
-            if absolute_output.exists() {
-                let _ = std::fs::remove_file(absolute_output);
-            }
-            let msg = "Ripping process cancelled by user.".to_string();
-            return Err(anyhow!(msg));
+    if let Some(ref flag) = cancel_flag
+        && flag.load(std::sync::atomic::Ordering::SeqCst)
+    {
+        let _ = child.kill();
+        let _ = child.wait();
+        if absolute_output.exists() {
+            let _ = std::fs::remove_file(absolute_output);
         }
+        let msg = "Ripping process cancelled by user.".to_string();
+        return Err(anyhow!(msg));
     }
 
     let status = child.wait().context("Failed to wait on FFmpeg process")?;
@@ -1574,7 +1652,14 @@ pub fn run_ffmpeg_with_channel(
 
     match outcome {
         RipOutcome::Success => {
-            crate::api::update_appliance_status("Completed", "", display_title, 100.0, "N/A", "N/A");
+            crate::api::update_appliance_status(
+                "Completed",
+                "",
+                display_title,
+                100.0,
+                "N/A",
+                "N/A",
+            );
             if let Some(ref sender) = tx {
                 let _ = sender.send(ProgressEvent::Progress {
                     percent: 100.0,
@@ -1582,31 +1667,46 @@ pub fn run_ffmpeg_with_channel(
                     speed: "N/A".to_string(),
                 });
             }
-            let succ_msg = format!("Success! DVD ripped successfully to: {}", absolute_output.display());
+            let succ_msg = format!(
+                "Success! DVD ripped successfully to: {}",
+                absolute_output.display()
+            );
             if tx.is_none() {
                 println!("\n\n{}", succ_msg);
             } else if let Some(ref sender) = tx {
                 if is_batch {
-                    let _ = sender.send(ProgressEvent::Log(format!("Successfully finished episode: {}", absolute_output.display())));
+                    let _ = sender.send(ProgressEvent::Log(format!(
+                        "Successfully finished episode: {}",
+                        absolute_output.display()
+                    )));
                 } else {
                     let _ = sender.send(ProgressEvent::Success(absolute_output.to_path_buf()));
                 }
             }
             Ok(())
         }
-        RipOutcome::TrailingSectorNotice { exit_code, output_size_mb, ripped_mins } => {
+        RipOutcome::TrailingSectorNotice {
+            exit_code,
+            output_size_mb,
+            ripped_mins,
+        } => {
             let notice = format!(
                 "Notice: Optical drive encountered trailing bad sectors / EOF notice at end of disc ({:?}), but feature was successfully ripped ({:.1} MB, {:.0} mins).",
-                exit_code,
-                output_size_mb,
-                ripped_mins
+                exit_code, output_size_mb, ripped_mins
             );
             if let Some(ref sender) = tx {
                 let _ = sender.send(ProgressEvent::Log(notice.clone()));
             } else {
                 println!("{}", notice);
             }
-            crate::api::update_appliance_status("Completed", "", display_title, 100.0, "N/A", "N/A");
+            crate::api::update_appliance_status(
+                "Completed",
+                "",
+                display_title,
+                100.0,
+                "N/A",
+                "N/A",
+            );
             if let Some(ref sender) = tx {
                 let _ = sender.send(ProgressEvent::Progress {
                     percent: 100.0,
@@ -1614,12 +1714,18 @@ pub fn run_ffmpeg_with_channel(
                     speed: "N/A".to_string(),
                 });
             }
-            let succ_msg = format!("Success! DVD ripped successfully to: {}", absolute_output.display());
+            let succ_msg = format!(
+                "Success! DVD ripped successfully to: {}",
+                absolute_output.display()
+            );
             if tx.is_none() {
                 println!("\n\n{}", succ_msg);
             } else if let Some(ref sender) = tx {
                 if is_batch {
-                    let _ = sender.send(ProgressEvent::Log(format!("Successfully finished episode: {}", absolute_output.display())));
+                    let _ = sender.send(ProgressEvent::Log(format!(
+                        "Successfully finished episode: {}",
+                        absolute_output.display()
+                    )));
                 } else {
                     let _ = sender.send(ProgressEvent::Success(absolute_output.to_path_buf()));
                 }
@@ -1647,7 +1753,11 @@ mod tests {
 
     impl TestTempDir {
         fn new(name: &str) -> Self {
-            let path = std::env::temp_dir().join(format!("dvd_ripper_test_{}_{}", name, std::process::id()));
+            let path = std::env::temp_dir().join(format!(
+                "dvd_ripper_test_{}_{}",
+                name,
+                std::process::id()
+            ));
             let _ = fs::remove_dir_all(&path);
             let _ = fs::create_dir_all(&path);
             Self(path)
@@ -1691,7 +1801,7 @@ mod tests {
 
         let path = resolve_output_path(&args, None, None).unwrap();
         assert!(path.to_string_lossy().contains("output.mp4"));
-        assert!(path.parent().map_or(false, |p| p.exists()));
+        assert!(path.parent().is_some_and(|p| p.exists()));
     }
 
     #[test]
@@ -1700,7 +1810,10 @@ mod tests {
 
         let output_path = PathBuf::from("Films/Test/Test.mp4");
         let cmd = build_ffmpeg_command(&args, Path::new("D:\\"), &output_path, 3);
-        let cmd_args: Vec<String> = cmd.get_args().map(|s| s.to_string_lossy().to_string()).collect();
+        let cmd_args: Vec<String> = cmd
+            .get_args()
+            .map(|s| s.to_string_lossy().to_string())
+            .collect();
 
         assert!(cmd_args.contains(&"-title".to_string()));
         let title_idx = cmd_args.iter().position(|r| r == "-title").unwrap();
@@ -1718,7 +1831,10 @@ mod tests {
 
         let output_path = PathBuf::from("Films/Test/Test.mp4");
         let cmd = build_ffmpeg_command(&args, Path::new("D:\\"), &output_path, 1);
-        let cmd_args: Vec<String> = cmd.get_args().map(|s| s.to_string_lossy().to_string()).collect();
+        let cmd_args: Vec<String> = cmd
+            .get_args()
+            .map(|s| s.to_string_lossy().to_string())
+            .collect();
 
         assert!(cmd_args.contains(&"0:a".to_string()));
         assert!(cmd_args.contains(&"0:s:m:language:eng".to_string()));
@@ -1737,7 +1853,10 @@ mod tests {
 
         let output_path = PathBuf::from("Films/Test/Test.mp4");
         let cmd = build_ffmpeg_command(&args, Path::new("D:\\"), &output_path, 1);
-        let cmd_args: Vec<String> = cmd.get_args().map(|s| s.to_string_lossy().to_string()).collect();
+        let cmd_args: Vec<String> = cmd
+            .get_args()
+            .map(|s| s.to_string_lossy().to_string())
+            .collect();
 
         assert!(cmd_args.contains(&"-vf".to_string()));
         let vf_idx = cmd_args.iter().position(|r| r == "-vf").unwrap();
@@ -1807,7 +1926,10 @@ mod tests {
             ..Default::default()
         };
         let cmd = build_ffmpeg_command(&args_nvenc, Path::new("D:\\"), &output_path, 1);
-        let cmd_args: Vec<String> = cmd.get_args().map(|s| s.to_string_lossy().to_string()).collect();
+        let cmd_args: Vec<String> = cmd
+            .get_args()
+            .map(|s| s.to_string_lossy().to_string())
+            .collect();
         assert!(cmd_args.contains(&"h264_nvenc".to_string()));
 
         let args_vaapi = Args {
@@ -1816,7 +1938,10 @@ mod tests {
             ..Default::default()
         };
         let cmd_vaapi = build_ffmpeg_command(&args_vaapi, Path::new("D:\\"), &output_path, 1);
-        let cmd_args_vaapi: Vec<String> = cmd_vaapi.get_args().map(|s| s.to_string_lossy().to_string()).collect();
+        let cmd_args_vaapi: Vec<String> = cmd_vaapi
+            .get_args()
+            .map(|s| s.to_string_lossy().to_string())
+            .collect();
         assert!(cmd_args_vaapi.contains(&"h264_vaapi".to_string()));
 
         let args_qsv = Args {
@@ -1825,7 +1950,10 @@ mod tests {
             ..Default::default()
         };
         let cmd_qsv = build_ffmpeg_command(&args_qsv, Path::new("D:\\"), &output_path, 1);
-        let cmd_args_qsv: Vec<String> = cmd_qsv.get_args().map(|s| s.to_string_lossy().to_string()).collect();
+        let cmd_args_qsv: Vec<String> = cmd_qsv
+            .get_args()
+            .map(|s| s.to_string_lossy().to_string())
+            .collect();
         assert!(cmd_args_qsv.contains(&"h264_qsv".to_string()));
     }
 
@@ -1870,7 +1998,10 @@ mod tests {
 
         let output_path = PathBuf::from("Films/Test/Test.mkv");
         let cmd = build_ffmpeg_command(&args, Path::new("D:\\"), &output_path, 1);
-        let cmd_args: Vec<String> = cmd.get_args().map(|s| s.to_string_lossy().to_string()).collect();
+        let cmd_args: Vec<String> = cmd
+            .get_args()
+            .map(|s| s.to_string_lossy().to_string())
+            .collect();
 
         assert!(cmd_args.contains(&"-f".to_string()));
         assert!(cmd_args.contains(&"matroska".to_string()));
@@ -1887,7 +2018,10 @@ mod tests {
 
         let output_path = PathBuf::from("Films/Test/Test.mkv");
         let cmd = build_ffmpeg_command(&args, Path::new("D:\\"), &output_path, 1);
-        let cmd_args: Vec<String> = cmd.get_args().map(|s| s.to_string_lossy().to_string()).collect();
+        let cmd_args: Vec<String> = cmd
+            .get_args()
+            .map(|s| s.to_string_lossy().to_string())
+            .collect();
 
         assert!(cmd_args.contains(&"subrip".to_string()));
     }
@@ -1900,7 +2034,10 @@ mod tests {
         };
 
         let cmd = build_ffmpeg_command(&args, Path::new("D:\\"), Path::new("test.mp4"), 1);
-        let cmd_args: Vec<String> = cmd.get_args().map(|s| s.to_string_lossy().to_string()).collect();
+        let cmd_args: Vec<String> = cmd
+            .get_args()
+            .map(|s| s.to_string_lossy().to_string())
+            .collect();
 
         assert!(cmd_args.contains(&"-map_chapters".to_string()));
     }
@@ -1919,7 +2056,10 @@ mod tests {
         };
 
         let cmd = build_ffmpeg_command(&args, Path::new("D:\\"), Path::new("test.mp4"), 1);
-        let cmd_args: Vec<String> = cmd.get_args().map(|s| s.to_string_lossy().to_string()).collect();
+        let cmd_args: Vec<String> = cmd
+            .get_args()
+            .map(|s| s.to_string_lossy().to_string())
+            .collect();
 
         assert!(cmd_args.contains(&"0:a:m:language:eng?".to_string()));
         assert!(cmd_args.contains(&"0:a:m:language:fre?".to_string()));
@@ -1933,8 +2073,12 @@ mod tests {
             codec: "hevc".to_string(),
             ..Default::default()
         };
-        let cmd_hevc = build_ffmpeg_command(&args_hevc, Path::new("D:\\"), Path::new("test.mp4"), 1);
-        let args_vec_hevc: Vec<String> = cmd_hevc.get_args().map(|s| s.to_string_lossy().to_string()).collect();
+        let cmd_hevc =
+            build_ffmpeg_command(&args_hevc, Path::new("D:\\"), Path::new("test.mp4"), 1);
+        let args_vec_hevc: Vec<String> = cmd_hevc
+            .get_args()
+            .map(|s| s.to_string_lossy().to_string())
+            .collect();
         assert!(args_vec_hevc.contains(&"libx265".to_string()));
 
         let args_av1 = Args {
@@ -1943,15 +2087,22 @@ mod tests {
             ..Default::default()
         };
         let cmd_av1 = build_ffmpeg_command(&args_av1, Path::new("D:\\"), Path::new("test.mp4"), 1);
-        let args_vec_av1: Vec<String> = cmd_av1.get_args().map(|s| s.to_string_lossy().to_string()).collect();
+        let args_vec_av1: Vec<String> = cmd_av1
+            .get_args()
+            .map(|s| s.to_string_lossy().to_string())
+            .collect();
         assert!(args_vec_av1.contains(&"libsvtav1".to_string()));
 
         let args_archival = Args {
             profile: "archival".to_string(),
             ..Default::default()
         };
-        let cmd_archival = build_ffmpeg_command(&args_archival, Path::new("D:\\"), Path::new("test.mkv"), 1);
-        let args_vec_archival: Vec<String> = cmd_archival.get_args().map(|s| s.to_string_lossy().to_string()).collect();
+        let cmd_archival =
+            build_ffmpeg_command(&args_archival, Path::new("D:\\"), Path::new("test.mkv"), 1);
+        let args_vec_archival: Vec<String> = cmd_archival
+            .get_args()
+            .map(|s| s.to_string_lossy().to_string())
+            .collect();
         assert!(args_vec_archival.contains(&"matroska".to_string()));
         assert!(args_vec_archival.contains(&"copy".to_string()));
     }
@@ -1959,13 +2110,21 @@ mod tests {
     #[test]
     fn test_format_episode_helpers() {
         assert_eq!(format_episode_code(1, 5), "S01E05");
-        assert_eq!(format_episode_filename("The Office", 1, 5), "The Office - S01E05");
+        assert_eq!(
+            format_episode_filename("The Office", 1, 5),
+            "The Office - S01E05"
+        );
     }
 
     #[test]
     fn test_format_tv_season_folder() {
         let folder = format_tv_season_folder("The Office", Some(2005), 1);
-        assert_eq!(folder, PathBuf::from("TV").join("The Office (2005)").join("Season 01"));
+        assert_eq!(
+            folder,
+            PathBuf::from("TV")
+                .join("The Office (2005)")
+                .join("Season 01")
+        );
     }
 
     #[test]
@@ -1976,7 +2135,11 @@ mod tests {
 
     #[test]
     fn test_build_video_filter_chain() {
-        let args = Args { deinterlace: true, denoise: true, ..Default::default() };
+        let args = Args {
+            deinterlace: true,
+            denoise: true,
+            ..Default::default()
+        };
         let filters = build_video_filter_chain(&args, "mobile");
         assert_eq!(filters.len(), 3);
         assert_eq!(filters[0], "scale=-2:720");
@@ -1984,7 +2147,10 @@ mod tests {
 
     #[test]
     fn test_is_mkv_output() {
-        let args_mkv = Args { mkv: true, ..Default::default() };
+        let args_mkv = Args {
+            mkv: true,
+            ..Default::default()
+        };
         assert!(is_mkv_output(&args_mkv, Path::new("output.mp4")));
 
         let args_normal = Args::default();
@@ -2039,9 +2205,18 @@ mod tests {
     #[test]
     fn test_format_hwaccel_vf_chain() {
         let filters = vec!["scale=-2:720".to_string(), "bwdif".to_string()];
-        assert_eq!(format_hwaccel_vf_chain("vaapi", &filters), Some("scale=-2:720,bwdif,format=nv12,hwupload".to_string()));
-        assert_eq!(format_hwaccel_vf_chain("copy", &filters), Some("scale=-2:720,bwdif".to_string()));
-        assert_eq!(format_hwaccel_vf_chain("vaapi", &[]), Some("format=nv12,hwupload".to_string()));
+        assert_eq!(
+            format_hwaccel_vf_chain("vaapi", &filters),
+            Some("scale=-2:720,bwdif,format=nv12,hwupload".to_string())
+        );
+        assert_eq!(
+            format_hwaccel_vf_chain("copy", &filters),
+            Some("scale=-2:720,bwdif".to_string())
+        );
+        assert_eq!(
+            format_hwaccel_vf_chain("vaapi", &[]),
+            Some("format=nv12,hwupload".to_string())
+        );
     }
 
     #[test]
@@ -2066,7 +2241,10 @@ mod tests {
     #[test]
     fn test_format_title_selection_summary() {
         let msg = format_title_selection_summary(3, Some(7200.0), None);
-        assert_eq!(msg, "Auto-selected Title #3 (120 mins) (longest duration on DVD)");
+        assert_eq!(
+            msg,
+            "Auto-selected Title #3 (120 mins) (longest duration on DVD)"
+        );
     }
 
     #[test]
@@ -2075,8 +2253,12 @@ mod tests {
             normalize_audio: true,
             ..Default::default()
         };
-        let cmd_norm = build_ffmpeg_command(&args_norm, Path::new("D:\\"), Path::new("test.mp4"), 1);
-        let vec_norm: Vec<String> = cmd_norm.get_args().map(|s| s.to_string_lossy().to_string()).collect();
+        let cmd_norm =
+            build_ffmpeg_command(&args_norm, Path::new("D:\\"), Path::new("test.mp4"), 1);
+        let vec_norm: Vec<String> = cmd_norm
+            .get_args()
+            .map(|s| s.to_string_lossy().to_string())
+            .collect();
         assert!(vec_norm.contains(&"loudnorm=I=-16:TP=-1.5:LRA=11".to_string()));
 
         let args_dual = Args {
@@ -2084,8 +2266,12 @@ mod tests {
             normalize_audio: true,
             ..Default::default()
         };
-        let cmd_dual = build_ffmpeg_command(&args_dual, Path::new("D:\\"), Path::new("test.mp4"), 1);
-        let vec_dual: Vec<String> = cmd_dual.get_args().map(|s| s.to_string_lossy().to_string()).collect();
+        let cmd_dual =
+            build_ffmpeg_command(&args_dual, Path::new("D:\\"), Path::new("test.mp4"), 1);
+        let vec_dual: Vec<String> = cmd_dual
+            .get_args()
+            .map(|s| s.to_string_lossy().to_string())
+            .collect();
         assert!(vec_dual.contains(&"title=Stereo AAC (Normalized)".to_string()));
         assert!(vec_dual.contains(&"title=5.1 Surround Passthrough".to_string()));
     }
@@ -2124,9 +2310,18 @@ mod tests {
     #[test]
     fn test_ranking_prefers_lowest_title_in_cluster() {
         let titles = vec![
-            DvdTitleInfo { title_num: 77, duration_secs: 7664.0 },
-            DvdTitleInfo { title_num: 2, duration_secs: 7524.0 },
-            DvdTitleInfo { title_num: 22, duration_secs: 7524.0 },
+            DvdTitleInfo {
+                title_num: 77,
+                duration_secs: 7664.0,
+            },
+            DvdTitleInfo {
+                title_num: 2,
+                duration_secs: 7524.0,
+            },
+            DvdTitleInfo {
+                title_num: 22,
+                duration_secs: 7524.0,
+            },
         ];
         let (best_title, duration) = rank_best_title_from_slice(&titles, None);
         assert_eq!(best_title, 2);
@@ -2139,10 +2334,22 @@ mod tests {
         // On PAL DVD (25fps), duration is 7524s (Title 2).
         // Decoy title 77 has duration 7664s with loop cells/bad sectors.
         let titles = vec![
-            DvdTitleInfo { title_num: 77, duration_secs: 7664.0 },
-            DvdTitleInfo { title_num: 2, duration_secs: 7524.0 },
-            DvdTitleInfo { title_num: 22, duration_secs: 7524.0 },
-            DvdTitleInfo { title_num: 70, duration_secs: 7524.0 },
+            DvdTitleInfo {
+                title_num: 77,
+                duration_secs: 7664.0,
+            },
+            DvdTitleInfo {
+                title_num: 2,
+                duration_secs: 7524.0,
+            },
+            DvdTitleInfo {
+                title_num: 22,
+                duration_secs: 7524.0,
+            },
+            DvdTitleInfo {
+                title_num: 70,
+                duration_secs: 7524.0,
+            },
         ];
         let (best_title, duration) = rank_best_title_from_slice(&titles, Some(7860.0));
         assert_eq!(best_title, 2);
@@ -2177,7 +2384,11 @@ mod tests {
             false,
         );
         match outcome {
-            RipOutcome::TrailingSectorNotice { exit_code, output_size_mb, ripped_mins } => {
+            RipOutcome::TrailingSectorNotice {
+                exit_code,
+                output_size_mb,
+                ripped_mins,
+            } => {
                 assert_eq!(exit_code, Some(1));
                 assert!(output_size_mb > 900.0);
                 assert!(ripped_mins > 120.0);
@@ -2241,7 +2452,10 @@ mod tests {
         };
         let out_path = PathBuf::from("output.mp4");
         let cmd = build_ffmpeg_command(&args_enabled, Path::new("D:\\"), &out_path, 1);
-        let cmd_args: Vec<String> = cmd.get_args().map(|s| s.to_string_lossy().to_string()).collect();
+        let cmd_args: Vec<String> = cmd
+            .get_args()
+            .map(|s| s.to_string_lossy().to_string())
+            .collect();
         assert!(cmd_args.contains(&"-fflags".to_string()));
         assert!(cmd_args.contains(&"+genpts+discardcorrupt".to_string()));
         assert!(cmd_args.contains(&"-err_detect".to_string()));
@@ -2252,7 +2466,10 @@ mod tests {
             ..Default::default()
         };
         let cmd2 = build_ffmpeg_command(&args_disabled, Path::new("D:\\"), &out_path, 1);
-        let cmd2_args: Vec<String> = cmd2.get_args().map(|s| s.to_string_lossy().to_string()).collect();
+        let cmd2_args: Vec<String> = cmd2
+            .get_args()
+            .map(|s| s.to_string_lossy().to_string())
+            .collect();
         assert!(!cmd2_args.contains(&"ignore_err".to_string()));
     }
 
@@ -2268,7 +2485,10 @@ mod tests {
             ..Default::default()
         };
         let cmd = build_ffmpeg_command(&args_nvenc_hevc, Path::new("D:\\"), &out_path, 1);
-        let cmd_args: Vec<String> = cmd.get_args().map(|s| s.to_string_lossy().to_string()).collect();
+        let cmd_args: Vec<String> = cmd
+            .get_args()
+            .map(|s| s.to_string_lossy().to_string())
+            .collect();
         assert!(cmd_args.contains(&"hevc_nvenc".to_string()));
 
         let args_nvenc_av1 = Args {
@@ -2278,7 +2498,10 @@ mod tests {
             ..Default::default()
         };
         let cmd_av1 = build_ffmpeg_command(&args_nvenc_av1, Path::new("D:\\"), &out_path, 1);
-        let cmd_av1_args: Vec<String> = cmd_av1.get_args().map(|s| s.to_string_lossy().to_string()).collect();
+        let cmd_av1_args: Vec<String> = cmd_av1
+            .get_args()
+            .map(|s| s.to_string_lossy().to_string())
+            .collect();
         assert!(cmd_av1_args.contains(&"av1_nvenc".to_string()));
 
         // QSV HEVC
@@ -2289,7 +2512,10 @@ mod tests {
             ..Default::default()
         };
         let cmd_qsv = build_ffmpeg_command(&args_qsv_hevc, Path::new("D:\\"), &out_path, 1);
-        let cmd_qsv_args: Vec<String> = cmd_qsv.get_args().map(|s| s.to_string_lossy().to_string()).collect();
+        let cmd_qsv_args: Vec<String> = cmd_qsv
+            .get_args()
+            .map(|s| s.to_string_lossy().to_string())
+            .collect();
         assert!(cmd_qsv_args.contains(&"hevc_qsv".to_string()));
     }
 
@@ -2311,7 +2537,8 @@ mod tests {
             1,
             2,
             Some("Diversity Day"),
-        ).unwrap();
+        )
+        .unwrap();
 
         let path_str = path.to_string_lossy();
         assert!(path_str.contains("The Office (2005)"));
@@ -2323,7 +2550,10 @@ mod tests {
     fn test_build_thumbnail_command() {
         let out_thumb = PathBuf::from("test_thumb.jpg");
         let cmd = build_thumbnail_command("ffmpeg", Path::new("D:\\"), 2, 120.0, &out_thumb);
-        let args: Vec<String> = cmd.get_args().map(|s| s.to_string_lossy().to_string()).collect();
+        let args: Vec<String> = cmd
+            .get_args()
+            .map(|s| s.to_string_lossy().to_string())
+            .collect();
 
         assert!(args.contains(&"-ss".to_string()));
         assert!(args.contains(&"00:02:00".to_string()));
@@ -2333,4 +2563,3 @@ mod tests {
         assert!(args.contains(&"1".to_string()));
     }
 }
-

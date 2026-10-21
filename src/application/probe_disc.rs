@@ -1,10 +1,10 @@
-use std::sync::Arc;
-use anyhow::Result;
 use crate::domain::entities::disc::DiscInfo;
 use crate::domain::entities::media::FilmMetadata;
 use crate::domain::heuristics::cluster_detector::rank_best_title_from_slice;
 use crate::domain::ports::metadata::MetadataProvider;
 use crate::domain::ports::optical_drive::OpticalDrive;
+use anyhow::Result;
+use std::sync::Arc;
 
 /// Result of probing a disc, combining disc hardware details, title tracks, and metadata.
 #[derive(Debug, Clone)]
@@ -37,7 +37,10 @@ impl ProbeDiscUseCase {
         let metadata = if let Some(ref provider) = self.metadata_provider {
             if let Some(ref label) = volume_label {
                 let clean_title = crate::utils::normalize_volume_label_title(label);
-                provider.get_details_by_title_and_year(&clean_title, None).ok().flatten()
+                provider
+                    .get_details_by_title_and_year(&clean_title, None)
+                    .ok()
+                    .flatten()
             } else {
                 None
             }
@@ -46,7 +49,8 @@ impl ProbeDiscUseCase {
         };
 
         let expected_runtime = metadata.as_ref().and_then(|m| m.runtime_secs);
-        let (primary_title_num, primary_duration_secs) = rank_best_title_from_slice(&titles, expected_runtime);
+        let (primary_title_num, primary_duration_secs) =
+            rank_best_title_from_slice(&titles, expected_runtime);
 
         let disc_info = DiscInfo {
             device_path: drive_path.to_path_buf(),

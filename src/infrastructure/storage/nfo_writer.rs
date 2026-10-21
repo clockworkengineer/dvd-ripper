@@ -1,11 +1,14 @@
-use std::path::{Path, PathBuf};
-use anyhow::Result;
 use crate::domain::entities::media::FilmMetadata;
+use anyhow::Result;
+use std::path::{Path, PathBuf};
 
 /// Resolves sidecar `.nfo` metadata file path from video output path.
 pub fn resolve_nfo_path(video_path: &Path) -> PathBuf {
     let parent = video_path.parent().unwrap_or_else(|| Path::new(""));
-    let stem = video_path.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_else(|| "output".to_string());
+    let stem = video_path
+        .file_stem()
+        .map(|s| s.to_string_lossy().to_string())
+        .unwrap_or_else(|| "output".to_string());
     parent.join(format!("{}.nfo", stem))
 }
 

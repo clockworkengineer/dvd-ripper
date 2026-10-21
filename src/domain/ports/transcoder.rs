@@ -1,7 +1,7 @@
-use std::path::Path;
-use std::sync::atomic::AtomicBool;
-use std::sync::Arc;
 use anyhow::Result;
+use std::path::Path;
+use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 
 /// Immutable job specification for transcoding a title track.
 pub struct TranscodeJob<'a> {

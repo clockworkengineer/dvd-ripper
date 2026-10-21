@@ -1,17 +1,16 @@
+use crate::ffmpeg::ProgressEvent;
+use anyhow::{Result, anyhow};
 /**
  * @file iso.rs
  * @brief Archival 1:1 byte-for-byte optical disc ISO dumping engine.
  */
-
 use std::fs::File;
 use std::io::{BufReader, BufWriter, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::Sender;
-use std::sync::Arc;
 use std::time::Instant;
-use anyhow::{anyhow, Result};
-use crate::ffmpeg::ProgressEvent;
 
 /// Probes Sector 16 (offset 32768) Primary Volume Descriptor to extract exact ISO-9660 payload byte size.
 pub fn probe_iso_disc_size<R: Read + Seek>(reader: &mut R) -> Option<u64> {
@@ -49,10 +48,10 @@ pub fn copy_sectors_with_progress<R: Read, W: Write, F: FnMut(f64, f64, u64)>(
     let mut last_progress_report = Instant::now();
 
     loop {
-        if let Some(flag) = cancel_flag {
-            if flag.load(Ordering::SeqCst) {
-                return Err(anyhow!("ISO dump process cancelled by user"));
-            }
+        if let Some(flag) = cancel_flag
+            && flag.load(Ordering::SeqCst)
+        {
+            return Err(anyhow!("ISO dump process cancelled by user"));
         }
 
         let bytes_read = reader.read(&mut buffer)?;
@@ -81,10 +80,10 @@ pub fn copy_sectors_with_progress<R: Read, W: Write, F: FnMut(f64, f64, u64)>(
         }
 
         // If we know the exact total size from PVD, stop once we've reached it to avoid reading trailing unformatted sectors
-        if let Some(hint) = total_bytes_hint {
-            if total_copied >= hint {
-                break;
-            }
+        if let Some(hint) = total_bytes_hint
+            && total_copied >= hint
+        {
+            break;
         }
     }
 
@@ -141,7 +140,7 @@ pub fn dump_directory_to_iso(
              $buf = New-Object byte[] 65536; \
              while (($read = $stream.Read($buf, 0, $buf.Length)) -gt 0) {{ $out.Write($buf, 0, $read) }}; \
              $out.Close()",
-            label,
+            label.replace('\'', "''"),
             dir_path.display().to_string().replace('\'', "''"),
             output_iso_path.display().to_string().replace('\'', "''")
         );
@@ -155,8 +154,10 @@ pub fn dump_directory_to_iso(
             return Err(anyhow!("IMAPI2 ISO creation failed: {}", stderr));
         }
 
-        let len = std::fs::metadata(output_iso_path).map(|m| m.len()).unwrap_or(0);
-        return Ok(len);
+        let len = std::fs::metadata(output_iso_path)
+            .map(|m| m.len())
+            .unwrap_or(0);
+        Ok(len)
     }
 
     #[cfg(target_os = "macos")]
@@ -164,14 +165,26 @@ pub fn dump_directory_to_iso(
         // Use macOS hdiutil
         let mut cmd = std::process::Command::new("hdiutil");
         let status = cmd
-            .args(["makehybrid", "-iso", "-joliet", "-default-volume-name", label, "-o"])
+            .args([
+                "makehybrid",
+                "-iso",
+                "-joliet",
+                "-default-volume-name",
+                label,
+                "-o",
+            ])
             .arg(output_iso_path)
             .arg(dir_path)
             .status()?;
         if !status.success() {
-            return Err(anyhow!("hdiutil ISO creation failed with status {:?}", status));
+            return Err(anyhow!(
+                "hdiutil ISO creation failed with status {:?}",
+                status
+            ));
         }
-        let len = std::fs::metadata(output_iso_path).map(|m| m.len()).unwrap_or(0);
+        let len = std::fs::metadata(output_iso_path)
+            .map(|m| m.len())
+            .unwrap_or(0);
         return Ok(len);
     }
 
@@ -185,7 +198,9 @@ pub fn dump_directory_to_iso(
         } else if crate::utils::command_exists("xorriso") {
             "xorriso"
         } else {
-            return Err(anyhow!("No ISO generation utility found (install genisoimage, mkisofs, or xorriso)."));
+            return Err(anyhow!(
+                "No ISO generation utility found (install genisoimage, mkisofs, or xorriso)."
+            ));
         };
 
         let mut cmd = std::process::Command::new(program);
@@ -201,9 +216,15 @@ pub fn dump_directory_to_iso(
 
         let status = cmd.status()?;
         if !status.success() {
-            return Err(anyhow!("{} ISO creation failed with exit code {:?}", program, status));
+            return Err(anyhow!(
+                "{} ISO creation failed with exit code {:?}",
+                program,
+                status
+            ));
         }
-        let len = std::fs::metadata(output_iso_path).map(|m| m.len()).unwrap_or(0);
+        let len = std::fs::metadata(output_iso_path)
+            .map(|m| m.len())
+            .unwrap_or(0);
         return Ok(len);
     }
 }

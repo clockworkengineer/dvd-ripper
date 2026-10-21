@@ -1,12 +1,11 @@
+use anyhow::Result;
+use serde::{Deserialize, Serialize};
 /**
  * @file history.rs
  * @brief Persistent history log for completed DVD ripping jobs.
  */
-
 use std::fs;
 use std::path::{Path, PathBuf};
-use anyhow::Result;
-use serde::{Deserialize, Serialize};
 
 const HISTORY_FILE: &str = "ripping_history.json";
 
@@ -31,10 +30,13 @@ impl RipRecord {
     }
 }
 
-
 /// Formats a clean user-facing media display title (e.g. "Aliens (1986)" or "The Office - S01E05").
 #[allow(dead_code)]
-pub fn format_media_display_title(title: &str, year: Option<u32>, tv_info: Option<(u32, u32)>) -> String {
+pub fn format_media_display_title(
+    title: &str,
+    year: Option<u32>,
+    tv_info: Option<(u32, u32)>,
+) -> String {
     if let Some((season, episode)) = tv_info {
         format!("{} - S{:02}E{:02}", title, season, episode)
     } else if let Some(yr) = year {
@@ -56,7 +58,6 @@ fn resolve_history_path(path: Option<&Path>) -> PathBuf {
         }
     }
 }
-
 
 /// Trait defining persistent history repository contract (SRP/DIP).
 #[allow(dead_code)]
@@ -86,7 +87,6 @@ impl HistoryRepository for JsonFileHistoryRepository {
 
 /// Loads history records from disk (default: `ripping_history.json`).
 pub fn load_history(path: Option<&Path>) -> Vec<RipRecord> {
-
     let history_path = resolve_history_path(path);
     crate::utils::load_json_file(&history_path).unwrap_or_default()
 }
@@ -97,8 +97,8 @@ pub fn save_history(records: &[RipRecord], path: Option<&Path>) -> Result<()> {
     crate::utils::save_json_file(&history_path, &records)
 }
 
-
 /// Clears history file on disk.
+#[allow(dead_code)]
 pub fn clear_history(path: Option<&Path>) -> Result<()> {
     let history_path = resolve_history_path(path);
     if history_path.exists() {
@@ -108,7 +108,12 @@ pub fn clear_history(path: Option<&Path>) -> Result<()> {
 }
 
 /// Convenience facade to insert a new rip record at the top of history and persist to disk.
-pub fn record_rip_event(title: &str, media_type: &str, output_path: &str, status: &str) -> Result<()> {
+pub fn record_rip_event(
+    title: &str,
+    media_type: &str,
+    output_path: &str,
+    status: &str,
+) -> Result<()> {
     let mut history = load_history(None);
     history.insert(0, RipRecord::new(title, media_type, output_path, status));
     save_history(&history, None)
@@ -118,7 +123,9 @@ pub fn record_rip_event(title: &str, media_type: &str, output_path: &str, status
 pub fn purge_expired_rip_records(max_days: u64, path: Option<&Path>) -> Result<usize> {
     let mut history = load_history(path);
     let original_len = history.len();
-    if max_days == 0 { return Ok(0); }
+    if max_days == 0 {
+        return Ok(0);
+    }
     let cutoff_sec = max_days * 86400;
     let now = chrono::Utc::now().timestamp() as u64;
 
@@ -134,7 +141,10 @@ pub fn purge_expired_rip_records(max_days: u64, path: Option<&Path>) -> Result<u
     let removed = original_len.saturating_sub(history.len());
     if removed > 0 {
         save_history(&history, path)?;
-        println!("[Auto-Cleanup] Purged {} expired rip history records older than {} days.", removed, max_days);
+        println!(
+            "[Auto-Cleanup] Purged {} expired rip history records older than {} days.",
+            removed, max_days
+        );
     }
     Ok(removed)
 }
@@ -147,7 +157,11 @@ mod tests {
 
     impl TestTempDir {
         fn new(name: &str) -> Self {
-            let path = std::env::temp_dir().join(format!("dvd_ripper_history_test_{}_{}", name, std::process::id()));
+            let path = std::env::temp_dir().join(format!(
+                "dvd_ripper_history_test_{}_{}",
+                name,
+                std::process::id()
+            ));
             let _ = fs::remove_dir_all(&path);
             let _ = fs::create_dir_all(&path);
             Self(path)
@@ -167,8 +181,18 @@ mod tests {
 
         assert!(load_history(Some(&file_path)).is_empty());
 
-        let rec1 = RipRecord::new("Aliens (1986)", "Movie", "Films/Aliens (1986).mpg", "Success");
-        let rec2 = RipRecord::new("Doctor Who - S01E01", "TV Series", "TV/Doctor Who/Season 01/S01E01.mpg", "Success");
+        let rec1 = RipRecord::new(
+            "Aliens (1986)",
+            "Movie",
+            "Films/Aliens (1986).mpg",
+            "Success",
+        );
+        let rec2 = RipRecord::new(
+            "Doctor Who - S01E01",
+            "TV Series",
+            "TV/Doctor Who/Season 01/S01E01.mpg",
+            "Success",
+        );
 
         let records = vec![rec1.clone(), rec2.clone()];
         save_history(&records, Some(&file_path)).unwrap();
@@ -183,7 +207,10 @@ mod tests {
 
     #[test]
     fn test_resolve_history_path_defaults() {
-        assert_eq!(resolve_history_path(None), PathBuf::from("ripping_history.json"));
+        assert_eq!(
+            resolve_history_path(None),
+            PathBuf::from("ripping_history.json")
+        );
         let custom = PathBuf::from("/tmp/custom_history.json");
         assert_eq!(resolve_history_path(Some(&custom)), custom);
     }
@@ -200,8 +227,17 @@ mod tests {
 
     #[test]
     fn test_format_media_display_title() {
-        assert_eq!(format_media_display_title("Aliens", Some(1986), None), "Aliens (1986)");
-        assert_eq!(format_media_display_title("The Office", None, Some((1, 5))), "The Office - S01E05");
-        assert_eq!(format_media_display_title("Unknown Movie", None, None), "Unknown Movie");
+        assert_eq!(
+            format_media_display_title("Aliens", Some(1986), None),
+            "Aliens (1986)"
+        );
+        assert_eq!(
+            format_media_display_title("The Office", None, Some((1, 5))),
+            "The Office - S01E05"
+        );
+        assert_eq!(
+            format_media_display_title("Unknown Movie", None, None),
+            "Unknown Movie"
+        );
     }
 }

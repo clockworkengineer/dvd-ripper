@@ -2,14 +2,13 @@
  * @file dvd.rs
  * @brief Cross-platform DVD drive detection and volume label reading (Windows, Linux, macOS).
  */
-
 use std::path::PathBuf;
 
 /// Detects all optical DVD/CD drives attached to the operating system.
 #[cfg(target_os = "windows")]
 pub fn detect_dvd_drives() -> Vec<String> {
-    use windows::core::PCWSTR;
     use windows::Win32::Storage::FileSystem::{GetDriveTypeW, GetLogicalDriveStringsW};
+    use windows::core::PCWSTR;
 
     let mut drives = Vec::new();
     let mut buffer = [0u16; 512];
@@ -23,7 +22,8 @@ pub fn detect_dvd_drives() -> Vec<String> {
                     end += 1;
                 }
                 let drive_str = String::from_utf16_lossy(&buffer[i..end]);
-                let drive_wide: Vec<u16> = drive_str.encode_utf16().chain(std::iter::once(0)).collect();
+                let drive_wide: Vec<u16> =
+                    drive_str.encode_utf16().chain(std::iter::once(0)).collect();
                 if GetDriveTypeW(PCWSTR::from_raw(drive_wide.as_ptr())) == 5 {
                     drives.push(drive_str);
                 }
@@ -83,7 +83,11 @@ pub fn detect_dvd_drives() -> Vec<String> {
 }
 
 /// Fallback drive detection for unhandled target OS platforms.
-#[cfg(all(not(target_os = "windows"), not(target_os = "linux"), not(target_os = "macos")))]
+#[cfg(all(
+    not(target_os = "windows"),
+    not(target_os = "linux"),
+    not(target_os = "macos")
+))]
 pub fn detect_dvd_drives() -> Vec<String> {
     vec!["/dev/sr0".to_string()]
 }
@@ -121,15 +125,22 @@ pub fn auto_detect_dvd_drive() -> String {
             return drive.clone();
         }
     }
-    drives.into_iter().next().unwrap_or_else(|| default_dvd_drive_path().to_string())
+    drives
+        .into_iter()
+        .next()
+        .unwrap_or_else(|| default_dvd_drive_path().to_string())
 }
-
 
 /// Cleans an input drive string, returning a normalized drive letter (e.g. "D:\", "d:" -> "D:\").
 #[allow(dead_code)]
 pub fn clean_drive_letter(input: &str) -> String {
     let clean = input.trim().trim_matches('"').trim_matches('\'');
-    if clean.len() == 1 && clean.chars().next().map_or(false, |c| c.is_ascii_alphabetic()) {
+    if clean.len() == 1
+        && clean
+            .chars()
+            .next()
+            .is_some_and(|c| c.is_ascii_alphabetic())
+    {
         format!("{}:\\", clean.to_ascii_uppercase())
     } else if clean.len() == 2 && clean.ends_with(':') {
         format!("{}\\", clean.to_ascii_uppercase())
@@ -141,10 +152,13 @@ pub fn clean_drive_letter(input: &str) -> String {
 /// Cleans and normalizes a raw disc volume label string (e.g. "  ALIENS_DISC_1  " -> "ALIENS DISC 1").
 #[allow(dead_code)]
 pub fn clean_volume_label(label: &str) -> String {
-    label.trim().trim_matches('_').replace('_', " ").trim().to_string()
+    label
+        .trim()
+        .trim_matches('_')
+        .replace('_', " ")
+        .trim()
+        .to_string()
 }
-
-
 
 /// Resolves and normalizes the DVD drive input path (e.g., handling "auto", drive letters, trailing backslashes).
 pub fn normalize_dvd_path(input: &str) -> PathBuf {
@@ -165,8 +179,8 @@ pub fn normalize_dvd_path(input: &str) -> PathBuf {
 /// Retrieves the local volume label of a DVD drive using platform-native calls.
 #[cfg(target_os = "windows")]
 pub fn get_volume_label(root_path: &str) -> Option<String> {
-    use windows::core::PCWSTR;
     use windows::Win32::Storage::FileSystem::GetVolumeInformationW;
+    use windows::core::PCWSTR;
 
     let target_path = if root_path.is_empty() || root_path.eq_ignore_ascii_case("auto") {
         auto_detect_dvd_drive()
@@ -174,10 +188,11 @@ pub fn get_volume_label(root_path: &str) -> Option<String> {
         root_path.to_string()
     };
 
-    if target_path.to_lowercase().ends_with(".iso") || target_path.to_lowercase().ends_with(".img") {
-        if let Some(stem) = std::path::Path::new(&target_path).file_stem() {
-            return Some(clean_volume_label(&stem.to_string_lossy()));
-        }
+    if (target_path.to_lowercase().ends_with(".iso")
+        || target_path.to_lowercase().ends_with(".img"))
+        && let Some(stem) = std::path::Path::new(&target_path).file_stem()
+    {
+        return Some(clean_volume_label(&stem.to_string_lossy()));
     }
 
     let mut path_wide = [0u16; 260];
@@ -220,7 +235,11 @@ pub fn get_volume_label(root_path: &str) -> Option<String> {
 #[cfg(not(target_os = "windows"))]
 fn resolve_device_path(root_path: &str) -> String {
     let trimmed = root_path.trim();
-    if trimmed.is_empty() || trimmed.eq_ignore_ascii_case("auto") || trimmed == "D:\\" || trimmed == "D:" {
+    if trimmed.is_empty()
+        || trimmed.eq_ignore_ascii_case("auto")
+        || trimmed == "D:\\"
+        || trimmed == "D:"
+    {
         auto_detect_dvd_drive()
     } else {
         trimmed.to_string()
@@ -297,7 +316,10 @@ pub fn compute_disc_fingerprint(root_path: &str) -> String {
         let mut ifo_files: Vec<_> = entries
             .flatten()
             .map(|e| e.path())
-            .filter(|p| p.extension().map_or(false, |ext| ext.eq_ignore_ascii_case("ifo")))
+            .filter(|p| {
+                p.extension()
+                    .is_some_and(|ext| ext.eq_ignore_ascii_case("ifo"))
+            })
             .collect();
         ifo_files.sort();
         for ifo in ifo_files {
@@ -343,13 +365,18 @@ pub fn eject_disc(root_path: &str) -> bool {
         );
         let mut cmd = Command::new("powershell");
         crate::utils::configure_silent_command(&mut cmd);
-        cmd.args(["-NoProfile", "-Command", &ps_cmd]).output().map_or(false, |out| out.status.success())
+        cmd.args(["-NoProfile", "-Command", &ps_cmd])
+            .output()
+            .is_ok_and(|out| out.status.success())
     }
     #[cfg(not(target_os = "windows"))]
     {
         use std::process::Command;
         let dev_path = resolve_device_path(root_path);
-        Command::new("eject").arg(&dev_path).status().map_or(false, |s| s.success())
+        Command::new("eject")
+            .arg(&dev_path)
+            .status()
+            .map_or(false, |s| s.success())
     }
 }
 
@@ -364,7 +391,12 @@ pub fn spindown_drive(root_path: &str) -> bool {
     {
         use std::process::Command;
         let dev_path = resolve_device_path(root_path);
-        Command::new("eject").arg("-i").arg("1").arg(&dev_path).status().map_or(false, |s| s.success())
+        Command::new("eject")
+            .arg("-i")
+            .arg("1")
+            .arg(&dev_path)
+            .status()
+            .map_or(false, |s| s.success())
     }
 }
 
@@ -390,13 +422,19 @@ pub fn close_disc_tray(root_path: &str) -> bool {
         );
         let mut cmd = Command::new("powershell");
         crate::utils::configure_silent_command(&mut cmd);
-        cmd.args(["-NoProfile", "-Command", &ps_cmd]).output().map_or(false, |out| out.status.success())
+        cmd.args(["-NoProfile", "-Command", &ps_cmd])
+            .output()
+            .is_ok_and(|out| out.status.success())
     }
     #[cfg(not(target_os = "windows"))]
     {
         use std::process::Command;
         let dev_path = resolve_device_path(root_path);
-        Command::new("eject").arg("-t").arg(&dev_path).status().map_or(false, |s| s.success())
+        Command::new("eject")
+            .arg("-t")
+            .arg(&dev_path)
+            .status()
+            .map_or(false, |s| s.success())
     }
 }
 
@@ -410,9 +448,15 @@ pub trait DrivePowerController {
 
 pub struct DefaultDrivePowerController;
 impl DrivePowerController for DefaultDrivePowerController {
-    fn eject(&self, root_path: &str) -> bool { eject_disc(root_path) }
-    fn spindown(&self, root_path: &str) -> bool { spindown_drive(root_path) }
-    fn close_tray(&self, root_path: &str) -> bool { close_disc_tray(root_path) }
+    fn eject(&self, root_path: &str) -> bool {
+        eject_disc(root_path)
+    }
+    fn spindown(&self, root_path: &str) -> bool {
+        spindown_drive(root_path)
+    }
+    fn close_tray(&self, root_path: &str) -> bool {
+        close_disc_tray(root_path)
+    }
 }
 
 /// Interface Segregation (ISP/SOLID): Segregated trait for optical drive speed ratings.
@@ -474,7 +518,11 @@ impl OpticalDriveInspector for PhysicalDriveInspector {
 }
 
 pub fn inspect_disc_copy_protection(dvd_path: &std::path::Path) -> DiscProtectionReport {
-    let video_ts = if dvd_path.file_name().and_then(|s| s.to_str()).map_or(false, |s| s.eq_ignore_ascii_case("VIDEO_TS")) {
+    let video_ts = if dvd_path
+        .file_name()
+        .and_then(|s| s.to_str())
+        .is_some_and(|s| s.eq_ignore_ascii_case("VIDEO_TS"))
+    {
         dvd_path.to_path_buf()
     } else {
         dvd_path.join("VIDEO_TS")
@@ -502,15 +550,18 @@ pub fn inspect_disc_copy_protection(dvd_path: &std::path::Path) -> DiscProtectio
                         if let Ok(meta) = entry.metadata() {
                             total_bytes += meta.len();
                         }
-                        if path.file_name().and_then(|s| s.to_str()).map_or(false, |s| s.eq_ignore_ascii_case("VIDEO_TS.IFO")) {
-                            if let Ok(mut f) = std::fs::File::open(&path) {
-                                use std::io::Read;
-                                let mut buf = [0u8; 2048];
-                                if f.read(&mut buf).is_ok() {
-                                    if buf[0x0014] & 0x01 != 0 || buf[0x0015] != 0 {
-                                        has_css_indicators = true;
-                                    }
-                                }
+                        if path
+                            .file_name()
+                            .and_then(|s| s.to_str())
+                            .is_some_and(|s| s.eq_ignore_ascii_case("VIDEO_TS.IFO"))
+                            && let Ok(mut f) = std::fs::File::open(&path)
+                        {
+                            use std::io::Read;
+                            let mut buf = [0u8; 2048];
+                            if f.read(&mut buf).is_ok()
+                                && (buf[0x0014] & 0x01 != 0 || buf[0x0015] != 0)
+                            {
+                                has_css_indicators = true;
                             }
                         }
                     }
@@ -518,13 +569,20 @@ pub fn inspect_disc_copy_protection(dvd_path: &std::path::Path) -> DiscProtectio
             }
         }
     } else {
-        diagnostic_notes.push(format!("VIDEO_TS directory not found at path {}", dvd_path.display()));
+        diagnostic_notes.push(format!(
+            "VIDEO_TS directory not found at path {}",
+            dvd_path.display()
+        ));
     }
 
     if has_css_indicators {
-        diagnostic_notes.push("CSS (Content Scramble System) encryption flags detected in VIDEO_TS.IFO headers.".to_string());
+        diagnostic_notes.push(
+            "CSS (Content Scramble System) encryption flags detected in VIDEO_TS.IFO headers."
+                .to_string(),
+        );
     } else {
-        diagnostic_notes.push("No active CSS encryption flags detected in IFO headers.".to_string());
+        diagnostic_notes
+            .push("No active CSS encryption flags detected in IFO headers.".to_string());
     }
 
     if vob_count > 10 {
@@ -532,7 +590,10 @@ pub fn inspect_disc_copy_protection(dvd_path: &std::path::Path) -> DiscProtectio
     }
 
     let gigabytes = total_bytes as f64 / (1024.0 * 1024.0 * 1024.0);
-    diagnostic_notes.push(format!("Total disc payload size: {:.2} GB across {} VOBs and {} IFOs.", gigabytes, vob_count, ifo_count));
+    diagnostic_notes.push(format!(
+        "Total disc payload size: {:.2} GB across {} VOBs and {} IFOs.",
+        gigabytes, vob_count, ifo_count
+    ));
 
     DiscProtectionReport {
         has_css_indicators,
@@ -571,15 +632,21 @@ pub fn run_drive_benchmark(
     let mut cmd = Command::new(ffmpeg_path);
     crate::utils::configure_silent_command(&mut cmd);
     cmd.arg("-y")
-       .arg("-nostdin")
-       .arg("-f").arg("dvdvideo")
-       .arg("-trim").arg("0")
-       .arg("-i").arg(&norm_path)
-       .arg("-title").arg("1")
-       .arg("-t").arg(duration_secs.to_string())
-       .arg("-f").arg("null")
-       .arg("-")
-       .arg("-benchmark");
+        .arg("-nostdin")
+        .arg("-f")
+        .arg("dvdvideo")
+        .arg("-trim")
+        .arg("0")
+        .arg("-i")
+        .arg(&norm_path)
+        .arg("-title")
+        .arg("1")
+        .arg("-t")
+        .arg(duration_secs.to_string())
+        .arg("-f")
+        .arg("null")
+        .arg("-")
+        .arg("-benchmark");
 
     let output = cmd.output()?;
     let elapsed = start_time.elapsed().as_secs_f64().max(0.1);
@@ -739,17 +806,35 @@ mod tests {
 
     #[test]
     fn test_format_copy_protection_summary() {
-        assert_eq!(format_copy_protection_summary(true, true), "CSS / Content Scramble System Encrypted");
-        assert_eq!(format_copy_protection_summary(false, true), "Generic Protection / Encrypted Disc");
-        assert_eq!(format_copy_protection_summary(false, false), "Unencrypted / Standard DVD-Video");
+        assert_eq!(
+            format_copy_protection_summary(true, true),
+            "CSS / Content Scramble System Encrypted"
+        );
+        assert_eq!(
+            format_copy_protection_summary(false, true),
+            "Generic Protection / Encrypted Disc"
+        );
+        assert_eq!(
+            format_copy_protection_summary(false, false),
+            "Unencrypted / Standard DVD-Video"
+        );
     }
 
     #[test]
     fn test_format_drive_speed_rating() {
-        assert_eq!(format_drive_speed_rating(16.0), "High Performance (16x+ Speed)");
-        assert_eq!(format_drive_speed_rating(8.5), "Standard DVD Read Speed (8x Speed)");
+        assert_eq!(
+            format_drive_speed_rating(16.0),
+            "High Performance (16x+ Speed)"
+        );
+        assert_eq!(
+            format_drive_speed_rating(8.5),
+            "Standard DVD Read Speed (8x Speed)"
+        );
         assert_eq!(format_drive_speed_rating(5.0), "Moderate Speed (4x Speed)");
-        assert_eq!(format_drive_speed_rating(2.0), "Slow / Potential RipLock or Bus Bottleneck (< 4x)");
+        assert_eq!(
+            format_drive_speed_rating(2.0),
+            "Slow / Potential RipLock or Bus Bottleneck (< 4x)"
+        );
     }
 
     #[test]

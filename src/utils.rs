@@ -2,8 +2,7 @@
  * @file utils.rs
  * @brief Common string manipulation, HTTP client pooling, atomic file I/O, NFO metadata generation, and system helper utilities.
  */
-
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use std::path::{Path, PathBuf};
 
 /// Queries remaining free disk space (bytes) for a given target directory path.
@@ -112,7 +111,9 @@ pub fn check_disk_space_guard(target_dir: &Path, min_free_gb: u64) -> Result<u64
         let free_gb = free_bytes as f64 / (1024.0 * 1024.0 * 1024.0);
         return Err(anyhow!(
             "Disk Space Guard Safeguard Triggered: Only {:.2} GB free space available in '{}', but minimum threshold is {} GB.",
-            free_gb, target_dir.display(), min_free_gb
+            free_gb,
+            target_dir.display(),
+            min_free_gb
         ));
     }
     Ok(free_bytes)
@@ -128,9 +129,16 @@ pub fn check_disk_space_guard_with_fallback(
         Ok(_) => Ok(primary_dir.to_path_buf()),
         Err(e) => {
             if let Some(fb) = fallback_dir {
-                println!("[Storage Guard Warning] Primary path '{}' low on space. Attempting fallback path: '{}'...", primary_dir.display(), fb.display());
+                println!(
+                    "[Storage Guard Warning] Primary path '{}' low on space. Attempting fallback path: '{}'...",
+                    primary_dir.display(),
+                    fb.display()
+                );
                 if check_disk_space_guard(fb, min_free_gb).is_ok() {
-                    println!("[Storage Guard] Switched output destination to fallback path: {}", fb.display());
+                    println!(
+                        "[Storage Guard] Switched output destination to fallback path: {}",
+                        fb.display()
+                    );
                     return Ok(fb.to_path_buf());
                 }
             }
@@ -142,9 +150,7 @@ pub fn check_disk_space_guard_with_fallback(
 /// Cleans raw optical DVD volume labels (e.g. "KILL_BILL_VOL1_D1" -> "Kill Bill Vol1 D1").
 #[allow(dead_code)]
 pub fn normalize_volume_label_title(label: &str) -> String {
-    let clean = label
-        .replace('_', " ")
-        .replace('.', " ");
+    let clean = label.replace(['_', '.'], " ");
     let mut words: Vec<String> = Vec::new();
     for w in clean.split_whitespace() {
         if w.to_uppercase() == "DVD" || w.to_uppercase() == "VIDEO" || w.to_uppercase() == "DISC" {
@@ -167,20 +173,21 @@ pub fn normalize_volume_label_title(label: &str) -> String {
 #[allow(dead_code)]
 pub fn normalize_volume_label_title_with_regex(label: &str, regex_pattern: Option<&str>) -> String {
     let mut working = label.to_string();
-    if let Some(pat) = regex_pattern {
-        if let Some((target, replacement)) = pat.split_once(':') {
-            working = working.replace(target, replacement);
-        }
+    if let Some(pat) = regex_pattern
+        && let Some((target, replacement)) = pat.split_once(':')
+    {
+        working = working.replace(target, replacement);
     }
     normalize_volume_label_title(&working)
 }
 
 /// Ensures that the parent directory for a target file path exists on disk.
 pub fn ensure_parent_dir(path: &Path) -> Result<()> {
-    if let Some(parent) = path.parent() {
-        if !parent.as_os_str().is_empty() && !parent.exists() {
-            std::fs::create_dir_all(parent)?;
-        }
+    if let Some(parent) = path.parent()
+        && !parent.as_os_str().is_empty()
+        && !parent.exists()
+    {
+        std::fs::create_dir_all(parent)?;
     }
     Ok(())
 }
@@ -201,6 +208,7 @@ pub fn get_app_file_path(filename: &str) -> PathBuf {
 /// Returns a sensible default directory for ripped media across operating systems.
 /// On Windows: %USERPROFILE%\Videos\DVD Rips (or %USERPROFILE%\DVD Rips)
 /// On Linux/macOS: $HOME/Videos/DVD Rips (or $HOME/Movies/DVD Rips)
+#[allow(dead_code)]
 pub fn get_default_rip_output_dir() -> PathBuf {
     let home = std::env::var("USERPROFILE")
         .or_else(|_| std::env::var("HOME"))
@@ -225,21 +233,15 @@ pub fn get_default_rip_output_dir() -> PathBuf {
 pub fn open_folder_in_explorer(path: &Path) {
     #[cfg(target_os = "windows")]
     {
-        let _ = std::process::Command::new("explorer")
-            .arg(path)
-            .spawn();
+        let _ = std::process::Command::new("explorer").arg(path).spawn();
     }
     #[cfg(target_os = "macos")]
     {
-        let _ = std::process::Command::new("open")
-            .arg(path)
-            .spawn();
+        let _ = std::process::Command::new("open").arg(path).spawn();
     }
     #[cfg(all(unix, not(target_os = "macos")))]
     {
-        let _ = std::process::Command::new("xdg-open")
-            .arg(path)
-            .spawn();
+        let _ = std::process::Command::new("xdg-open").arg(path).spawn();
     }
 }
 
@@ -267,9 +269,6 @@ pub fn save_json_file<T: serde::Serialize>(path: &Path, data: &T) -> Result<()> 
     atomic_write_file(path, json)?;
     Ok(())
 }
-
-
-
 
 /// Formats floating-point duration seconds into standardized HH:MM:SS format (e.g., 5432.0 -> "01:30:32").
 #[allow(dead_code)]
@@ -312,13 +311,11 @@ pub fn encode_url_query_value(raw: &str) -> String {
     raw.trim().replace(' ', "+")
 }
 
-
 /// Formats a log line with a timestamp and prefix tag (e.g. `"[2026-08-18 17:15:14] [Daemon] Message"`).
 #[allow(dead_code)]
 pub fn format_timestamped_log(prefix: &str, msg: &str) -> String {
     format!("[{}] [{}] {}", now_timestamp_str(), prefix, msg)
 }
-
 
 /// Escapes special characters and ASCII control characters in a string to make it safe for insertion into JSON string literals.
 pub fn escape_json_str(input: &str) -> String {
@@ -374,14 +371,19 @@ pub fn atomic_write_file(path: &std::path::Path, content: impl AsRef<[u8]>) -> s
 #[allow(dead_code)]
 pub fn is_safe_filename(name: &str) -> bool {
     let trimmed = name.trim();
-    if trimmed.is_empty() || trimmed.contains("..") || trimmed.contains('/') || trimmed.contains('\\') || trimmed.starts_with('.') {
+    if trimmed.is_empty()
+        || trimmed.contains("..")
+        || trimmed.contains('/')
+        || trimmed.contains('\\')
+        || trimmed.starts_with('.')
+    {
         return false;
     }
     let upper = trimmed.to_ascii_uppercase();
     let stem = upper.split('.').next().unwrap_or(&upper);
     let reserved = [
-        "CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",
-        "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
+        "CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8",
+        "COM9", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
     ];
     !reserved.contains(&stem)
 }
@@ -401,7 +403,11 @@ pub fn ensure_path_contained(base: &Path, target: &Path) -> Result<PathBuf> {
     };
 
     let target_str = full_target.to_string_lossy();
-    if target_str.contains("/..") || target_str.contains("\\..") || target_str.contains("../") || target_str.contains("..\\") {
+    if target_str.contains("/..")
+        || target_str.contains("\\..")
+        || target_str.contains("../")
+        || target_str.contains("..\\")
+    {
         return Err(anyhow!(
             "Path Traversal Safeguard Triggered: Target path '{}' attempts to escape base directory bounds.",
             full_target.display()
@@ -427,7 +433,7 @@ pub fn sanitize_filename(name: &str) -> String {
     let sanitized: String = name
         .chars()
         .map(|c| match c {
-            ':' => ' ', // Replace colons with spaces
+            ':' => ' ',                                            // Replace colons with spaces
             '\\' | '/' | '*' | '?' | '"' | '<' | '>' | '|' => '_', // Replace other invalid characters
             _ => c,
         })
@@ -463,11 +469,7 @@ pub fn extract_kv_field<'a>(line: &'a str, key: &str) -> Option<&'a str> {
     let sub = &line[idx + key.len()..];
     let trimmed = sub.trim_start();
     let val = trimmed.split_whitespace().next()?;
-    if val.is_empty() {
-        None
-    } else {
-        Some(val)
-    }
+    if val.is_empty() { None } else { Some(val) }
 }
 
 /// Structured metrics parsed from an FFmpeg stderr progress line.
@@ -518,20 +520,30 @@ pub fn format_episode_code(season: u32, episode: u32) -> String {
 pub trait NfoTemplateStrategy {
     fn root_element(&self) -> &str;
     fn format_title_tag(&self, title: &str) -> String {
-        format!("  <title>{}</title>", title.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;"))
+        format!(
+            "  <title>{}</title>",
+            title
+                .replace('&', "&amp;")
+                .replace('<', "&lt;")
+                .replace('>', "&gt;")
+        )
     }
 }
 
 #[derive(Debug, Default)]
 pub struct MovieNfoStrategy;
 impl NfoTemplateStrategy for MovieNfoStrategy {
-    fn root_element(&self) -> &str { "movie" }
+    fn root_element(&self) -> &str {
+        "movie"
+    }
 }
 
 #[derive(Debug, Default)]
 pub struct TvShowNfoStrategy;
 impl NfoTemplateStrategy for TvShowNfoStrategy {
-    fn root_element(&self) -> &str { "tvshow" }
+    fn root_element(&self) -> &str {
+        "tvshow"
+    }
 }
 
 /// Formats a TV episode name with optional episode title (e.g. `Show Name - S01E02 - Diversity Day`).
@@ -557,7 +569,6 @@ pub fn format_episode_name(show_name: &str, season: u32, ep_num: u32) -> String 
     format_episode_name_with_title(show_name, season, ep_num, None)
 }
 
-
 /// Open/Closed Principle (OCP/SOLID): Trait contract for sidecar artwork filename strategies.
 #[allow(dead_code)]
 pub trait ArtworkNamingStrategy {
@@ -567,18 +578,29 @@ pub trait ArtworkNamingStrategy {
 
 pub struct DefaultArtworkNamingStrategy;
 impl ArtworkNamingStrategy for DefaultArtworkNamingStrategy {
-    fn primary_filename(&self) -> &str { "cover.jpg" }
-    fn secondary_filename(&self) -> &str { "folder.jpg" }
+    fn primary_filename(&self) -> &str {
+        "cover.jpg"
+    }
+    fn secondary_filename(&self) -> &str {
+        "folder.jpg"
+    }
 }
 
 pub struct PlexArtworkNamingStrategy;
 impl ArtworkNamingStrategy for PlexArtworkNamingStrategy {
-    fn primary_filename(&self) -> &str { "poster.jpg" }
-    fn secondary_filename(&self) -> &str { "background.jpg" }
+    fn primary_filename(&self) -> &str {
+        "poster.jpg"
+    }
+    fn secondary_filename(&self) -> &str {
+        "background.jpg"
+    }
 }
 
 /// Saves poster artwork bytes to `cover.jpg` and `folder.jpg` in the parent directory of the ripped video file.
-pub fn save_cover_artworks(output_file: &std::path::Path, poster_bytes: &[u8]) -> anyhow::Result<()> {
+pub fn save_cover_artworks(
+    output_file: &std::path::Path,
+    poster_bytes: &[u8],
+) -> anyhow::Result<()> {
     if poster_bytes.is_empty() {
         return Ok(());
     }
@@ -608,21 +630,27 @@ pub fn run_post_processing_hook(
         return Ok(());
     }
 
-    println!("[Post-Script Hook] Invoking external script '{}'...", script_path);
+    println!(
+        "[Post-Script Hook] Invoking external script '{}'...",
+        script_path
+    );
 
     let year_str = year.map(|y| y.to_string()).unwrap_or_default();
     let mut cmd = std::process::Command::new(script_path);
     configure_silent_command(&mut cmd);
     cmd.env("DVD_OUTPUT_PATH", output_path.to_string_lossy().to_string())
-       .env("DVD_TITLE", title)
-       .env("DVD_MEDIA_TYPE", media_type)
-       .env("DVD_YEAR", year_str);
+        .env("DVD_TITLE", title)
+        .env("DVD_MEDIA_TYPE", media_type)
+        .env("DVD_YEAR", year_str);
 
     let status = cmd.status()?;
     if status.success() {
         println!("[Post-Script Hook] Script completed successfully.");
     } else {
-        println!("[Post-Script Hook] Script exited with code: {:?}", status.code());
+        println!(
+            "[Post-Script Hook] Script exited with code: {:?}",
+            status.code()
+        );
     }
 
     Ok(())
@@ -663,25 +691,43 @@ pub trait MediaServerUrlStrategy {
 
 pub struct PlexUrlStrategy;
 impl MediaServerUrlStrategy for PlexUrlStrategy {
-    fn name(&self) -> &str { "plex" }
+    fn name(&self) -> &str {
+        "plex"
+    }
     fn format_url(&self, base_url: &str, key: &str) -> String {
-        format!("{}/library/sections/all/refresh?X-Plex-Token={}", base_url.trim_end_matches('/'), key)
+        format!(
+            "{}/library/sections/all/refresh?X-Plex-Token={}",
+            base_url.trim_end_matches('/'),
+            key
+        )
     }
 }
 
 pub struct JellyfinUrlStrategy;
 impl MediaServerUrlStrategy for JellyfinUrlStrategy {
-    fn name(&self) -> &str { "jellyfin" }
+    fn name(&self) -> &str {
+        "jellyfin"
+    }
     fn format_url(&self, base_url: &str, key: &str) -> String {
-        format!("{}/Items/Root/Refresh?api_key={}", base_url.trim_end_matches('/'), key)
+        format!(
+            "{}/Items/Root/Refresh?api_key={}",
+            base_url.trim_end_matches('/'),
+            key
+        )
     }
 }
 
 pub struct EmbyUrlStrategy;
 impl MediaServerUrlStrategy for EmbyUrlStrategy {
-    fn name(&self) -> &str { "emby" }
+    fn name(&self) -> &str {
+        "emby"
+    }
     fn format_url(&self, base_url: &str, key: &str) -> String {
-        format!("{}/Library/Refresh?api_key={}", base_url.trim_end_matches('/'), key)
+        format!(
+            "{}/Library/Refresh?api_key={}",
+            base_url.trim_end_matches('/'),
+            key
+        )
     }
 }
 
@@ -698,7 +744,11 @@ pub fn format_media_server_refresh_url(server_type: &str, base_url: &str, key: &
             return strategy.format_url(base_url, key);
         }
     }
-    format!("{}/Library/Refresh?api_key={}", base_url.trim_end_matches('/'), key)
+    format!(
+        "{}/Library/Refresh?api_key={}",
+        base_url.trim_end_matches('/'),
+        key
+    )
 }
 
 pub fn build_plex_refresh_url(base_url: &str, token: &str) -> String {
@@ -728,7 +778,6 @@ pub trait NotificationProvider {
     fn send_notification(&self, event: &NotificationEvent) -> anyhow::Result<()>;
 }
 
-
 /// Concrete webhook notification provider implementation.
 pub struct WebhookNotificationProvider {
     pub webhook_url: String,
@@ -741,13 +790,26 @@ impl NotificationProvider for WebhookNotificationProvider {
     }
 
     fn send_notification(&self, event: &NotificationEvent) -> anyhow::Result<()> {
-        crate::mqtt::send_webhook_notification(&self.webhook_url, &event.title, &event.status, &event.message, self.webhook_secret.as_deref())
+        crate::mqtt::send_webhook_notification(
+            &self.webhook_url,
+            &event.title,
+            &event.status,
+            &event.message,
+            self.webhook_secret.as_deref(),
+        )
     }
 }
 
 /// Sends an HTTP POST request to trigger media server library scans with a 3-attempt exponential backoff retry loop.
-fn send_media_server_refresh_post(server_name: &str, base_url: &str, endpoint: &str) -> anyhow::Result<()> {
-    println!("[Media Server] Requesting {} library refresh: {}", server_name, base_url);
+fn send_media_server_refresh_post(
+    server_name: &str,
+    base_url: &str,
+    endpoint: &str,
+) -> anyhow::Result<()> {
+    println!(
+        "[Media Server] Requesting {} library refresh: {}",
+        server_name, base_url
+    );
     let client = get_http_client();
     let mut success = false;
 
@@ -760,9 +822,15 @@ fn send_media_server_refresh_post(server_name: &str, base_url: &str, endpoint: &
     }
 
     if success {
-        println!("[Media Server] Successfully triggered {} scan.", server_name);
+        println!(
+            "[Media Server] Successfully triggered {} scan.",
+            server_name
+        );
     } else {
-        println!("[Media Server Warning] Could not reach {} at {}", server_name, base_url);
+        println!(
+            "[Media Server Warning] Could not reach {} at {}",
+            server_name, base_url
+        );
     }
     Ok(())
 }
@@ -781,7 +849,6 @@ pub fn trigger_emby_library_scan(url: &str, api_key: &str) -> anyhow::Result<()>
     let endpoint = build_emby_refresh_url(url, api_key);
     send_media_server_refresh_post("Emby", url, &endpoint)
 }
-
 
 pub fn trigger_media_server_scans(args: &crate::cli::Args) {
     if let (Some(url), Some(token)) = (args.plex_url.as_deref(), args.plex_token.as_deref()) {
@@ -816,11 +883,17 @@ pub fn resolve_artwork_path(target_dir: &Path, filename: &str) -> PathBuf {
 
 /// Resolves sidecar `.nfo` metadata file path from video output path.
 pub fn resolve_nfo_path(video_path: &std::path::Path) -> std::path::PathBuf {
-    let parent = video_path.parent().unwrap_or_else(|| std::path::Path::new("."));
-    let stem = video_path.file_stem().and_then(|s| s.to_str()).unwrap_or("media");
+    let parent = video_path
+        .parent()
+        .unwrap_or_else(|| std::path::Path::new("."));
+    let stem = video_path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("media");
     parent.join(format!("{}.nfo", stem))
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn generate_nfo_file(
     output_file: &std::path::Path,
     title: &str,
@@ -835,11 +908,23 @@ pub fn generate_nfo_file(
         std::fs::create_dir_all(parent)?;
         let nfo_path = resolve_nfo_path(output_file);
 
-        let tag = if media_type.to_lowercase().contains("tv") { "tvshow" } else { "movie" };
-        let year_str = year.map(|y| format!("  <year>{}</year>\n", y)).unwrap_or_default();
-        let plot_str = plot.map(|p| format!("  <plot>{}</plot>\n", quick_xml_escape(p))).unwrap_or_default();
-        let rating_str = rating.map(|r| format!("  <rating>{}</rating>\n", quick_xml_escape(r))).unwrap_or_default();
-        let director_str = director.map(|d| format!("  <director>{}</director>\n", quick_xml_escape(d))).unwrap_or_default();
+        let tag = if media_type.to_lowercase().contains("tv") {
+            "tvshow"
+        } else {
+            "movie"
+        };
+        let year_str = year
+            .map(|y| format!("  <year>{}</year>\n", y))
+            .unwrap_or_default();
+        let plot_str = plot
+            .map(|p| format!("  <plot>{}</plot>\n", quick_xml_escape(p)))
+            .unwrap_or_default();
+        let rating_str = rating
+            .map(|r| format!("  <rating>{}</rating>\n", quick_xml_escape(r)))
+            .unwrap_or_default();
+        let director_str = director
+            .map(|d| format!("  <director>{}</director>\n", quick_xml_escape(d)))
+            .unwrap_or_default();
 
         let tags_str = if let Some(tags_csv) = tags {
             let mut buf = String::new();
@@ -870,20 +955,27 @@ pub fn generate_nfo_file(
         );
 
         std::fs::write(&nfo_path, content)?;
-        println!("[NFO Metadata] Generated sidecar XML: {}", nfo_path.display());
+        println!(
+            "[NFO Metadata] Generated sidecar XML: {}",
+            nfo_path.display()
+        );
     }
     Ok(())
 }
 
 /// Appends a structured JSON-Lines audit log entry to the specified audit file path.
-pub fn append_audit_log_entry(audit_path: &Path, event_type: &str, details: &serde_json::Value) -> Result<()> {
+pub fn append_audit_log_entry(
+    audit_path: &Path,
+    event_type: &str,
+    details: &serde_json::Value,
+) -> Result<()> {
     use std::io::Write;
     let obj = serde_json::json!({
         "timestamp": now_timestamp_str(),
         "event_type": event_type,
         "details": details
     });
-    let line = format!("{}\n", obj.to_string());
+    let line = format!("{}\n", obj);
     if let Some(parent) = audit_path.parent() {
         std::fs::create_dir_all(parent)?;
     }
@@ -904,7 +996,9 @@ pub fn generate_checksum_file(video_path: &Path) -> Result<PathBuf> {
     let mut total_bytes = 0u64;
     loop {
         let n = file.read(&mut buffer)?;
-        if n == 0 { break; }
+        if n == 0 {
+            break;
+        }
         total_bytes += n as u64;
         for &b in &buffer[..n] {
             hasher ^= b as u64;
@@ -912,21 +1006,31 @@ pub fn generate_checksum_file(video_path: &Path) -> Result<PathBuf> {
         }
     }
     let hex_str = format!("{:016x}", hasher);
-    let ext = video_path.extension().and_then(|s| s.to_str()).unwrap_or("file");
+    let ext = video_path
+        .extension()
+        .and_then(|s| s.to_str())
+        .unwrap_or("file");
     let checksum_path = video_path.with_extension(format!("{}.sha256", ext));
-    let filename = video_path.file_name().and_then(|s| s.to_str()).unwrap_or("file");
+    let filename = video_path
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or("file");
     let content = format!("{}  {} ({} bytes)\n", hex_str, filename, total_bytes);
     std::fs::write(&checksum_path, content)?;
-    println!("[Checksum] Generated integrity checksum sidecar file: {}", checksum_path.display());
+    println!(
+        "[Checksum] Generated integrity checksum sidecar file: {}",
+        checksum_path.display()
+    );
     Ok(checksum_path)
 }
 
 fn quick_xml_escape(input: &str) -> String {
-    input.replace('&', "&amp;")
-         .replace('<', "&lt;")
-         .replace('>', "&gt;")
-         .replace('"', "&quot;")
-         .replace('\'', "&apos;")
+    input
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&apos;")
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -938,7 +1042,7 @@ pub struct ParsedLabelInfo {
 
 /// Parses volume labels (e.g. FAMILY_GUY_S9_D1 or DOCTOR_WHO_S1_D3) to extract clean show title, season #, and disc #.
 pub fn parse_season_disc_from_label(label: &str) -> ParsedLabelInfo {
-    let lower = label.to_lowercase().replace('_', " ").replace('-', " ");
+    let lower = label.to_lowercase().replace(['_', '-'], " ");
     let words: Vec<&str> = lower.split_whitespace().collect();
     let mut season = None;
     let mut disc = None;
@@ -949,73 +1053,91 @@ pub fn parse_season_disc_from_label(label: &str) -> ParsedLabelInfo {
         let word = words[i];
 
         // 1. Combined s2d2 / s02d01 pattern
-        if season.is_none() || disc.is_none() {
-            if word.starts_with('s') && word.contains('d') {
-                let parts: Vec<&str> = word[1..].split('d').collect();
-                if parts.len() == 2 {
-                    if let (Ok(s), Ok(d)) = (parts[0].parse::<u32>(), parts[1].parse::<u32>()) {
-                        if season.is_none() {
-                            season = Some(s);
-                        }
-                        if disc.is_none() {
-                            disc = Some(d);
-                        }
-                        i += 1;
-                        continue;
-                    }
+        if (season.is_none() || disc.is_none()) && word.starts_with('s') && word.contains('d') {
+            let parts: Vec<&str> = word[1..].split('d').collect();
+            if parts.len() == 2
+                && let (Ok(s), Ok(d)) = (parts[0].parse::<u32>(), parts[1].parse::<u32>())
+            {
+                if season.is_none() {
+                    season = Some(s);
                 }
+                if disc.is_none() {
+                    disc = Some(d);
+                }
+                i += 1;
+                continue;
             }
         }
 
         // 2. Season patterns: "s2", "s02", "season2", "series2", "season 2", "series 2"
         if season.is_none() {
-            if word.starts_with('s') && word.len() >= 2 && word[1..].chars().all(|c| c.is_ascii_digit()) {
+            if word.starts_with('s')
+                && word.len() >= 2
+                && word[1..].chars().all(|c| c.is_ascii_digit())
+            {
                 if let Ok(s) = word[1..].parse::<u32>() {
                     season = Some(s);
                     i += 1;
                     continue;
                 }
-            } else if (word.starts_with("season") && word.len() > 6 && word[6..].chars().all(|c| c.is_ascii_digit()))
-                || (word.starts_with("series") && word.len() > 6 && word[6..].chars().all(|c| c.is_ascii_digit()))
+            } else if (word.starts_with("season")
+                && word.len() > 6
+                && word[6..].chars().all(|c| c.is_ascii_digit()))
+                || (word.starts_with("series")
+                    && word.len() > 6
+                    && word[6..].chars().all(|c| c.is_ascii_digit()))
             {
-                let digits = if word.starts_with("season") { &word[6..] } else { &word[6..] };
+                let digits = &word[6..];
                 if let Ok(s) = digits.parse::<u32>() {
                     season = Some(s);
                     i += 1;
                     continue;
                 }
-            } else if (word == "season" || word == "series" || word == "s") && i + 1 < words.len() {
-                if let Ok(s) = words[i + 1].parse::<u32>() {
-                    season = Some(s);
-                    i += 2;
-                    continue;
-                }
+            } else if (word == "season" || word == "series" || word == "s")
+                && i + 1 < words.len()
+                && let Ok(s) = words[i + 1].parse::<u32>()
+            {
+                season = Some(s);
+                i += 2;
+                continue;
             }
         }
 
         // 3. Disc patterns: "d1", "d01", "disc1", "vol1", "disc 2"
         if disc.is_none() {
-            if word.starts_with('d') && word.len() >= 2 && word[1..].chars().all(|c| c.is_ascii_digit()) {
+            if word.starts_with('d')
+                && word.len() >= 2
+                && word[1..].chars().all(|c| c.is_ascii_digit())
+            {
                 if let Ok(d) = word[1..].parse::<u32>() {
                     disc = Some(d);
                     i += 1;
                     continue;
                 }
-            } else if (word.starts_with("disc") && word.len() > 4 && word[4..].chars().all(|c| c.is_ascii_digit()))
-                || (word.starts_with("vol") && word.len() > 3 && word[3..].chars().all(|c| c.is_ascii_digit()))
+            } else if (word.starts_with("disc")
+                && word.len() > 4
+                && word[4..].chars().all(|c| c.is_ascii_digit()))
+                || (word.starts_with("vol")
+                    && word.len() > 3
+                    && word[3..].chars().all(|c| c.is_ascii_digit()))
             {
-                let digits = if word.starts_with("disc") { &word[4..] } else { &word[3..] };
+                let digits = if let Some(stripped) = word.strip_prefix("disc") {
+                    stripped
+                } else {
+                    &word[3..]
+                };
                 if let Ok(d) = digits.parse::<u32>() {
                     disc = Some(d);
                     i += 1;
                     continue;
                 }
-            } else if (word == "disc" || word == "vol" || word == "d") && i + 1 < words.len() {
-                if let Ok(d) = words[i + 1].parse::<u32>() {
-                    disc = Some(d);
-                    i += 2;
-                    continue;
-                }
+            } else if (word == "disc" || word == "vol" || word == "d")
+                && i + 1 < words.len()
+                && let Ok(d) = words[i + 1].parse::<u32>()
+            {
+                disc = Some(d);
+                i += 2;
+                continue;
             }
         }
 
@@ -1040,14 +1162,26 @@ mod tests {
     fn test_sanitize_filename() {
         assert_eq!(sanitize_filename("Thor: Ragnarok"), "Thor Ragnarok");
         assert_eq!(sanitize_filename("Movie/Name?*"), "Movie_Name__");
-        assert_eq!(sanitize_filename("  Multiple   Spaces  "), "Multiple Spaces");
+        assert_eq!(
+            sanitize_filename("  Multiple   Spaces  "),
+            "Multiple Spaces"
+        );
     }
 
     #[test]
     fn test_format_media_server_refresh_url() {
-        assert_eq!(format_media_server_refresh_url("plex", "http://localhost:32400/", "tok"), "http://localhost:32400/library/sections/all/refresh?X-Plex-Token=tok");
-        assert_eq!(format_media_server_refresh_url("jellyfin", "http://localhost:8096/", "key"), "http://localhost:8096/Items/Root/Refresh?api_key=key");
-        assert_eq!(format_media_server_refresh_url("emby", "http://localhost:8096/", "key"), "http://localhost:8096/Library/Refresh?api_key=key");
+        assert_eq!(
+            format_media_server_refresh_url("plex", "http://localhost:32400/", "tok"),
+            "http://localhost:32400/library/sections/all/refresh?X-Plex-Token=tok"
+        );
+        assert_eq!(
+            format_media_server_refresh_url("jellyfin", "http://localhost:8096/", "key"),
+            "http://localhost:8096/Items/Root/Refresh?api_key=key"
+        );
+        assert_eq!(
+            format_media_server_refresh_url("emby", "http://localhost:8096/", "key"),
+            "http://localhost:8096/Library/Refresh?api_key=key"
+        );
     }
 
     #[test]
@@ -1077,10 +1211,19 @@ mod tests {
 
     #[test]
     fn test_formatting_helpers() {
-        assert_eq!(format_title_folder_name("Aliens", Some(1986)), "Aliens (1986)");
-        assert_eq!(format_title_folder_name("Kill Bill: Vol. 1", Some(2003)), "Kill Bill Vol. 1 (2003)");
+        assert_eq!(
+            format_title_folder_name("Aliens", Some(1986)),
+            "Aliens (1986)"
+        );
+        assert_eq!(
+            format_title_folder_name("Kill Bill: Vol. 1", Some(2003)),
+            "Kill Bill Vol. 1 (2003)"
+        );
         assert_eq!(format_title_folder_name("The Office", None), "The Office");
-        assert_eq!(format_episode_name("Doctor Who", 1, 3), "Doctor Who - S01E03");
+        assert_eq!(
+            format_episode_name("Doctor Who", 1, 3),
+            "Doctor Who - S01E03"
+        );
     }
 
     #[test]
@@ -1109,8 +1252,14 @@ mod tests {
 
     #[test]
     fn test_url_query_escape() {
-        assert_eq!(super::url_query_escape("Kill Bill: Vol. 1"), "Kill+Bill%3A+Vol.+1");
-        assert_eq!(super::url_query_escape("Dr. Who & Friends"), "Dr.+Who+%26+Friends");
+        assert_eq!(
+            super::url_query_escape("Kill Bill: Vol. 1"),
+            "Kill+Bill%3A+Vol.+1"
+        );
+        assert_eq!(
+            super::url_query_escape("Dr. Who & Friends"),
+            "Dr.+Who+%26+Friends"
+        );
     }
 
     #[test]
@@ -1136,7 +1285,10 @@ mod tests {
     #[test]
     fn test_resolve_artwork_path() {
         let dir = Path::new("Films/Aliens (1986)");
-        assert_eq!(resolve_artwork_path(dir, "poster.jpg"), Path::new("Films/Aliens (1986)/poster.jpg"));
+        assert_eq!(
+            resolve_artwork_path(dir, "poster.jpg"),
+            Path::new("Films/Aliens (1986)/poster.jpg")
+        );
     }
 
     #[test]
@@ -1154,8 +1306,14 @@ mod tests {
 
     #[test]
     fn test_normalize_volume_label_title() {
-        assert_eq!(normalize_volume_label_title("KILL_BILL_VOL1_DVD"), "Kill Bill Vol1");
-        assert_eq!(normalize_volume_label_title("ALIENS.1986.VIDEO"), "Aliens 1986");
+        assert_eq!(
+            normalize_volume_label_title("KILL_BILL_VOL1_DVD"),
+            "Kill Bill Vol1"
+        );
+        assert_eq!(
+            normalize_volume_label_title("ALIENS.1986.VIDEO"),
+            "Aliens 1986"
+        );
     }
 
     #[test]
@@ -1173,7 +1331,13 @@ mod tests {
 
     #[test]
     fn test_run_post_processing_hook_empty() {
-        let res = run_post_processing_hook("", std::path::Path::new("dummy.mp4"), "Title", "Movie", Some(2026));
+        let res = run_post_processing_hook(
+            "",
+            std::path::Path::new("dummy.mp4"),
+            "Title",
+            "Movie",
+            Some(2026),
+        );
         assert!(res.is_ok());
     }
 
@@ -1199,13 +1363,22 @@ mod tests {
     #[test]
     fn test_media_server_url_builders() {
         let plex = build_plex_refresh_url("http://192.168.1.100:32400/", "token123");
-        assert_eq!(plex, "http://192.168.1.100:32400/library/sections/all/refresh?X-Plex-Token=token123");
+        assert_eq!(
+            plex,
+            "http://192.168.1.100:32400/library/sections/all/refresh?X-Plex-Token=token123"
+        );
 
         let jellyfin = build_jellyfin_refresh_url("http://192.168.1.100:8096/", "key456");
-        assert_eq!(jellyfin, "http://192.168.1.100:8096/Items/Root/Refresh?api_key=key456");
+        assert_eq!(
+            jellyfin,
+            "http://192.168.1.100:8096/Items/Root/Refresh?api_key=key456"
+        );
 
         let emby = build_emby_refresh_url("http://192.168.1.100:8096", "key789");
-        assert_eq!(emby, "http://192.168.1.100:8096/Library/Refresh?api_key=key789");
+        assert_eq!(
+            emby,
+            "http://192.168.1.100:8096/Library/Refresh?api_key=key789"
+        );
     }
 
     #[test]
@@ -1256,7 +1429,10 @@ mod tests {
 
     #[test]
     fn test_escape_json_str() {
-        assert_eq!(escape_json_str("Hello \"World\"\nTest"), "Hello \\\"World\\\"\\nTest");
+        assert_eq!(
+            escape_json_str("Hello \"World\"\nTest"),
+            "Hello \\\"World\\\"\\nTest"
+        );
     }
 
     #[test]

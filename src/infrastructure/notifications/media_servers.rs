@@ -1,5 +1,5 @@
-use anyhow::Result;
 use crate::domain::ports::notification::{NotificationEvent, Notifier};
+use anyhow::Result;
 
 /// Triggers library refresh scans for Plex, Jellyfin, and Emby upon rip success.
 #[derive(Debug, Clone, Default)]

@@ -1,14 +1,14 @@
+use anyhow::{Result, anyhow};
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use anyhow::{anyhow, Result};
+use std::sync::atomic::{AtomicBool, Ordering};
 
+use super::rip_single_title::{RipSingleTitleRequest, RipSingleTitleUseCase};
 use crate::domain::entities::disc::TvEpisodeInfo;
 use crate::domain::entities::media::FilmMetadata;
 use crate::domain::ports::notification::{NotificationEvent, Notifier};
 use crate::domain::ports::storage::{DiskSpaceGuard, HistoryRepository};
 use crate::domain::ports::transcoder::{ProgressObserver, Transcoder};
-use super::rip_single_title::{RipSingleTitleRequest, RipSingleTitleUseCase};
 
 /// Request parameter object for executing a batch TV season ripping operation.
 #[derive(Debug, Clone)]
@@ -56,13 +56,13 @@ impl RipTvBatchUseCase {
         let mut completed_count = 0;
 
         for ep in &request.episodes {
-            if let Some(ref flag) = cancel_flag {
-                if flag.load(Ordering::SeqCst) {
-                    let _ = self.notifier.send(&NotificationEvent::RipCancelled {
-                        title: &request.series_title,
-                    });
-                    return Err(anyhow!("TV Batch ripping cancelled by user."));
-                }
+            if let Some(ref flag) = cancel_flag
+                && flag.load(Ordering::SeqCst)
+            {
+                let _ = self.notifier.send(&NotificationEvent::RipCancelled {
+                    title: &request.series_title,
+                });
+                return Err(anyhow!("TV Batch ripping cancelled by user."));
             }
 
             let ep_filename = format!(
@@ -84,7 +84,8 @@ impl RipTvBatchUseCase {
                 min_free_gb: request.min_free_gb,
             };
 
-            self.single_title_use_case.execute(&single_req, observer, cancel_flag.clone())?;
+            self.single_title_use_case
+                .execute(&single_req, observer, cancel_flag.clone())?;
             completed_count += 1;
         }
 
