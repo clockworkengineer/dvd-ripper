@@ -1,0 +1,18 @@
+services:
+  dvd-ripper:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: dvd-ripper:latest
+    container_name: dvd-ripper
+    restart: unless-stopped
+    devices:
+      # Pass through optical disc drive
+      - /dev/sr0:/dev/sr0
+    volumes:
+      # Output storage directory for completed MKV/MP4/ISO rips
+      - ./output:/output
+      # Configuration directory (e.g. dvd-ripper.toml)
+      - ./config:/config
+    environment:
+      - RUST_LOG=info

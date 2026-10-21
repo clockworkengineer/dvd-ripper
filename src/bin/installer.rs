@@ -144,7 +144,7 @@ fn main() -> Result<()> {
 
     // 5. Configure PATH Environment
     println!("\n[2/5] Configuring System PATH...");
-    configure_path(&target_dir)?;
+    configure_path(&target_dir, args.system)?;
 
     // 6. Register Start Menu and Desktop Shortcuts
     println!("\n[3/5] Registering Application Shortcuts...");
@@ -259,21 +259,23 @@ fn resolve_target_dir(args: &InstallerArgs) -> Result<PathBuf> {
 }
 
 /// Adds installation directory to user/system PATH.
-fn configure_path(target_dir: &Path) -> Result<()> {
+fn configure_path(target_dir: &Path, system: bool) -> Result<()> {
     let target_str = target_dir.to_string_lossy().to_string();
 
     #[cfg(windows)]
     {
-        println!("      [+] Updating Windows User Registry PATH...");
+        let scope = if system { "Machine" } else { "User" };
+        println!("      [+] Updating Windows {} Registry PATH...", scope);
         let safe_target = target_str.replace('\\', "\\\\").replace('\'', "''");
         let ps_cmd = format!(
-            "$oldPath = [Environment]::GetEnvironmentVariable('Path', 'User'); \
-             if (-not $oldPath.Split(';').Contains('{}')) {{ \
-                 $newPath = \"$oldPath;{}\"; \
-                 [Environment]::SetEnvironmentVariable('Path', $newPath, 'User'); \
+            "$oldPath = [Environment]::GetEnvironmentVariable('Path', '{scope}'); \
+             if (-not $oldPath.Split(';').Contains('{target}')) {{ \
+                 $newPath = \"$oldPath;{target}\"; \
+                 [Environment]::SetEnvironmentVariable('Path', $newPath, '{scope}'); \
                  Write-Host 'PATH updated successfully.'; \
              }} else {{ Write-Host 'Directory already present in PATH.'; }}",
-            safe_target, safe_target
+            scope = scope,
+            target = safe_target
         );
         let output = Command::new("powershell")
             .args(["-NoProfile", "-Command", &ps_cmd])
@@ -562,5 +564,22 @@ mod tests {
         };
         let dir = resolve_target_dir(&args).unwrap();
         assert_eq!(dir, custom);
+    }
+
+    #[test]
+    fn test_resolve_target_dir_system() {
+        let args = InstallerArgs {
+            system: true,
+            user: false,
+            dir: None,
+            uninstall: false,
+            service: false,
+            yes: true,
+        };
+        let dir = resolve_target_dir(&args).unwrap();
+        assert!(
+            dir.to_string_lossy().contains("Program Files")
+                || dir.to_string_lossy().contains("/usr/local/bin")
+        );
     }
 }
