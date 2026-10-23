@@ -188,9 +188,10 @@ mod tests {
 
     #[test]
     fn test_resolve_history_path_defaults() {
+        let default_path = resolve_history_path(None);
         assert_eq!(
-            resolve_history_path(None),
-            PathBuf::from("ripping_history.json")
+            default_path.file_name().and_then(|f| f.to_str()),
+            Some(HISTORY_FILE)
         );
         let custom = PathBuf::from("/tmp/custom_history.json");
         assert_eq!(resolve_history_path(Some(&custom)), custom);

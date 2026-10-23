@@ -259,12 +259,12 @@ fn resolve_target_dir(args: &InstallerArgs) -> Result<PathBuf> {
 }
 
 /// Adds installation directory to user/system PATH.
-fn configure_path(target_dir: &Path, system: bool) -> Result<()> {
+fn configure_path(target_dir: &Path, _system: bool) -> Result<()> {
     let target_str = target_dir.to_string_lossy().to_string();
 
     #[cfg(windows)]
     {
-        let scope = if system { "Machine" } else { "User" };
+        let scope = if _system { "Machine" } else { "User" };
         println!("      [+] Updating Windows {} Registry PATH...", scope);
         let safe_target = target_str.replace('\\', "\\\\").replace('\'', "''");
         let ps_cmd = format!(
