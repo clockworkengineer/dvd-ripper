@@ -99,6 +99,49 @@ pub fn configure_silent_command(cmd: &mut std::process::Command) -> &mut std::pr
     cmd
 }
 
+/// Checks whether an executable command exists in the system PATH.
+#[allow(dead_code)]
+pub fn command_exists(cmd: &str) -> bool {
+    if let Ok(path_var) = std::env::var("PATH") {
+        for path in std::env::split_paths(&path_var) {
+            let candidate = path.join(cmd);
+            if candidate.is_file() {
+                return true;
+            }
+            #[cfg(windows)]
+            {
+                if let Ok(pathext) = std::env::var("PATHEXT") {
+                    for ext in pathext.split(';') {
+                        let candidate_ext = path.join(format!("{}{}", cmd, ext));
+                        if candidate_ext.is_file() {
+                            return true;
+                        }
+                    }
+                } else if path.join(format!("{}.exe", cmd)).is_file() {
+                    return true;
+                }
+            }
+        }
+    }
+
+    #[cfg(windows)]
+    {
+        std::process::Command::new("where")
+            .arg(cmd)
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false)
+    }
+    #[cfg(not(windows))]
+    {
+        std::process::Command::new("which")
+            .arg(cmd)
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false)
+    }
+}
+
 /// Verifies that available free disk space on target_dir exceeds min_free_gb threshold.
 pub fn check_disk_space_guard(target_dir: &Path, min_free_gb: u64) -> Result<u64> {
     if min_free_gb == 0 {
@@ -1459,5 +1502,11 @@ mod tests {
             format_episode_name_with_title("The Office", 1, 1, Some("  ")),
             "The Office - S01E01"
         );
+    }
+
+    #[test]
+    fn test_command_exists() {
+        assert!(command_exists("cargo"));
+        assert!(!command_exists("nonexistent_binary_xyz_12345"));
     }
 }
