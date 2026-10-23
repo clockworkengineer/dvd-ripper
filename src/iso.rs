@@ -225,7 +225,7 @@ pub fn dump_directory_to_iso(
         let len = std::fs::metadata(output_iso_path)
             .map(|m| m.len())
             .unwrap_or(0);
-        return Ok(len);
+        Ok(len)
     }
 }
 

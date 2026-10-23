@@ -303,13 +303,12 @@ fn configure_path(target_dir: &Path, _system: bool) -> Result<()> {
                 let rc_path = PathBuf::from(&home).join(rc);
                 if rc_path.exists() {
                     let export_line = format!("\nexport PATH=\"{}:$PATH\"\n", target_str);
-                    if let Ok(content) = fs::read_to_string(&rc_path) {
-                        if !content.contains(&target_str) {
-                            if let Ok(mut f) = fs::OpenOptions::new().append(true).open(&rc_path) {
-                                let _ = f.write_all(export_line.as_bytes());
-                                println!("      [+] Added export PATH entry to ~/{}.", rc);
-                            }
-                        }
+                    if let Ok(content) = fs::read_to_string(&rc_path)
+                        && !content.contains(&target_str)
+                        && let Ok(mut f) = fs::OpenOptions::new().append(true).open(&rc_path)
+                    {
+                        let _ = f.write_all(export_line.as_bytes());
+                        println!("      [+] Added export PATH entry to ~/{}.", rc);
                     }
                 }
             }

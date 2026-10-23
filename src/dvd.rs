@@ -254,10 +254,10 @@ pub fn get_volume_label(root_path: &str) -> Option<String> {
 
     let dev_path = resolve_device_path(root_path);
 
-    if dev_path.to_lowercase().ends_with(".iso") || dev_path.to_lowercase().ends_with(".img") {
-        if let Some(stem) = std::path::Path::new(&dev_path).file_stem() {
-            return Some(clean_volume_label(&stem.to_string_lossy()));
-        }
+    if (dev_path.to_lowercase().ends_with(".iso") || dev_path.to_lowercase().ends_with(".img"))
+        && let Some(stem) = std::path::Path::new(&dev_path).file_stem()
+    {
+        return Some(clean_volume_label(&stem.to_string_lossy()));
     }
 
     if let Ok(mut file) = File::open(&dev_path) {
@@ -279,10 +279,10 @@ pub fn get_volume_label(root_path: &str) -> Option<String> {
     }
 
     let path = std::path::Path::new(&dev_path);
-    if path.exists() {
-        if let Some(stem) = path.file_stem() {
-            return Some(stem.to_string_lossy().to_string());
-        }
+    if path.exists()
+        && let Some(stem) = path.file_stem()
+    {
+        return Some(stem.to_string_lossy().to_string());
     }
 
     None
@@ -376,7 +376,7 @@ pub fn eject_disc(root_path: &str) -> bool {
         Command::new("eject")
             .arg(&dev_path)
             .status()
-            .map_or(false, |s| s.success())
+            .is_ok_and(|s| s.success())
     }
 }
 
@@ -396,7 +396,7 @@ pub fn spindown_drive(root_path: &str) -> bool {
             .arg("1")
             .arg(&dev_path)
             .status()
-            .map_or(false, |s| s.success())
+            .is_ok_and(|s| s.success())
     }
 }
 
@@ -434,7 +434,7 @@ pub fn close_disc_tray(root_path: &str) -> bool {
             .arg("-t")
             .arg(&dev_path)
             .status()
-            .map_or(false, |s| s.success())
+            .is_ok_and(|s| s.success())
     }
 }
 
