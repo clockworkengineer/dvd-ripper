@@ -231,14 +231,8 @@ pub fn resolve_tv_output_path(
     resolve_tv_output_path_with_title(args, show_name, show_year, season, episode_num, None)
 }
 
-/// Structure representing a detected TV episode title on a DVD disc.
-#[derive(Debug, Clone)]
-pub struct TvEpisodeInfo {
-    pub title_num: u32,
-    pub episode_num: u32,
-    pub duration_secs: f64,
-    pub formatted_name: String,
-}
+/// Structure representing a detected TV episode title on a DVD disc (re-exported from domain).
+pub use crate::domain::entities::disc::TvEpisodeInfo;
 
 /// Structure representing basic probed information for a DVD title track (re-exported from domain).
 pub use crate::domain::entities::disc::DvdTitleInfo;
@@ -921,41 +915,13 @@ pub fn detect_tv_episodes(
     cancel_flag: Option<&std::sync::atomic::AtomicBool>,
 ) -> Vec<TvEpisodeInfo> {
     let all_titles = probe_dvd_titles(ffmpeg_path, dvd_path, cancel_flag);
-    let title_durations: Vec<(u32, f64)> = all_titles
-        .into_iter()
-        .filter(|t| t.duration_secs >= 600.0) // Only consider titles >= 10 minutes (600 seconds)
-        .map(|t| (t.title_num, t.duration_secs))
-        .collect();
-
-    if title_durations.is_empty() {
-        return Vec::new();
-    }
-
-    // Filter out "Play All" composite titles if multiple single episode titles exist
-    let mut durations_only: Vec<f64> = title_durations.iter().map(|(_, d)| *d).collect();
-    durations_only.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-    let median_duration = durations_only[durations_only.len() / 2];
-
-    let total_titles = title_durations.len();
-    let mut episodes = Vec::new();
-    let mut current_ep = start_ep;
-
-    for (title_num, secs) in title_durations {
-        if total_titles > 1 && secs > median_duration * 1.6 {
-            continue;
-        }
-
-        let formatted_name = format!("{} - S{:02}E{:02}", show_name, season, current_ep);
-        episodes.push(TvEpisodeInfo {
-            title_num,
-            episode_num: current_ep,
-            duration_secs: secs,
-            formatted_name,
-        });
-        current_ep += 1;
-    }
-
-    episodes
+    crate::domain::heuristics::detect_tv_episodes_from_titles(
+        &all_titles,
+        show_name,
+        season,
+        start_ep,
+        None,
+    )
 }
 
 /// Probes the DVD drive to find the title number and probed duration best matching expected_runtime_secs, or with the longest duration (re-exported from domain).

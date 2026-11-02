@@ -1,3 +1,5 @@
 pub mod windows;
 
-pub use windows::{PhysicalOpticalDrive, SystemDriveDetector};
+pub use windows::{
+    PhysicalOpticalDrive, SystemDiscInspector, SystemDriveDetector, SystemTrayController,
+};

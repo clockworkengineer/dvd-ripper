@@ -177,10 +177,8 @@ pub fn is_tesseract_available(tesseract_bin: &str) -> bool {
 }
 
 /// Trait defining an Optical Character Recognition processor contract (DIP/SOLID).
-pub trait OcrProcessor {
-    fn is_available(&self) -> bool;
-    fn recognize_text(&self, image_path: &Path, lang: &str) -> Result<String>;
-}
+/// Re-export the domain OcrProcessor port trait.
+pub use crate::domain::ports::ocr::OcrProcessor;
 
 /// Tesseract-backed OCR processor implementation.
 #[allow(dead_code)]

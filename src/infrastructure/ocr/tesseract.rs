@@ -1,4 +1,5 @@
-use crate::ocr::{OcrProcessor, is_tesseract_available};
+use crate::domain::ports::ocr::OcrProcessor;
+use crate::ocr::is_tesseract_available;
 use anyhow::Result;
 use std::path::Path;
 
