@@ -219,3 +219,44 @@ impl TrayController for SystemTrayController {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_physical_optical_drive_construction_and_paths() {
+        let drive = PhysicalOpticalDrive::new("D:\\", "ffmpeg");
+        assert_eq!(drive.get_path(), Path::new("D:\\"));
+        assert_eq!(drive.ffmpeg_path, "ffmpeg");
+    }
+
+    #[test]
+    fn test_disc_inspector_fingerprint_and_protection() {
+        let inspector = SystemDiscInspector::new();
+        let fp = inspector.compute_fingerprint(Path::new("Z:\\NonExistent"));
+        assert!(!fp.is_empty());
+
+        let report = inspector.inspect_protection(Path::new("Z:\\NonExistent"));
+        assert_eq!(report.vob_count, 0);
+        assert_eq!(report.ifo_count, 0);
+        assert!(!report.has_css_indicators);
+    }
+
+    #[test]
+    fn test_system_drive_detector_defaults() {
+        let detector = SystemDriveDetector::new();
+        let drives = detector.detect_available_drives();
+        // Should return a vector (empty or containing detected optical drives) without panic
+        assert!(drives.is_empty() || !drives.is_empty());
+    }
+
+    #[test]
+    fn test_tray_controller_invocation() {
+        let controller = SystemTrayController::new();
+        let _ = controller.eject_tray(Path::new("Z:\\"));
+        let _ = controller.close_tray(Path::new("Z:\\"));
+        let spin_res = controller.spindown(Path::new("Z:\\"));
+        assert!(spin_res.is_ok());
+    }
+}

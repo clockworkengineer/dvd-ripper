@@ -694,8 +694,8 @@ impl DvdRipperApp {
                 match resolve_output_path(&args, show_name_opt.as_deref(), year_opt) {
                     Ok(abs_out) => {
                         let label = crate::dvd::get_volume_label(&dvd_path.to_string_lossy());
-                        let display_title = show_name_opt
-                            .unwrap_or_else(|| "Archival ISO Dump".to_string());
+                        let display_title =
+                            show_name_opt.unwrap_or_else(|| "Archival ISO Dump".to_string());
                         let request = crate::application::dump_iso::DumpIsoRequest {
                             source_dvd: dvd_path.clone(),
                             output_path: abs_out.clone(),
@@ -704,7 +704,8 @@ impl DvdRipperApp {
                             min_free_gb: opts.min_free_gb,
                         };
                         let use_case = container.dump_iso_use_case();
-                        match use_case.execute(&request, Some(&observer), Some(cancel_flag.clone())) {
+                        match use_case.execute(&request, Some(&observer), Some(cancel_flag.clone()))
+                        {
                             Ok(_) => {
                                 let _ = tx.send(ProgressEvent::Success(abs_out));
                             }
@@ -772,7 +773,11 @@ impl DvdRipperApp {
                     episodes: eps,
                     metadata: None,
                     min_free_gb: opts.min_free_gb,
-                    file_extension: if opts.mkv { Some("mkv".to_string()) } else { None },
+                    file_extension: if opts.mkv {
+                        Some("mkv".to_string())
+                    } else {
+                        None
+                    },
                     lookup_episode_titles: true,
                     track_boxset: opts.auto_boxset,
                 };
@@ -857,10 +862,8 @@ impl DvdRipperApp {
                                     "Ripping process cancelled by user.".to_string(),
                                 ));
                             } else {
-                                let _ = tx.send(ProgressEvent::Error(format!(
-                                    "Ripping error: {}",
-                                    e
-                                )));
+                                let _ =
+                                    tx.send(ProgressEvent::Error(format!("Ripping error: {}", e)));
                             }
                         }
                     }

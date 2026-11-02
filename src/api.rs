@@ -2301,6 +2301,35 @@ mod tests {
     }
 
     #[test]
+    fn test_clear_history_api_logic() {
+        let temp_dir = std::env::temp_dir().join(format!(
+            "test_api_clear_{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let _ = std::fs::create_dir_all(&temp_dir);
+        let hist_file = temp_dir.join("history.json");
+        let rec = crate::domain::entities::job::RipRecord::new(
+            "Test Film",
+            "Movie",
+            "out.mp4",
+            "Success",
+        );
+        let _ = crate::history::save_history(&[rec], Some(&hist_file));
+        let loaded = crate::history::load_history(Some(&hist_file));
+        assert_eq!(loaded.len(), 1);
+
+        let clear_res = crate::history::clear_history(Some(&hist_file));
+        assert!(clear_res.is_ok());
+
+        let after_clear = crate::history::load_history(Some(&hist_file));
+        assert_eq!(after_clear.len(), 0);
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
     fn test_prometheus_metrics_render() {
         increment_completed_rips();
         increment_failed_rips();

@@ -154,6 +154,7 @@ fn spawn_drive_watcher(
 }
 
 /// Launches the headless multi-drive appliance daemon loop polling optical drives for inserted DVDs.
+#[allow(dead_code)]
 pub fn run_daemon(args: Args, poll_interval_secs: u64) -> Result<()> {
     let container = std::sync::Arc::new(crate::AppContainer::build_from_args(&args));
     run_daemon_with_container(args, poll_interval_secs, container)

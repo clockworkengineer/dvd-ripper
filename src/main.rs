@@ -28,7 +28,7 @@ use clap::Parser;
 use std::path::PathBuf;
 
 use cli::Args;
-use daemon::run_daemon;
+use daemon::run_daemon_with_container;
 use dvd::{get_volume_label, normalize_dvd_path};
 use ffmpeg::{detect_tv_episodes, resolve_output_path};
 use imdb::{fetch_search_candidates, lookup_film_details, lookup_omdb_by_id};
@@ -485,8 +485,20 @@ fn main() -> Result<()> {
             "Archival ISO dump will be saved to: {}",
             absolute_output.display()
         );
-        let label = volume_label.as_deref();
-        crate::iso::dump_disc_to_iso(&args.input, &absolute_output, label, None, None)?;
+        let label = volume_label.clone();
+        let display_title = title_name
+            .clone()
+            .unwrap_or_else(|| "Archival ISO Dump".to_string());
+        let request = crate::application::dump_iso::DumpIsoRequest {
+            source_dvd: dvd_path.clone(),
+            output_path: absolute_output.clone(),
+            volume_label: label,
+            display_title,
+            min_free_gb: args.min_free_gb,
+        };
+        container
+            .dump_iso_use_case()
+            .execute(&request, None, None)?;
         println!("\nSuccessfully completed archival 1:1 ISO dump of disc!");
         last_output_file = Some(absolute_output);
     } else if args.tv {
@@ -528,73 +540,41 @@ fn main() -> Result<()> {
 
             println!("Found {} episode titles on disc.", episodes.len());
 
-            let tvmaze_episodes = crate::infrastructure::metadata::fetch_tvmaze_episodes(show_name)
-                .unwrap_or_default();
+            let ext = if args.mkv { "mkv" } else { "mp4" };
+            let request = crate::application::rip_tv_batch::RipTvBatchRequest {
+                source_dvd: dvd_path.clone(),
+                series_title: show_name.to_string(),
+                season_number: args.season,
+                start_episode: args.start_episode,
+                output_dir: PathBuf::from(&args.out_dir),
+                episodes: episodes.clone(),
+                metadata: None,
+                min_free_gb: args.min_free_gb,
+                file_extension: Some(ext.to_string()),
+                lookup_episode_titles: true,
+                track_boxset: args.auto_boxset,
+            };
 
-            for (idx, ep) in episodes.iter().enumerate() {
-                let ep_title = crate::infrastructure::metadata::find_episode_title(
-                    &tvmaze_episodes,
-                    args.season,
-                    ep.episode_num,
-                );
-                let display_title = if let Some(ref t) = ep_title {
-                    format!("{} - {}", ep.formatted_name, t)
-                } else {
-                    ep.formatted_name.clone()
-                };
+            let ripped_count = container
+                .rip_tv_batch_use_case()
+                .execute(&request, None, None)?;
+            println!(
+                "\nSuccessfully completed batch rip of {} episodes!",
+                ripped_count
+            );
 
-                println!(
-                    "\n=== Ripping Episode {}/{}: {} (Title #{}, {:.0} mins) ===",
-                    idx + 1,
-                    episodes.len(),
-                    display_title,
-                    ep.title_num,
-                    ep.duration_secs / 60.0
-                );
-
-                let ep_output = crate::ffmpeg::resolve_tv_output_path_with_title(
+            if let Some(first_ep) = episodes.first() {
+                let sample_output = crate::ffmpeg::resolve_tv_output_path_with_title(
                     &args,
                     Some(show_name),
                     title_year,
                     args.season,
-                    ep.episode_num,
-                    ep_title.as_deref(),
-                )?;
-
-                let mut ep_args = args.clone();
-                ep_args.title = ep.title_num;
-
-                let req = crate::application::rip_single_title::RipSingleTitleRequest {
-                    source_dvd: dvd_path.clone(),
-                    title_number: ep.title_num,
-                    output_path: ep_output.clone(),
-                    display_title: display_title.clone(),
-                    expected_duration_secs: Some(ep.duration_secs),
-                    metadata: None,
-                    min_free_gb: args.min_free_gb,
-                };
-                container
-                    .rip_single_title_use_case()
-                    .execute(&req, None, None)?;
-                let _ =
-                    crate::ocr::process_subtitle_ocr_sidecar(&ep_args, &ep_output, &display_title);
-                last_output_file = Some(ep_output);
+                    first_ep.episode_num,
+                    None,
+                )
+                .ok();
+                last_output_file = sample_output;
             }
-
-            if args.auto_boxset && !episodes.is_empty() {
-                let count = episodes.len() as u32;
-                let new_last =
-                    crate::queue::record_boxset_episodes_ripped(show_name, args.season, count);
-                println!(
-                    "\nAuto BoxSet Mode: Recorded {} episodes ripped for '{}' S{:02}. Next disc will start at E{:02}.",
-                    count,
-                    show_name,
-                    args.season,
-                    new_last + 1
-                );
-            }
-
-            println!("\nSuccessfully completed batch rip of all episodes!");
         } else {
             let ep_num = if args.start_episode > 0 {
                 args.start_episode

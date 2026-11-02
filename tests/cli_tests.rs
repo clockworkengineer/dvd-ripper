@@ -79,3 +79,63 @@ fn test_installer_version_flag() {
     assert!(stdout.contains("dvd-ripper-installer"));
     assert!(stdout.contains(env!("CARGO_PKG_VERSION")));
 }
+
+#[test]
+fn test_cli_iso_parameter_validation() {
+    let bin = env!("CARGO_BIN_EXE_dvd-ripper");
+    let output = Command::new(bin)
+        .args(["--cli", "--iso", "Z:\\NonExistentDrive"])
+        .output()
+        .expect("Failed to execute dvd-ripper binary");
+
+    assert!(!output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let combined = format!("{}{}", stdout, stderr);
+    assert!(combined.contains("does not exist") || combined.contains("Error"));
+}
+
+#[test]
+fn test_cli_auto_boxset_parameter_validation() {
+    let bin = env!("CARGO_BIN_EXE_dvd-ripper");
+    let output = Command::new(bin)
+        .args(["--cli", "--tv", "--auto-boxset", "Z:\\NonExistentDrive"])
+        .output()
+        .expect("Failed to execute dvd-ripper binary");
+
+    assert!(!output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let combined = format!("{}{}", stdout, stderr);
+    assert!(combined.contains("does not exist") || combined.contains("Error"));
+}
+
+#[test]
+fn test_cli_check_protection_invocation() {
+    let bin = env!("CARGO_BIN_EXE_dvd-ripper");
+    let output = Command::new(bin)
+        .args(["--cli", "--check-protection", "Z:\\NonExistentDrive"])
+        .output()
+        .expect("Failed to execute dvd-ripper binary");
+
+    assert!(!output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let combined = format!("{}{}", stdout, stderr);
+    assert!(combined.contains("does not exist") || combined.contains("Error"));
+}
+
+#[test]
+fn test_cli_benchmark_invocation() {
+    let bin = env!("CARGO_BIN_EXE_dvd-ripper");
+    let output = Command::new(bin)
+        .args(["--cli", "--benchmark", "Z:\\NonExistentDrive"])
+        .output()
+        .expect("Failed to execute dvd-ripper binary");
+
+    assert!(!output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let combined = format!("{}{}", stdout, stderr);
+    assert!(combined.contains("does not exist") || combined.contains("Error"));
+}
