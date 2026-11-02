@@ -41,7 +41,12 @@ impl DaemonDriveWatcher {
 }
 
 /// Spawns a watcher loop for a single specified optical drive.
-fn spawn_drive_watcher(drive_path_str: String, args: Args, poll_interval_secs: u64) {
+fn spawn_drive_watcher(
+    drive_path_str: String,
+    args: Args,
+    poll_interval_secs: u64,
+    container: std::sync::Arc<crate::AppContainer>,
+) {
     thread::spawn(move || {
         let mut watcher = DaemonDriveWatcher::new(drive_path_str.clone());
         loop {
@@ -79,20 +84,42 @@ fn spawn_drive_watcher(drive_path_str: String, args: Args, poll_interval_secs: u
                         "[Daemon Drive '{}'] ⚡ Auto-Rip enabled. Identifying metadata for '{}'...",
                         drive_path_str, label
                     );
-                    let cleaned = crate::dvd::clean_volume_label(&label);
-                    let query = crate::utils::normalize_volume_label_title(&cleaned);
-                    let candidates = crate::imdb::fetch_search_candidates(&query);
-                    if let Some(cand) = candidates.first() {
-                        let is_series = cand.type_field.to_lowercase() == "series";
+                    let physical_drive = crate::infrastructure::optical::PhysicalOpticalDrive::new(
+                        &drive_path_str,
+                        &args.ffmpeg,
+                    );
+                    let probe_uc = container.probe_disc_use_case();
+                    let probe_res = probe_uc.execute(&physical_drive);
+
+                    let (matched_title, is_series, matched_year) = if let Ok(ref res) = probe_res
+                        && let Some(ref meta) = res.metadata
+                    {
+                        (Some(meta.title.clone()), meta.is_series, meta.year)
+                    } else {
+                        let cleaned = crate::dvd::clean_volume_label(&label);
+                        let query = crate::utils::normalize_volume_label_title(&cleaned);
+                        let candidates = crate::imdb::fetch_search_candidates(&query);
+                        if let Some(cand) = candidates.first() {
+                            (
+                                Some(cand.title.clone()),
+                                cand.type_field.to_lowercase() == "series",
+                                cand.year,
+                            )
+                        } else {
+                            (None, false, None)
+                        }
+                    };
+
+                    if let Some(title) = matched_title {
                         println!(
                             "[Daemon Drive '{}'] Auto-matched: '{}' ({:?}, Series: {})",
-                            drive_path_str, cand.title, cand.year, is_series
+                            drive_path_str, title, matched_year, is_series
                         );
                         crate::api::set_drive_selected_metadata(
                             &drive_path_str,
-                            &cand.title,
+                            &title,
                             is_series,
-                            cand.year,
+                            matched_year,
                         );
                         if let Err(e) =
                             crate::api::execute_rip_for_drive(&drive_path_str, Some(args.clone()))
@@ -104,7 +131,7 @@ fn spawn_drive_watcher(drive_path_str: String, args: Args, poll_interval_secs: u
                         } else {
                             println!(
                                 "[Daemon Drive '{}'] ▶ Auto-rip started for '{}'",
-                                drive_path_str, cand.title
+                                drive_path_str, title
                             );
                         }
                     } else {
@@ -128,6 +155,16 @@ fn spawn_drive_watcher(drive_path_str: String, args: Args, poll_interval_secs: u
 
 /// Launches the headless multi-drive appliance daemon loop polling optical drives for inserted DVDs.
 pub fn run_daemon(args: Args, poll_interval_secs: u64) -> Result<()> {
+    let container = std::sync::Arc::new(crate::AppContainer::build_from_args(&args));
+    run_daemon_with_container(args, poll_interval_secs, container)
+}
+
+/// Launches the daemon loop using the provided AppContainer.
+pub fn run_daemon_with_container(
+    args: Args,
+    poll_interval_secs: u64,
+    container: std::sync::Arc<crate::AppContainer>,
+) -> Result<()> {
     println!("=== DVD Ripper Embedded Multi-Drive Appliance Daemon Mode ===");
 
     let detected = detect_dvd_drives();
@@ -170,7 +207,7 @@ pub fn run_daemon(args: Args, poll_interval_secs: u64) -> Result<()> {
     println!("Press Ctrl+C to stop.\n");
 
     for drive in drives_to_monitor {
-        spawn_drive_watcher(drive, args.clone(), poll_interval_secs);
+        spawn_drive_watcher(drive, args.clone(), poll_interval_secs, container.clone());
     }
 
     // Keep main thread alive

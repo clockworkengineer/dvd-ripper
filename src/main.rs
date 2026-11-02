@@ -406,10 +406,10 @@ fn main() -> Result<()> {
     let mut args = Args::parse();
     let app_initializer = AppInitializer;
     let _cfg = app_initializer.bootstrap(&mut args);
-    let container = AppContainer::build_from_args(&args);
+    let container = Arc::new(AppContainer::build_from_args(&args));
 
     if args.daemon {
-        return run_daemon(args, 10);
+        return run_daemon_with_container(args, 10, container);
     }
 
     // 1. Resolve & validate DVD path
