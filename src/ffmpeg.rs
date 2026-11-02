@@ -221,6 +221,7 @@ pub fn resolve_tv_output_path_with_title(
 }
 
 /// Resolves the absolute output file path for a TV series episode (e.g. TV/The Office (2005)/Season 01/The Office - S01E01.mpg).
+#[allow(dead_code)]
 pub fn resolve_tv_output_path(
     args: &Args,
     show_name: Option<&str>,
@@ -456,18 +457,9 @@ pub fn resolve_video_codec_name(codec: &str) -> &'static str {
     }
 }
 
-/// Open/Closed Principle (OCP/SOLID): Trait contract for video codec strategy resolvers.
-#[allow(dead_code)]
-pub trait VideoCodecResolver {
-    fn resolve(&self, codec: &str) -> &'static str;
-}
-
-pub struct DefaultVideoCodecResolver;
-impl VideoCodecResolver for DefaultVideoCodecResolver {
-    fn resolve(&self, codec: &str) -> &'static str {
-        resolve_video_codec_name(codec)
-    }
-}
+/// Open/Closed Principle (OCP/SOLID): Re-export video codec strategy resolvers from domain.
+#[allow(unused_imports)]
+pub use crate::domain::ports::transcoder::{DefaultVideoCodecResolver, VideoCodecResolver};
 
 /// Determines whether output target should use Matroska MKV container format.
 pub fn is_mkv_output(args: &Args, output_path: &Path) -> bool {

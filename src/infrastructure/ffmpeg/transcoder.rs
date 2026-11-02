@@ -42,45 +42,48 @@ impl Transcoder for FfmpegTranscoder {
 
         if let Some(obs) = observer {
             let (tx, rx) = std::sync::mpsc::channel();
-            let obs_thread = std::thread::spawn(move || {
-                let mut captured = Vec::new();
-                while let Ok(event) = rx.recv() {
-                    captured.push(event);
-                }
-                captured
+
+            let args_clone = args.clone();
+            let source_dvd = job.source_dvd.to_path_buf();
+            let output_path = job.output_path.to_path_buf();
+            let display_title = job.display_title.to_string();
+            let expected_duration_secs = job.expected_duration_secs;
+            let cancel_clone = cancel_flag;
+
+            let worker = std::thread::spawn(move || {
+                crate::ffmpeg::run_ffmpeg_with_channel(
+                    &args_clone,
+                    &source_dvd,
+                    &output_path,
+                    &display_title,
+                    expected_duration_secs,
+                    Some(tx),
+                    None,
+                    cancel_clone,
+                    false,
+                )
             });
 
-            let res = crate::ffmpeg::run_ffmpeg_with_channel(
-                &args,
-                job.source_dvd,
-                job.output_path,
-                job.display_title,
-                job.expected_duration_secs,
-                Some(tx),
-                None,
-                cancel_flag,
-                false,
-            );
-
-            if let Ok(events) = obs_thread.join() {
-                for event in events {
-                    match event {
-                        crate::ffmpeg::ProgressEvent::Progress {
-                            percent,
-                            fps,
-                            speed,
-                        } => {
-                            obs.on_progress(percent, &fps, &speed);
-                        }
-                        crate::ffmpeg::ProgressEvent::Log(line) => {
-                            obs.on_log(&line);
-                        }
-                        _ => {}
+            while let Ok(event) = rx.recv() {
+                match event {
+                    crate::ffmpeg::ProgressEvent::Progress {
+                        percent,
+                        fps,
+                        speed,
+                    } => {
+                        obs.on_progress(percent, &fps, &speed);
                     }
+                    crate::ffmpeg::ProgressEvent::Log(line) => {
+                        obs.on_log(&line);
+                    }
+                    _ => {}
                 }
             }
 
-            res
+            match worker.join() {
+                Ok(res) => res,
+                Err(_) => Err(anyhow::anyhow!("FFmpeg transcoding thread panicked")),
+            }
         } else {
             crate::ffmpeg::run_ffmpeg_with_channel(
                 &args,

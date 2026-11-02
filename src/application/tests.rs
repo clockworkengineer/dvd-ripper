@@ -309,6 +309,46 @@ mod tests {
     }
 
     #[test]
+    fn test_rip_single_title_cancellation_handling() {
+        let transcoder = Arc::new(MockTranscoder {
+            calls: Arc::new(Mutex::new(Vec::new())),
+            should_fail: true, // will simulate error or cancellation
+        });
+        let notifier = Arc::new(MockNotifier::default());
+        let disk_guard = Arc::new(MockDiskSpaceGuard { allow: true });
+        let history = Arc::new(MockHistoryRepository::default());
+
+        let use_case =
+            RipSingleTitleUseCase::new(transcoder, notifier.clone(), disk_guard, history.clone());
+
+        let cancel_flag = Arc::new(AtomicBool::new(true)); // Pre-cancelled
+
+        let req = RipSingleTitleRequest {
+            source_dvd: PathBuf::from("D:\\"),
+            title_number: 1,
+            output_path: PathBuf::from("Films/Test/cancel.mp4"),
+            display_title: "Cancelled Movie".to_string(),
+            expected_duration_secs: None,
+            metadata: None,
+            min_free_gb: 10,
+        };
+
+        let res = use_case.execute(&req, None, Some(cancel_flag));
+        assert!(res.is_err());
+
+        let events = notifier.events.lock().unwrap();
+        assert!(
+            events
+                .iter()
+                .any(|e| e.contains("Cancelled: Cancelled Movie"))
+        );
+
+        let recs = history.records.lock().unwrap();
+        assert_eq!(recs.len(), 1);
+        assert_eq!(recs[0].status, "Cancelled");
+    }
+
+    #[test]
     fn test_rip_tv_batch_sequential_episodes() {
         let transcoder = Arc::new(MockTranscoder::default());
         let notifier = Arc::new(MockNotifier::default());
@@ -346,6 +386,9 @@ mod tests {
                 ..Default::default()
             }),
             min_free_gb: 5,
+            file_extension: None,
+            lookup_episode_titles: false,
+            track_boxset: false,
         };
 
         let res = batch_use_case.execute(&req, None, None);
@@ -388,6 +431,9 @@ mod tests {
             episodes,
             metadata: None,
             min_free_gb: 5,
+            file_extension: None,
+            lookup_episode_titles: false,
+            track_boxset: false,
         };
 
         let res = batch_use_case.execute(&req, None, Some(cancel_flag));
@@ -439,5 +485,67 @@ mod tests {
             result.metadata.unwrap().title,
             "John Wick: Chapter 3 - Parabellum"
         );
+    }
+
+    #[test]
+    fn test_dump_iso_use_case_insufficient_space() {
+        use crate::application::dump_iso::{DumpIsoRequest, DumpIsoUseCase};
+
+        let notifier = Arc::new(MockNotifier::default());
+        let disk_guard = Arc::new(MockDiskSpaceGuard { allow: false });
+        let history = Arc::new(MockHistoryRepository::default());
+
+        let use_case = DumpIsoUseCase::new(notifier, disk_guard, history);
+
+        let req = DumpIsoRequest {
+            source_dvd: PathBuf::from("D:\\"),
+            output_path: PathBuf::from("Films/Test/image.iso"),
+            volume_label: Some("TEST_DISC".to_string()),
+            display_title: "Test Disc ISO".to_string(),
+            min_free_gb: 100,
+        };
+
+        let res = use_case.execute(&req, None, None);
+        assert!(res.is_err());
+    }
+
+    #[test]
+    fn test_dump_iso_use_case_cancellation() {
+        use crate::application::dump_iso::{DumpIsoRequest, DumpIsoUseCase};
+
+        let notifier = Arc::new(MockNotifier::default());
+        let disk_guard = Arc::new(MockDiskSpaceGuard { allow: true });
+        let history = Arc::new(MockHistoryRepository::default());
+
+        let use_case = DumpIsoUseCase::new(notifier.clone(), disk_guard, history.clone());
+        let cancel_flag = Arc::new(AtomicBool::new(true));
+
+        let temp_dir = std::env::temp_dir().join(format!("iso_cancel_{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&temp_dir);
+        let out_file = temp_dir.join("test_cancelled.iso");
+
+        let req = DumpIsoRequest {
+            source_dvd: PathBuf::from("Z:\\DefinitelyNonExistent"),
+            output_path: out_file,
+            volume_label: Some("CANCELLED_DISC".to_string()),
+            display_title: "Cancelled Disc".to_string(),
+            min_free_gb: 1,
+        };
+
+        let res = use_case.execute(&req, None, Some(cancel_flag));
+        assert!(res.is_err());
+
+        let events = notifier.events.lock().unwrap();
+        assert!(
+            events
+                .iter()
+                .any(|e| e.contains("Cancelled: Cancelled Disc"))
+        );
+
+        let recs = history.records.lock().unwrap();
+        assert_eq!(recs.len(), 1);
+        assert_eq!(recs[0].status, "Cancelled");
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
     }
 }

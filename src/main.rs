@@ -142,6 +142,14 @@ impl AppContainer {
     pub fn probe_disc_use_case(&self) -> application::probe_disc::ProbeDiscUseCase {
         application::probe_disc::ProbeDiscUseCase::new(Some(self.metadata_provider.clone()))
     }
+
+    pub fn dump_iso_use_case(&self) -> application::dump_iso::DumpIsoUseCase {
+        application::dump_iso::DumpIsoUseCase::new(
+            self.notifier.clone(),
+            self.disk_guard.clone(),
+            self.history_repo.clone(),
+        )
+    }
 }
 
 /// Dependency Inversion (DIP/SOLID): High-level trait abstraction for DVD path normalization.

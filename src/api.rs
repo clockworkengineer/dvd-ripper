@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::mpsc::{Sender, channel};
+use std::sync::mpsc::Sender;
 use std::sync::{Arc, Mutex, OnceLock};
 use std::thread;
 use std::time::Duration;
@@ -232,37 +232,8 @@ pub fn fail_appliance_status(title: &str, out_dir: &str, err_msg: &str) {
     let _ = crate::history::record_rip_event(title, "Movie", out_dir, err_msg);
 }
 
-/// Represents status of an individual optical drive in the multi-drive pool.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct DriveStatusInfo {
-    pub drive: String,
-    pub disc: String,
-    pub status: String,
-    pub current_title: String,
-    pub progress: f64,
-    pub fps: String,
-    pub speed: String,
-    pub has_selected_movie: bool,
-    pub is_series: bool,
-    pub year: Option<u32>,
-}
-
-impl DriveStatusInfo {
-    pub fn new(drive: &str) -> Self {
-        Self {
-            drive: drive.to_string(),
-            disc: String::new(),
-            status: "Idle".to_string(),
-            current_title: String::new(),
-            progress: 0.0,
-            fps: "0".to_string(),
-            speed: "0x".to_string(),
-            has_selected_movie: false,
-            is_series: false,
-            year: None,
-        }
-    }
-}
+/// Re-export DriveStatusInfo from the domain layer.
+pub use crate::domain::entities::disc::DriveStatusInfo;
 
 static DRIVE_POOL_REGISTRY: OnceLock<Arc<Mutex<HashMap<String, DriveStatusInfo>>>> =
     OnceLock::new();
@@ -476,6 +447,19 @@ pub fn cancel_all_drive_rips() -> usize {
     count
 }
 
+struct DriveStatusProgressObserver {
+    drive: String,
+    title: String,
+}
+
+impl crate::domain::ports::transcoder::ProgressObserver for DriveStatusProgressObserver {
+    fn on_progress(&self, percent: f64, fps: &str, speed: &str) {
+        update_drive_status(&self.drive, "Ripping", "", &self.title, percent, fps, speed);
+    }
+
+    fn on_log(&self, _line: &str) {}
+}
+
 /// Spawns an asynchronous background thread to rip a title/series from a specific optical drive.
 pub fn execute_rip_for_drive(
     drive_path_str: &str,
@@ -535,39 +519,11 @@ pub fn execute_rip_for_drive(
         }
         let dvd_path = crate::dvd::normalize_dvd_path(&drive_clone);
 
-        let (event_tx, event_rx) = channel();
-        let item_title = title.clone();
-        let thread_drive = drive_clone.clone();
-        thread::spawn(move || {
-            while let Ok(event) = event_rx.recv() {
-                if let crate::ffmpeg::ProgressEvent::Progress {
-                    percent,
-                    fps,
-                    speed,
-                    ..
-                } = event
-                {
-                    update_drive_status(
-                        &thread_drive,
-                        "Ripping",
-                        "",
-                        &item_title,
-                        percent,
-                        &fps,
-                        &speed,
-                    );
-                }
-            }
-        });
-
-        if let Err(e) = crate::utils::check_disk_space_guard(
-            std::path::Path::new(&args.out_dir),
-            args.min_free_gb,
-        ) {
-            fail_appliance_status(&title, &args.out_dir, &format!("Disk Space Error: {}", e));
-            update_drive_status(&drive_clone, "Failed", "", &title, 0.0, "0", "0x");
-            return;
-        }
+        let container = crate::AppContainer::build_from_args(&args);
+        let observer = DriveStatusProgressObserver {
+            drive: drive_clone.clone(),
+            title: title.clone(),
+        };
 
         let res = if is_series {
             let episodes = crate::ffmpeg::detect_tv_episodes(
@@ -578,137 +534,53 @@ pub fn execute_rip_for_drive(
                 args.start_episode,
                 Some(&cancel_flag),
             );
-            let mut success = true;
-            for ep in &episodes {
-                if cancel_flag.load(Ordering::SeqCst) {
-                    success = false;
-                    break;
-                }
-                if let Ok(out_path) = crate::ffmpeg::resolve_tv_output_path(
-                    &args,
-                    Some(&title),
-                    year,
-                    args.season,
-                    ep.episode_num,
-                ) {
-                    update_drive_status(
-                        &drive_clone,
-                        "Ripping",
-                        "",
-                        &ep.formatted_name,
-                        0.0,
-                        "0",
-                        "0x",
-                    );
-                    let run_res = crate::ffmpeg::run_ffmpeg_with_channel(
-                        &args,
-                        &dvd_path,
-                        &out_path,
-                        &ep.formatted_name,
-                        Some(ep.duration_secs),
-                        Some(event_tx.clone()),
-                        None,
-                        Some(cancel_flag.clone()),
-                        true,
-                    );
-                    if run_res.is_ok() {
-                        let _ = crate::ocr::process_subtitle_ocr_sidecar(
-                            &args,
-                            &out_path,
-                            &ep.formatted_name,
-                        );
-                        let _ = crate::history::record_rip_event(
-                            &ep.formatted_name,
-                            "TV Series",
-                            &out_path.to_string_lossy(),
-                            "Success",
-                        );
-                    } else {
-                        success = false;
-                        if cancel_flag.load(Ordering::SeqCst) {
-                            let _ = crate::history::record_rip_event(
-                                &ep.formatted_name,
-                                "TV Series",
-                                &out_path.to_string_lossy(),
-                                "Cancelled",
-                            );
-                        }
-                        break;
-                    }
-                }
-            }
-            if success && !cancel_flag.load(Ordering::SeqCst) {
-                Ok(())
-            } else {
-                Err(anyhow::anyhow!("Ripping cancelled or failed"))
-            }
+            let request = crate::application::rip_tv_batch::RipTvBatchRequest {
+                source_dvd: dvd_path.clone(),
+                series_title: title.clone(),
+                season_number: args.season,
+                start_episode: args.start_episode,
+                output_dir: std::path::PathBuf::from(&args.out_dir),
+                episodes,
+                metadata: None,
+                min_free_gb: args.min_free_gb,
+                file_extension: Some("mkv".to_string()),
+                lookup_episode_titles: true,
+                track_boxset: true,
+            };
+            let use_case = container.rip_tv_batch_use_case();
+            use_case
+                .execute(&request, Some(&observer), Some(cancel_flag.clone()))
+                .map(|_| ())
         } else if args.iso {
             if let Ok(out_path) = crate::ffmpeg::resolve_output_path(&args, Some(&title), year) {
-                update_drive_status(&drive_clone, "Ripping", "", &title, 0.0, "0", "0x");
                 let label = crate::dvd::get_volume_label(&dvd_path.to_string_lossy());
-                let run_res = crate::iso::dump_disc_to_iso(
-                    &drive_clone,
-                    &out_path,
-                    label.as_deref(),
-                    Some(&cancel_flag),
-                    Some(&event_tx),
-                );
-                if run_res.is_ok() {
-                    let _ = crate::history::record_rip_event(
-                        &title,
-                        "ISO Image",
-                        &out_path.to_string_lossy(),
-                        "Success",
-                    );
-                    Ok(())
-                } else {
-                    if cancel_flag.load(Ordering::SeqCst) {
-                        let _ = crate::history::record_rip_event(
-                            &title,
-                            "ISO Image",
-                            &out_path.to_string_lossy(),
-                            "Cancelled",
-                        );
-                    }
-                    Err(anyhow::anyhow!("ISO dump cancelled or failed"))
-                }
+                let request = crate::application::dump_iso::DumpIsoRequest {
+                    source_dvd: dvd_path.clone(),
+                    output_path: out_path,
+                    volume_label: label,
+                    display_title: title.clone(),
+                    min_free_gb: args.min_free_gb,
+                };
+                let use_case = container.dump_iso_use_case();
+                use_case
+                    .execute(&request, Some(&observer), Some(cancel_flag.clone()))
+                    .map(|_| ())
             } else {
                 Err(anyhow::anyhow!("Failed to resolve output path"))
             }
         } else {
             if let Ok(out_path) = crate::ffmpeg::resolve_output_path(&args, Some(&title), year) {
-                update_drive_status(&drive_clone, "Ripping", "", &title, 0.0, "0", "0x");
-                let run_res = crate::ffmpeg::run_ffmpeg_with_channel(
-                    &args,
-                    &dvd_path,
-                    &out_path,
-                    &title,
-                    None,
-                    Some(event_tx),
-                    None,
-                    Some(cancel_flag.clone()),
-                    false,
-                );
-                if run_res.is_ok() {
-                    let _ = crate::ocr::process_subtitle_ocr_sidecar(&args, &out_path, &title);
-                    let _ = crate::history::record_rip_event(
-                        &title,
-                        "Movie",
-                        &out_path.to_string_lossy(),
-                        "Success",
-                    );
-                    Ok(())
-                } else {
-                    if cancel_flag.load(Ordering::SeqCst) {
-                        let _ = crate::history::record_rip_event(
-                            &title,
-                            "Movie",
-                            &out_path.to_string_lossy(),
-                            "Cancelled",
-                        );
-                    }
-                    Err(anyhow::anyhow!("Ripping cancelled or failed"))
-                }
+                let request = crate::application::rip_single_title::RipSingleTitleRequest {
+                    source_dvd: dvd_path.clone(),
+                    title_number: args.title.max(1),
+                    output_path: out_path,
+                    display_title: title.clone(),
+                    expected_duration_secs: None,
+                    metadata: None,
+                    min_free_gb: args.min_free_gb,
+                };
+                let use_case = container.rip_single_title_use_case();
+                use_case.execute(&request, Some(&observer), Some(cancel_flag.clone()))
             } else {
                 Err(anyhow::anyhow!("Failed to resolve output path"))
             }
@@ -723,6 +595,9 @@ pub fn execute_rip_for_drive(
             thread::sleep(Duration::from_secs(3));
             reset_drive_status(&drive_clone, "Idle");
         } else {
+            if let Err(ref e) = res {
+                fail_appliance_status(&title, &args.out_dir, &e.to_string());
+            }
             increment_failed_rips();
             update_drive_status(&drive_clone, "Failed", "", "", 0.0, "0", "0x");
         }
@@ -1164,6 +1039,12 @@ pub const OPENAPI_V3_JSON: &str = r#"{
         "responses": { "200": { "description": "History records array" } }
       }
     },
+    "/api/history/clear": {
+      "post": {
+        "summary": "Clear persistent DVD ripping history",
+        "responses": { "200": { "description": "Ripping history cleared confirmation" } }
+      }
+    },
     "/api/disc-cache": {
       "get": {
         "summary": "List persistent disc fingerprint cache entries",
@@ -1223,9 +1104,73 @@ pub const OPENAPI_V3_JSON: &str = r#"{
         "summary": "Remove job from queue",
         "responses": { "200": { "description": "Removal status" } }
       }
+    },
+    "/api/boxset": {
+      "get": {
+        "summary": "List TV boxset multi-disc tracking state",
+        "responses": { "200": { "description": "Boxsets array" } }
+      }
+    },
+    "/api/boxset/reset": {
+      "post": {
+        "summary": "Reset TV boxset episode tracker for a show/season",
+        "parameters": [
+          { "name": "show", "in": "query", "required": true, "schema": { "type": "string" } },
+          { "name": "season", "in": "query", "required": false, "schema": { "type": "integer", "default": 1 } }
+        ],
+        "responses": { "200": { "description": "Reset status confirmation" } }
+      }
+    },
+    "/api/thumbnail": {
+      "get": {
+        "summary": "Generate thumbnail frame image from DVD title",
+        "parameters": [
+          { "name": "title", "in": "query", "required": false, "schema": { "type": "integer", "default": 1 } },
+          { "name": "time", "in": "query", "required": false, "schema": { "type": "number", "default": 120.0 } },
+          { "name": "drive", "in": "query", "required": false, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "Thumbnail JPEG image bytes",
+            "content": { "image/jpeg": {} }
+          }
+        }
+      }
+    },
+    "/api/benchmark": {
+      "post": {
+        "summary": "Run optical drive read speed benchmark",
+        "parameters": [
+          { "name": "drive", "in": "query", "required": false, "schema": { "type": "string" } }
+        ],
+        "responses": { "200": { "description": "Drive benchmark performance metrics report" } }
+      }
+    },
+    "/api/pool/status": {
+      "get": {
+        "summary": "List all optical drives in pool and their status",
+        "responses": { "200": { "description": "Drive pool statuses array" } }
+      }
+    },
+    "/api/drives": {
+      "get": {
+        "summary": "Detect and list physical optical drive letters",
+        "responses": { "200": { "description": "Drive letters array" } }
+      }
+    },
+    "/api/health": {
+      "get": {
+        "summary": "Appliance health check and status",
+        "responses": { "200": { "description": "Appliance health status JSON" } }
+      }
     }
   }
 }"#;
+
+/// Returns the OpenAPI v3 JSON specification string.
+pub fn generate_openapi_spec() -> &'static str {
+    OPENAPI_V3_JSON
+}
 
 fn handle_client(mut stream: TcpStream, drive_path: &str) -> Result<()> {
     let mut buffer = [0u8; 4096];
@@ -1241,7 +1186,12 @@ fn handle_client(mut stream: TcpStream, drive_path: &str) -> Result<()> {
     let method_str = String::from_utf8_lossy(method);
 
     if path_str == "/api/openapi.json" {
-        send_http_response(&mut stream, "200 OK", "application/json", OPENAPI_V3_JSON)?;
+        send_http_response(
+            &mut stream,
+            "200 OK",
+            "application/json",
+            generate_openapi_spec(),
+        )?;
         return Ok(());
     }
 
@@ -1346,6 +1296,35 @@ fn handle_client(mut stream: TcpStream, drive_path: &str) -> Result<()> {
         let history = load_history(None);
         let json_body = serde_json::to_string(&history).unwrap_or_else(|_| "[]".to_string());
         send_http_response(&mut stream, "200 OK", "application/json", &json_body)?;
+    } else if method_str == "POST"
+        && (path_str == "/api/history/clear" || path_str.starts_with("/api/history/clear"))
+    {
+        match crate::history::clear_history(None) {
+            Ok(()) => {
+                let resp_obj = serde_json::json!({
+                    "success": true,
+                    "message": "Ripping history cleared"
+                });
+                send_http_response(
+                    &mut stream,
+                    "200 OK",
+                    "application/json",
+                    &resp_obj.to_string(),
+                )?;
+            }
+            Err(e) => {
+                let resp_obj = serde_json::json!({
+                    "success": false,
+                    "message": format!("Failed to clear history: {}", e)
+                });
+                send_http_response(
+                    &mut stream,
+                    "500 Internal Server Error",
+                    "application/json",
+                    &resp_obj.to_string(),
+                )?;
+            }
+        }
     } else if method_str == "GET" && path_str.starts_with("/api/thumbnail") {
         let title_num: u32 = parse_query_param(&path_str, "title")
             .and_then(|s| s.parse().ok())
@@ -2300,7 +2279,25 @@ mod tests {
             parse_http_route(req),
             (b"GET" as &[u8], b"/api/openapi.json" as &[u8])
         );
-        assert!(OPENAPI_V3_JSON.contains("DVD Ripper Appliance REST API"));
+        let spec = generate_openapi_spec();
+        assert!(spec.contains("DVD Ripper Appliance REST API"));
+        assert!(spec.contains("/api/history/clear"));
+        assert!(spec.contains("/api/boxset"));
+        assert!(spec.contains("/api/boxset/reset"));
+        assert!(spec.contains("/api/thumbnail"));
+        assert!(spec.contains("/api/benchmark"));
+        assert!(spec.contains("/api/pool/status"));
+        assert!(spec.contains("/api/drives"));
+        assert!(spec.contains("/api/health"));
+    }
+
+    #[test]
+    fn test_parse_history_clear_route() {
+        let req = b"POST /api/history/clear HTTP/1.1\r\nHost: localhost\r\n\r\n";
+        assert_eq!(
+            parse_http_route(req),
+            (b"POST" as &[u8], b"/api/history/clear" as &[u8])
+        );
     }
 
     #[test]

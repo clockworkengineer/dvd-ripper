@@ -1,8 +1,9 @@
 use anyhow::Result;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, Ordering};
 
+use crate::domain::entities::error::DvdError;
 use crate::domain::entities::job::RipRecord;
 use crate::domain::entities::media::FilmMetadata;
 use crate::domain::ports::notification::{NotificationEvent, Notifier};
@@ -27,7 +28,7 @@ pub struct RipSingleTitleRequest {
 /// 3. Executes transcoding with live progress observer.
 /// 4. Generates sidecar .nfo file and saves artwork if metadata exists.
 /// 5. Records event in persistent history.
-/// 6. Dispatches RipSuccess or RipFailed notification.
+/// 6. Dispatches RipSuccess, RipCancelled, or RipFailed notification.
 pub struct RipSingleTitleUseCase {
     transcoder: Arc<dyn Transcoder>,
     notifier: Arc<dyn Notifier>,
@@ -80,12 +81,20 @@ impl RipSingleTitleUseCase {
 
         // 4. Execute transcoding
         let start_time = std::time::Instant::now();
-        let transcode_res = self.transcoder.transcode(&job, observer, cancel_flag);
+        let transcode_res = self
+            .transcoder
+            .transcode(&job, observer, cancel_flag.clone());
+
+        let media_type = if request.metadata.as_ref().is_some_and(|m| m.is_series) {
+            "tv"
+        } else {
+            "movie"
+        };
+        let out_str = request.output_path.to_string_lossy();
 
         match transcode_res {
             Ok(()) => {
                 let duration_secs = start_time.elapsed().as_secs_f64();
-                let out_str = request.output_path.to_string_lossy();
 
                 // Generate NFO sidecar if metadata exists
                 if let Some(ref meta) = request.metadata {
@@ -97,15 +106,20 @@ impl RipSingleTitleUseCase {
                 }
 
                 // Append record to history
-                let record = RipRecord::new(
+                let record = RipRecord::with_details(
                     &request.display_title,
-                    if request.metadata.as_ref().is_some_and(|m| m.is_series) {
-                        "tv"
-                    } else {
-                        "movie"
-                    },
+                    media_type,
                     &out_str,
                     "Completed",
+                    None,
+                    request.metadata.as_ref().and_then(|m| m.year),
+                    Some(duration_secs),
+                    std::fs::metadata(&request.output_path)
+                        .ok()
+                        .map(|m| m.len()),
+                    None,
+                    None,
+                    None,
                 );
                 let _ = self.history_repo.append_record(&record, None);
 
@@ -119,18 +133,34 @@ impl RipSingleTitleUseCase {
                 Ok(())
             }
             Err(e) => {
-                let err_str = e.to_string();
-                let out_str = request.output_path.to_string_lossy();
+                let is_cancelled = cancel_flag
+                    .as_ref()
+                    .is_some_and(|f| f.load(Ordering::SeqCst))
+                    || e.to_string().to_lowercase().contains("cancel");
 
-                let record = RipRecord::new(&request.display_title, "unknown", &out_str, "Failed");
-                let _ = self.history_repo.append_record(&record, None);
+                if is_cancelled {
+                    let record =
+                        RipRecord::new(&request.display_title, media_type, &out_str, "Cancelled");
+                    let _ = self.history_repo.append_record(&record, None);
 
-                let _ = self.notifier.send(&NotificationEvent::RipFailed {
-                    title: &request.display_title,
-                    error_message: &err_str,
-                });
+                    let _ = self.notifier.send(&NotificationEvent::RipCancelled {
+                        title: &request.display_title,
+                    });
 
-                Err(e)
+                    Err(DvdError::Cancelled.into())
+                } else {
+                    let err_str = e.to_string();
+                    let record =
+                        RipRecord::new(&request.display_title, media_type, &out_str, "Failed");
+                    let _ = self.history_repo.append_record(&record, None);
+
+                    let _ = self.notifier.send(&NotificationEvent::RipFailed {
+                        title: &request.display_title,
+                        error_message: &err_str,
+                    });
+
+                    Err(e)
+                }
             }
         }
     }

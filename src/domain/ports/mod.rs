@@ -12,4 +12,6 @@ pub use notification::{NotificationEvent, Notifier};
 pub use ocr::OcrProcessor;
 pub use optical_drive::{DiscInspector, DriveDetector, OpticalDrive, TrayController};
 pub use storage::{DiskSpaceGuard, HistoryRepository};
-pub use transcoder::{ProgressObserver, TranscodeJob, Transcoder};
+pub use transcoder::{
+    DefaultVideoCodecResolver, ProgressObserver, TranscodeJob, Transcoder, VideoCodecResolver,
+};

@@ -27,3 +27,22 @@ pub trait Transcoder: Send + Sync {
         cancel_flag: Option<Arc<AtomicBool>>,
     ) -> Result<()>;
 }
+
+/// Open/Closed Principle (OCP/SOLID): Trait contract for video codec strategy resolvers.
+pub trait VideoCodecResolver: Send + Sync {
+    fn resolve(&self, codec: &str) -> &'static str;
+}
+
+/// Default video codec resolver implementing software encoders (H.264, HEVC, AV1).
+#[derive(Debug, Default, Clone, Copy)]
+pub struct DefaultVideoCodecResolver;
+
+impl VideoCodecResolver for DefaultVideoCodecResolver {
+    fn resolve(&self, codec: &str) -> &'static str {
+        match codec.to_lowercase().as_str() {
+            "hevc" | "h265" => "libx265",
+            "av1" => "libsvtav1",
+            _ => "libx264",
+        }
+    }
+}
