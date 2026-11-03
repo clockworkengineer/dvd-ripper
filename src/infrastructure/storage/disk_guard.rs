@@ -18,7 +18,7 @@ impl DiskSpaceGuard for SystemDiskSpaceGuard {
             return Ok(());
         }
         let free_bytes = crate::utils::get_free_disk_space_bytes(path)?;
-        let required_bytes = min_free_gb * 1024 * 1024 * 1024;
+        let required_bytes = min_free_gb.saturating_mul(1024 * 1024 * 1024);
         if free_bytes < required_bytes {
             let free_gb = free_bytes as f64 / (1024.0 * 1024.0 * 1024.0);
             return Err(anyhow!(
