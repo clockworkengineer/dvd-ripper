@@ -16,16 +16,21 @@
 pub use crate::domain::entities::{
     Chapter, DiscCopyProtectionReport, DiscInfo, DiscOptions, DriveStatusInfo, DvdError,
     DvdTitleInfo, FilmMetadata, JobStatus, MediaType, RipProgress, RipRecord, SearchCandidate,
-    TvEpisodeInfo,
+    TvEpisodeInfo, TvEpisodeMetadata,
 };
 
 // Domain Ports
 pub use crate::domain::ports::{
+    benchmark::DriveBenchmarkService,
     dialogs::FileDialogService,
-    metadata::MetadataProvider,
+    media_probe::{StreamProber, ThumbnailExtractor},
+    metadata::{MetadataProvider, TvSeriesMetadataProvider},
     notification::{NotificationEvent, Notifier},
     ocr::OcrProcessor,
-    optical_drive::{DiscInspector, DriveDetector, OpticalDrive, TrayController},
+    optical_drive::{
+        DiscInspector, DriveDetector, DriveIdentity, OpticalDrive, ProtectionInspector,
+        TitleProber, TrayController, TrayOperator,
+    },
     storage::{DiskSpaceGuard, HistoryRepository},
     transcoder::{
         DefaultVideoCodecResolver, ProgressObserver, TranscodeJob, TranscodeOptions, Transcoder,

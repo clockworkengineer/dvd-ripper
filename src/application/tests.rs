@@ -14,7 +14,9 @@ mod tests {
     use crate::domain::entities::media::{FilmMetadata, SearchCandidate};
     use crate::domain::ports::metadata::MetadataProvider;
     use crate::domain::ports::notification::{NotificationEvent, Notifier};
-    use crate::domain::ports::optical_drive::OpticalDrive;
+    use crate::domain::ports::optical_drive::{
+        DriveIdentity, OpticalDrive, ProtectionInspector, TitleProber, TrayOperator,
+    };
     use crate::domain::ports::storage::{DiskSpaceGuard, HistoryRepository};
     use crate::domain::ports::transcoder::{ProgressObserver, TranscodeJob, Transcoder};
 
@@ -116,24 +118,35 @@ mod tests {
         pub probe_count: Arc<AtomicUsize>,
     }
 
-    impl OpticalDrive for MockOpticalDrive {
+    impl DriveIdentity for MockOpticalDrive {
         fn get_path(&self) -> &Path {
             &self.path
         }
         fn read_volume_label(&self) -> Option<String> {
             self.label.clone()
         }
+    }
+
+    impl TitleProber for MockOpticalDrive {
         fn probe_titles(&self) -> Vec<DvdTitleInfo> {
             self.probe_count.fetch_add(1, Ordering::SeqCst);
             self.titles.clone()
         }
+    }
+
+    impl ProtectionInspector for MockOpticalDrive {
         fn inspect_protection(&self) -> DiscCopyProtectionReport {
             DiscCopyProtectionReport::default()
         }
+    }
+
+    impl TrayOperator for MockOpticalDrive {
         fn eject(&self) -> Result<()> {
             Ok(())
         }
     }
+
+    impl OpticalDrive for MockOpticalDrive {}
 
     struct MockMetadataProvider {
         pub film: Option<FilmMetadata>,

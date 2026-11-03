@@ -45,3 +45,13 @@ impl SearchCandidate {
         format!("{}{}{}", self.title, yr, type_desc)
     }
 }
+
+/// Episodic metadata describing a single television show episode.
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
+pub struct TvEpisodeMetadata {
+    pub season: u32,
+    pub episode_num: u32,
+    pub title: String,
+    pub summary: Option<String>,
+    pub runtime_minutes: Option<u32>,
+}

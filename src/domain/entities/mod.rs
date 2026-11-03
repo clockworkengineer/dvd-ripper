@@ -9,4 +9,4 @@ pub use disc::{
 };
 pub use error::DvdError;
 pub use job::{JobStatus, RipProgress, RipRecord};
-pub use media::{FilmMetadata, MediaType, SearchCandidate};
+pub use media::{FilmMetadata, MediaType, SearchCandidate, TvEpisodeMetadata};

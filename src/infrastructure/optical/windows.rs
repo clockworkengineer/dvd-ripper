@@ -1,6 +1,7 @@
 use crate::domain::entities::disc::{DiscCopyProtectionReport, DvdTitleInfo};
 use crate::domain::ports::optical_drive::{
-    DiscInspector, DriveDetector, OpticalDrive, TrayController,
+    DiscInspector, DriveDetector, DriveIdentity, OpticalDrive, ProtectionInspector, TitleProber,
+    TrayController, TrayOperator,
 };
 use anyhow::{Result, anyhow};
 use std::path::{Path, PathBuf};
@@ -21,7 +22,7 @@ impl PhysicalOpticalDrive {
     }
 }
 
-impl OpticalDrive for PhysicalOpticalDrive {
+impl DriveIdentity for PhysicalOpticalDrive {
     fn get_path(&self) -> &Path {
         &self.drive_path
     }
@@ -29,7 +30,9 @@ impl OpticalDrive for PhysicalOpticalDrive {
     fn read_volume_label(&self) -> Option<String> {
         <Self as DiscInspector>::read_volume_label(self, &self.drive_path)
     }
+}
 
+impl TitleProber for PhysicalOpticalDrive {
     fn probe_titles(&self) -> Vec<DvdTitleInfo> {
         let titles = crate::ffmpeg::probe_dvd_titles(&self.ffmpeg_path, &self.drive_path, None);
         titles
@@ -40,15 +43,21 @@ impl OpticalDrive for PhysicalOpticalDrive {
             })
             .collect()
     }
+}
 
+impl ProtectionInspector for PhysicalOpticalDrive {
     fn inspect_protection(&self) -> DiscCopyProtectionReport {
         <Self as DiscInspector>::inspect_protection(self, &self.drive_path)
     }
+}
 
+impl TrayOperator for PhysicalOpticalDrive {
     fn eject(&self) -> Result<()> {
         <Self as TrayController>::eject_tray(self, &self.drive_path)
     }
 }
+
+impl OpticalDrive for PhysicalOpticalDrive {}
 
 impl DiscInspector for PhysicalOpticalDrive {
     fn read_volume_label(&self, drive_path: &Path) -> Option<String> {
