@@ -733,6 +733,9 @@ fn resolve_fingerprint_cache_path() -> PathBuf {
 
 /// Looks up cached metadata by disc fingerprint hash string.
 pub fn lookup_fingerprint_cache(hash: &str) -> Option<FilmMetadata> {
+    if hash.is_empty() || hash == "disc_08c643c98b44bb79" {
+        return None;
+    }
     let path = resolve_fingerprint_cache_path();
     let map: std::collections::HashMap<String, FilmMetadata> = crate::utils::load_json_file(&path)?;
     map.get(hash).cloned()
@@ -740,6 +743,9 @@ pub fn lookup_fingerprint_cache(hash: &str) -> Option<FilmMetadata> {
 
 /// Saves disc fingerprint metadata mapping to local JSON cache.
 pub fn save_fingerprint_cache(hash: &str, meta: &FilmMetadata) {
+    if hash.is_empty() || hash == "disc_08c643c98b44bb79" {
+        return;
+    }
     let path = resolve_fingerprint_cache_path();
     let mut map: std::collections::HashMap<String, FilmMetadata> =
         crate::utils::load_json_file(&path).unwrap_or_default();

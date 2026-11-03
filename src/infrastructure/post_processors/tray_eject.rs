@@ -107,4 +107,34 @@ mod tests {
         assert!(!mock.ejected.load(Ordering::SeqCst));
         assert!(mock.spundown.load(Ordering::SeqCst));
     }
+
+    #[test]
+    fn test_tray_eject_post_processor_autoclose_and_fallback() {
+        let mock = Arc::new(MockTrayController {
+            ejected: AtomicBool::new(false),
+            closed: AtomicBool::new(false),
+            spundown: AtomicBool::new(false),
+        });
+        let processor = TrayEjectPostProcessor::new(Some(mock.clone()));
+        let mut ctx = PostProcessContext::new(
+            Some(PathBuf::from("test.mp4")),
+            "Movie",
+            PathBuf::from("D:\\"),
+        );
+        ctx.no_eject = false;
+        ctx.eject_autoclose_secs = Some(0); // 0s sleep for fast tests
+
+        assert!(processor.process(&ctx).is_ok());
+        assert!(mock.ejected.load(Ordering::SeqCst));
+        assert!(mock.closed.load(Ordering::SeqCst));
+
+        // When tray_controller is None (direct fallback)
+        let processor_none = TrayEjectPostProcessor::new(None);
+        assert!(processor_none.process(&ctx).is_ok());
+
+        let mut ctx_spindown = ctx.clone();
+        ctx_spindown.no_eject = true;
+        ctx_spindown.spindown = true;
+        assert!(processor_none.process(&ctx_spindown).is_ok());
+    }
 }

@@ -214,3 +214,49 @@ pub fn render_about_modal(ctx: &egui::Context, is_open: &mut bool, ffmpeg_path: 
             }
         });
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_headless_render_dialogs() {
+        let ctx = egui::Context::default();
+
+        // 1. All closed
+        let mut cancel_open = false;
+        let mut clear_open = false;
+        let mut help_open = false;
+        let mut about_open = false;
+
+        let _ = ctx.run(Default::default(), |ctx| {
+            render_confirm_cancel_dialog(ctx, &mut cancel_open, 0.45, || {});
+            render_confirm_clear_history_dialog(ctx, &mut clear_open, 5, || {});
+            render_help_modal(ctx, &mut help_open);
+            render_about_modal(ctx, &mut about_open, "ffmpeg");
+        });
+
+        // 2. All open
+        cancel_open = true;
+        clear_open = true;
+        help_open = true;
+        about_open = true;
+
+        let mut confirmed_cancel = false;
+        let mut confirmed_clear = false;
+
+        let _ = ctx.run(Default::default(), |ctx| {
+            render_confirm_cancel_dialog(ctx, &mut cancel_open, 0.75, || {
+                confirmed_cancel = true;
+            });
+            render_confirm_clear_history_dialog(ctx, &mut clear_open, 10, || {
+                confirmed_clear = true;
+            });
+            render_help_modal(ctx, &mut help_open);
+            render_about_modal(ctx, &mut about_open, "ffmpeg");
+        });
+
+        assert!(!confirmed_cancel); // Click not simulated, but UI code executed
+        assert!(!confirmed_clear);
+    }
+}

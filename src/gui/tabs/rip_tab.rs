@@ -440,3 +440,145 @@ pub fn render_rip_tab(
         }
     });
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_render_rip_tab_headless() {
+        let ctx = egui::Context::default();
+        let _ = ctx.run(Default::default(), |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                let mut simple_mode = true;
+                let mut input_drive = "D:\\".to_string();
+                let mut film_name = "The Matrix".to_string();
+                let mut film_year = "1999".to_string();
+                let mut out_dir = "C:\\Videos".to_string();
+                let recent_out_dirs = vec!["C:\\Videos".to_string()];
+                let mut title_number = 1u32;
+                let mut iso_mode = false;
+                let mut mkv = false;
+                let mut transcode = true;
+                let mut profile = "standard".to_string();
+                let mut codec = "h264".to_string();
+                let mut preset = "slow".to_string();
+                let mut deinterlace = true;
+                let mut deinterlace_algo = "bwdif".to_string();
+                let mut denoise = false;
+                let mut hwaccel_fallback = true;
+                let mut all_audio = false;
+                let mut normalize_audio = true;
+                let mut norm_target = -23.0;
+                let mut dual_audio = false;
+                let mut audio_lang = "eng".to_string();
+                let mut subtitles = true;
+                let mut sub_lang = "eng".to_string();
+                let mut sub_format = "srt".to_string();
+                let mut sub_forced_only = false;
+                let mut sub_external_srt = false;
+                let mut ocr = false;
+                let mut ocr_lang = "eng".to_string();
+                let title_thumbnails = HashMap::new();
+
+                // 1. Simple mode, idle
+                render_rip_tab(
+                    ui,
+                    &mut simple_mode,
+                    &mut input_drive,
+                    &mut film_name,
+                    &mut film_year,
+                    &mut out_dir,
+                    &recent_out_dirs,
+                    &mut title_number,
+                    &mut iso_mode,
+                    &mut mkv,
+                    &mut transcode,
+                    &mut profile,
+                    &mut codec,
+                    &mut preset,
+                    &mut deinterlace,
+                    &mut deinterlace_algo,
+                    &mut denoise,
+                    &mut hwaccel_fallback,
+                    &mut all_audio,
+                    &mut normalize_audio,
+                    &mut norm_target,
+                    &mut dual_audio,
+                    &mut audio_lang,
+                    &mut subtitles,
+                    &mut sub_lang,
+                    &mut sub_format,
+                    &mut sub_forced_only,
+                    &mut sub_external_srt,
+                    &mut ocr,
+                    &mut ocr_lang,
+                    None,
+                    "8.7",
+                    "Sci-Fi",
+                    "A hacker discovers reality...",
+                    "Lana Wachowski",
+                    "Keanu Reeves",
+                    &title_thumbnails,
+                    false,
+                    || {},
+                    || {},
+                    || {},
+                    |_| {},
+                    || {},
+                    || {},
+                );
+
+                // 2. Advanced mode + ISO mode + busy
+                simple_mode = false;
+                iso_mode = true;
+                render_rip_tab(
+                    ui,
+                    &mut simple_mode,
+                    &mut input_drive,
+                    &mut film_name,
+                    &mut film_year,
+                    &mut out_dir,
+                    &recent_out_dirs,
+                    &mut title_number,
+                    &mut iso_mode,
+                    &mut mkv,
+                    &mut transcode,
+                    &mut profile,
+                    &mut codec,
+                    &mut preset,
+                    &mut deinterlace,
+                    &mut deinterlace_algo,
+                    &mut denoise,
+                    &mut hwaccel_fallback,
+                    &mut all_audio,
+                    &mut normalize_audio,
+                    &mut norm_target,
+                    &mut dual_audio,
+                    &mut audio_lang,
+                    &mut subtitles,
+                    &mut sub_lang,
+                    &mut sub_format,
+                    &mut sub_forced_only,
+                    &mut sub_external_srt,
+                    &mut ocr,
+                    &mut ocr_lang,
+                    None,
+                    "8.7",
+                    "Sci-Fi",
+                    "A hacker discovers reality...",
+                    "Lana Wachowski",
+                    "Keanu Reeves",
+                    &title_thumbnails,
+                    true,
+                    || {},
+                    || {},
+                    || {},
+                    |_| {},
+                    || {},
+                    || {},
+                );
+            });
+        });
+    }
+}

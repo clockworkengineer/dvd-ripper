@@ -69,5 +69,38 @@ mod tests {
 
         let cancelled = DvdError::Cancelled;
         assert_eq!(cancelled.to_string(), "Ripping process cancelled by user");
+
+        let drive_not_found = DvdError::DriveNotFound("Z:\\".to_string());
+        assert_eq!(drive_not_found.to_string(), "Optical drive not found: Z:\\");
+
+        let no_disc = DvdError::NoDiscDetected("D:\\".to_string());
+        assert_eq!(no_disc.to_string(), "No optical disc media detected in drive 'D:\\'");
+
+        let copy_prot = DvdError::CopyProtectionTrap {
+            title: 3,
+            message: "Bad sector detected".to_string(),
+        };
+        assert_eq!(
+            copy_prot.to_string(),
+            "Copy protection trap or bad sectors on Title #3: Bad sector detected"
+        );
+
+        let transcode_failed = DvdError::TranscodeFailed("FFmpeg exit code 1".to_string());
+        assert_eq!(
+            transcode_failed.to_string(),
+            "Transcoding failure: FFmpeg exit code 1"
+        );
+
+        let meta_not_found = DvdError::MetadataNotFound("The Matrix 1999".to_string());
+        assert_eq!(
+            meta_not_found.to_string(),
+            "Metadata not found for query: The Matrix 1999"
+        );
+
+        let cloned = err.clone();
+        assert_eq!(err, cloned);
+        assert_eq!(format!("{:?}", err), format!("{:?}", cloned));
+        let std_err: &dyn std::error::Error = &err;
+        assert!(std_err.source().is_none());
     }
 }

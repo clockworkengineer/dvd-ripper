@@ -141,3 +141,35 @@ pub fn render_history_tab(
         }
     });
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_render_history_tab_headless() {
+        let ctx = egui::Context::default();
+        let _ = ctx.run(Default::default(), |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                // 1. Empty history
+                let mut filter = String::new();
+                render_history_tab(ui, &[], &mut filter, || {});
+
+                // 2. History with records and filtering
+                let rec1 = RipRecord::new("The Matrix", "Movie", "C:\\Videos\\matrix.mp4", "Success");
+                let rec2 = RipRecord::new("Breaking Bad", "TV Series", "C:\\Videos\\bb.mp4", "Failed");
+                let history = vec![rec1, rec2];
+
+                render_history_tab(ui, &history, &mut filter, || {});
+
+                // Filter matching one record
+                let mut match_filter = "matrix".to_string();
+                render_history_tab(ui, &history, &mut match_filter, || {});
+
+                // Filter matching zero records
+                let mut no_match = "nonexistent_query_xyz".to_string();
+                render_history_tab(ui, &history, &mut no_match, || {});
+            });
+        });
+    }
+}

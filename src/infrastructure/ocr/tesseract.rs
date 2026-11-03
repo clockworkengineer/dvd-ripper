@@ -33,3 +33,24 @@ impl OcrProcessor for TesseractOcrService {
         processor.recognize_text(image_path, lang)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_tesseract_ocr_service() {
+        let service = TesseractOcrService::default();
+        assert_eq!(service.binary_path, "tesseract");
+
+        let custom = TesseractOcrService::new("nonexistent-tesseract-bin");
+        assert_eq!(custom.binary_path, "nonexistent-tesseract-bin");
+        assert!(!custom.is_available());
+
+        let res = custom.recognize_text(Path::new("dummy.png"), "eng");
+        assert!(res.is_err());
+
+        let cloned = custom.clone();
+        assert_eq!(format!("{:?}", custom), format!("{:?}", cloned));
+    }
+}

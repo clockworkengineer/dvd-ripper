@@ -41,4 +41,27 @@ mod tests {
         ctx.nfo_enabled = false;
         assert!(processor.process(&ctx).is_ok());
     }
+
+    #[test]
+    fn test_nfo_post_processor_enabled() {
+        let processor = NfoPostProcessor;
+        let temp_dir = std::env::temp_dir().join(format!("nfo_proc_test_{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&temp_dir);
+        let out_file = temp_dir.join("film.mp4");
+
+        let mut ctx = PostProcessContext::new(
+            Some(out_file),
+            "Aliens",
+            PathBuf::from("D:\\"),
+        );
+        ctx.nfo_enabled = true;
+        ctx.year = Some(1986);
+        ctx.nfo_tags = Some("Sci-Fi".to_string());
+
+        assert!(processor.process(&ctx).is_ok());
+
+        let nfo = temp_dir.join("film.nfo");
+        assert!(nfo.exists());
+        let _ = std::fs::remove_dir_all(temp_dir);
+    }
 }

@@ -121,3 +121,128 @@ impl Default for DiscOptions {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_dvd_title_info() {
+        let title = DvdTitleInfo {
+            title_num: 1,
+            duration_secs: 7200.0,
+        };
+        let cloned = title.clone();
+        assert_eq!(title, cloned);
+        let json = serde_json::to_string(&title).unwrap();
+        let de: DvdTitleInfo = serde_json::from_str(&json).unwrap();
+        assert_eq!(title, de);
+    }
+
+    #[test]
+    fn test_tv_episode_info() {
+        let ep = TvEpisodeInfo {
+            title_num: 2,
+            episode_num: 1,
+            duration_secs: 1800.0,
+            formatted_name: "Show S01E01".to_string(),
+        };
+        let cloned = ep.clone();
+        assert_eq!(ep, cloned);
+        let json = serde_json::to_string(&ep).unwrap();
+        let de: TvEpisodeInfo = serde_json::from_str(&json).unwrap();
+        assert_eq!(ep, de);
+    }
+
+    #[test]
+    fn test_chapter() {
+        let mut ch = Chapter::default();
+        assert_eq!(ch.index, 0);
+        ch.index = 1;
+        ch.start_secs = 0.0;
+        ch.end_secs = 300.0;
+        ch.title = "Intro".to_string();
+
+        let cloned = ch.clone();
+        assert_eq!(ch, cloned);
+        let json = serde_json::to_string(&ch).unwrap();
+        let de: Chapter = serde_json::from_str(&json).unwrap();
+        assert_eq!(ch, de);
+    }
+
+    #[test]
+    fn test_disc_copy_protection_report() {
+        let mut rep = DiscCopyProtectionReport::default();
+        assert!(!rep.has_css_indicators);
+        rep.has_css_indicators = true;
+        rep.vob_count = 5;
+        rep.ifo_count = 2;
+        rep.total_bytes = 4_700_000_000;
+        rep.diagnostic_notes.push("CSS encrypted sectors detected".to_string());
+
+        let cloned = rep.clone();
+        assert_eq!(rep, cloned);
+        let json = serde_json::to_string(&rep).unwrap();
+        let de: DiscCopyProtectionReport = serde_json::from_str(&json).unwrap();
+        assert_eq!(rep, de);
+    }
+
+    #[test]
+    fn test_disc_info() {
+        let disc = DiscInfo {
+            device_path: PathBuf::from("D:\\"),
+            volume_label: Some("TEST_DISC".to_string()),
+            fingerprint: "abcdef123456".to_string(),
+            titles: vec![DvdTitleInfo {
+                title_num: 1,
+                duration_secs: 5400.0,
+            }],
+            protection: DiscCopyProtectionReport::default(),
+        };
+        let cloned = disc.clone();
+        assert_eq!(disc, cloned);
+        let json = serde_json::to_string(&disc).unwrap();
+        let de: DiscInfo = serde_json::from_str(&json).unwrap();
+        assert_eq!(disc, de);
+    }
+
+    #[test]
+    fn test_drive_status_info() {
+        let status = DriveStatusInfo::new("E:\\");
+        assert_eq!(status.drive, "E:\\");
+        assert_eq!(status.status, "Idle");
+        assert_eq!(status.progress, 0.0);
+        assert_eq!(status.fps, "0");
+        assert_eq!(status.speed, "0x");
+        assert!(!status.has_selected_movie);
+        assert!(!status.is_series);
+        assert_eq!(status.year, None);
+
+        let cloned = status.clone();
+        assert_eq!(status, cloned);
+        let json = serde_json::to_string(&status).unwrap();
+        let de: DriveStatusInfo = serde_json::from_str(&json).unwrap();
+        assert_eq!(status, de);
+    }
+
+    #[test]
+    fn test_disc_options() {
+        let opts = DiscOptions::default();
+        assert_eq!(opts.min_free_gb, 10);
+        assert!(!opts.no_eject);
+        assert_eq!(opts.eject_autoclose, None);
+        assert!(!opts.spindown);
+
+        let custom = DiscOptions {
+            min_free_gb: 20,
+            no_eject: true,
+            eject_autoclose: Some(30),
+            spindown: true,
+        };
+        let cloned = custom.clone();
+        assert_eq!(custom, cloned);
+        let json = serde_json::to_string(&custom).unwrap();
+        let de: DiscOptions = serde_json::from_str(&json).unwrap();
+        assert_eq!(custom, de);
+    }
+}

@@ -74,8 +74,13 @@ fn main() -> Result<()> {
     let source_binary = find_source_binary()?;
     println!("[+] Found source binary: {}", source_binary.display());
 
+    run_install(&args, &source_binary)
+}
+
+/// Executes the core installation workflow given the validated arguments and source executable.
+fn run_install(args: &InstallerArgs, source_binary: &Path) -> Result<()> {
     // 3. Resolve installation destination directory
-    let target_dir = resolve_target_dir(&args)?;
+    let target_dir = resolve_target_dir(args)?;
     let binary_name = target_binary_name();
     let target_binary = target_dir.join(binary_name);
 
@@ -123,7 +128,7 @@ fn main() -> Result<()> {
         }
     }
 
-    fs::copy(&source_binary, &target_binary).with_context(|| {
+    fs::copy(source_binary, &target_binary).with_context(|| {
         format!(
             "Failed to copy binary from {} to {}",
             source_binary.display(),
@@ -152,7 +157,7 @@ fn main() -> Result<()> {
 
     // 7. Linux Systemd / Udev Integration (if requested or running as root)
     println!("\n[4/5] Checking System Appliance Integration...");
-    configure_system_services(&args)?;
+    configure_system_services(args)?;
 
     // 8. Verification Summary
     println!("\n[5/5] Finalizing Installation...");
@@ -585,5 +590,56 @@ mod tests {
             dir.to_string_lossy().contains("Program Files")
                 || dir.to_string_lossy().contains("/usr/local/bin")
         );
+    }
+
+    #[test]
+    fn test_installer_helpers() {
+        assert!(audit_ffmpeg().is_ok());
+
+        let name = target_binary_name();
+        assert!(name.contains("dvd-ripper"));
+
+        let env_sys = SystemInstallerEnvironment;
+        let args = InstallerArgs {
+            system: false,
+            user: true,
+            dir: None,
+            uninstall: false,
+            service: false,
+            yes: true,
+        };
+        assert!(env_sys.resolve_target_dir(&args).is_ok());
+
+        let temp = std::env::temp_dir();
+        assert!(configure_path(&temp, false).is_ok());
+
+        let _ = configure_system_services(&args);
+
+        let dummy_exe = temp.join(target_binary_name());
+        let _ = fs::write(&dummy_exe, b"dummy executable");
+        let _ = create_shortcuts(&dummy_exe);
+        remove_shortcuts();
+
+        let install_args = InstallerArgs {
+            system: false,
+            user: false,
+            dir: Some(temp.clone()),
+            uninstall: false,
+            service: false,
+            yes: true,
+        };
+        let _ = run_install(&install_args, &dummy_exe);
+
+        let _ = find_source_binary();
+
+        let uninstall_args = InstallerArgs {
+            system: false,
+            user: false,
+            dir: Some(temp.clone()),
+            uninstall: true,
+            service: false,
+            yes: true,
+        };
+        let _ = run_uninstall(&uninstall_args);
     }
 }

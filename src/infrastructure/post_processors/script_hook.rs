@@ -37,4 +37,18 @@ mod tests {
         );
         assert!(processor.process(&ctx).is_ok());
     }
+
+    #[test]
+    fn test_script_hook_post_processor_some() {
+        let processor = ScriptHookPostProcessor;
+        let mut ctx = PostProcessContext::new(
+            Some(PathBuf::from("test.mp4")),
+            "Movie",
+            PathBuf::from("D:\\"),
+        );
+        ctx.post_script = Some("echo Done".to_string());
+        ctx.year = Some(2020);
+
+        assert!(processor.process(&ctx).is_ok());
+    }
 }

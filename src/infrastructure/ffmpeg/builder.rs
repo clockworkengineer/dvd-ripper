@@ -68,5 +68,8 @@ mod tests {
         let cmd = builder.build();
         let program = cmd.get_program();
         assert_eq!(program, "ffmpeg");
+
+        let cmd2 = build_ffmpeg_command(&args, Path::new("D:\\"), Path::new("out.mp4"), 2);
+        assert_eq!(cmd2.get_program(), "ffmpeg");
     }
 }

@@ -96,3 +96,46 @@ pub fn validate_preflight_checks(
         Err(errors)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_render_disk_space_gauge_headless() {
+        let ctx = egui::Context::default();
+        let _ = ctx.run(Default::default(), |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                let temp = std::env::temp_dir();
+                render_disk_space_gauge(ui, &temp.to_string_lossy(), 10);
+                render_disk_space_gauge(ui, "Z:\\DefinitelyNonExistent12345", 100);
+            });
+        });
+    }
+
+    #[test]
+    fn test_validate_preflight_checks_matrix() {
+        // All empty
+        let errs = validate_preflight_checks("", false, false, "", "").unwrap_err();
+        assert_eq!(errs.len(), 3);
+
+        // TV mode empty title
+        let errs_tv = validate_preflight_checks("D:\\", false, true, "", "C:\\Out").unwrap_err();
+        assert_eq!(errs_tv.len(), 1);
+        assert!(errs_tv[0].contains("TV Show Name"));
+
+        // Movie mode empty title
+        let errs_movie = validate_preflight_checks("D:\\", false, false, "", "C:\\Out").unwrap_err();
+        assert_eq!(errs_movie.len(), 1);
+        assert!(errs_movie[0].contains("Movie Title"));
+
+        // ISO mode doesn't require title
+        let ok_iso = validate_preflight_checks("D:\\", true, false, "", "C:\\Out");
+        assert!(ok_iso.is_ok());
+
+        // Empty out_dir
+        let err_dir = validate_preflight_checks("D:\\", true, false, "", "").unwrap_err();
+        assert_eq!(err_dir.len(), 1);
+        assert!(err_dir[0].contains("Destination folder"));
+    }
+}

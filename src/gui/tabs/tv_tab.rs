@@ -129,3 +129,87 @@ pub fn render_tv_tab(
         }
     });
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_render_tv_tab_headless() {
+        let ctx = egui::Context::default();
+        let _ = ctx.run(Default::default(), |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                let mut show_name = "Lost".to_string();
+                let mut season = 1;
+                let mut start_ep = 1;
+                let mut auto_boxset = true;
+                let mut all_episodes = true;
+                let title_thumbnails = HashMap::new();
+
+                // 1. Empty episodes
+                render_tv_tab(
+                    ui,
+                    &mut show_name,
+                    &mut season,
+                    &mut start_ep,
+                    &mut auto_boxset,
+                    &mut all_episodes,
+                    &[],
+                    &title_thumbnails,
+                    false,
+                    || {},
+                    |_| {},
+                    || {},
+                );
+
+                // 2. With detected episodes
+                let episodes = vec![
+                    TvEpisodeInfo {
+                        title_num: 1,
+                        episode_num: 1,
+                        duration_secs: 2700.0,
+                        formatted_name: "Pilot 1".to_string(),
+                    },
+                    TvEpisodeInfo {
+                        title_num: 2,
+                        episode_num: 2,
+                        duration_secs: 2600.0,
+                        formatted_name: "Pilot 2".to_string(),
+                    },
+                ];
+
+                render_tv_tab(
+                    ui,
+                    &mut show_name,
+                    &mut season,
+                    &mut start_ep,
+                    &mut auto_boxset,
+                    &mut all_episodes,
+                    &episodes,
+                    &title_thumbnails,
+                    false,
+                    || {},
+                    |_| {},
+                    || {},
+                );
+
+                // 3. Busy state with empty show title
+                let mut empty_show = String::new();
+                render_tv_tab(
+                    ui,
+                    &mut empty_show,
+                    &mut season,
+                    &mut start_ep,
+                    &mut auto_boxset,
+                    &mut all_episodes,
+                    &[],
+                    &title_thumbnails,
+                    true,
+                    || {},
+                    |_| {},
+                    || {},
+                );
+            });
+        });
+    }
+}

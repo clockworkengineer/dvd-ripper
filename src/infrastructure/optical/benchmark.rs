@@ -31,5 +31,10 @@ mod tests {
     fn test_benchmark_service_construction() {
         let service = FfmpegDriveBenchmarkService::new("ffmpeg");
         assert_eq!(service.ffmpeg_path, "ffmpeg");
+
+        let cloned = service.clone();
+        assert_eq!(format!("{:?}", service), format!("{:?}", cloned));
+
+        let _ = service.benchmark(Path::new("Z:\\NonExistent_Drive"), 1);
     }
 }

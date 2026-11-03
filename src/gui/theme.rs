@@ -14,3 +14,17 @@ pub const BORDER_COLOR: Color32 = Color32::from_rgb(51, 65, 85); // #334155 - Su
 pub const PRIMARY_BTN_SIZE: [f32; 2] = [160.0, 32.0];
 pub const SECONDARY_BTN_SIZE: [f32; 2] = [120.0, 28.0];
 pub const SMALL_BTN_SIZE: [f32; 2] = [28.0, 24.0];
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_theme_constants() {
+        assert_ne!(ACCENT_COLOR, DANGER_COLOR);
+        assert_ne!(SUCCESS_COLOR, WARNING_COLOR);
+        assert_eq!(PRIMARY_BTN_SIZE, [160.0, 32.0]);
+        assert_eq!(SECONDARY_BTN_SIZE, [120.0, 28.0]);
+        assert_eq!(SMALL_BTN_SIZE, [28.0, 24.0]);
+    }
+}

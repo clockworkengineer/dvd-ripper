@@ -647,3 +647,109 @@ impl GuiApplicationController {
         });
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_gui_controller_lifecycle_and_channel() {
+        let container = Arc::new(AppContainer::build_production("ffmpeg"));
+        let mut controller = GuiApplicationController::new(container.clone());
+
+        assert!(Arc::ptr_eq(controller.container(), &container));
+
+        let tx = controller.event_tx();
+        let _ = tx.send(ProgressEvent::Log("Test log".to_string()));
+
+        let ev = controller.poll_event();
+        assert!(matches!(ev, Some(ProgressEvent::Log(_))));
+
+        // Cancellation
+        controller.cancel();
+        let cancel_ev = controller.poll_event();
+        assert!(matches!(cancel_ev, Some(ProgressEvent::Error(_))));
+
+        // Folder methods
+        controller.open_folder(Path::new("dummy_nonexistent"));
+
+        // History methods
+        let history = controller.load_history(None);
+        assert_eq!(history.len(), controller.load_history(None).len());
+        let _ = controller.clear_history(None);
+    }
+
+    #[test]
+    fn test_rip_task_specification_clone_and_debug() {
+        let spec = RipTaskSpecification {
+            drive: "D:\\".to_string(),
+            out_dir: "C:\\Out".to_string(),
+            is_iso: false,
+            is_tv: false,
+            all_episodes: false,
+            film_name: Some("The Matrix".to_string()),
+            film_year: Some(1999),
+            season: 1,
+            start_episode: 1,
+            title_number: 1,
+            preset: "slow".to_string(),
+            ffmpeg_path: "ffmpeg".to_string(),
+            expected_runtime_secs: Some(8160.0),
+            detected_episodes: Vec::new(),
+            poster_bytes: None,
+            encoding_options: crate::cli::EncodingOptions::default(),
+        };
+
+        let cloned = spec.clone();
+        assert_eq!(spec.drive, cloned.drive);
+        assert_eq!(format!("{:?}", spec), format!("{:?}", cloned));
+    }
+
+    #[test]
+    fn test_gui_controller_async_detection_and_lookups() {
+        let container = Arc::new(AppContainer::build_production("ffmpeg"));
+        let controller = GuiApplicationController::new(container);
+
+        controller.start_detection("Z:\\NonExistentDrive", None);
+        controller.start_search_lookup("tt0000000_fake");
+        controller.start_tv_scan("Z:\\NonExistentDrive", "FakeShow", 1, 1);
+        controller.start_thumbnail_preview("Z:\\NonExistentDrive", 1);
+        controller.start_benchmark("Z:\\NonExistentDrive");
+
+        // Wait a short moment for background threads to emit events
+        std::thread::sleep(std::time::Duration::from_millis(150));
+
+        // Poll whatever events were emitted
+        while let Some(_event) = controller.poll_event() {}
+    }
+
+    #[test]
+    fn test_gui_controller_start_ripping_iso_fails_gracefully() {
+        let container = Arc::new(AppContainer::build_production("ffmpeg"));
+        let mut controller = GuiApplicationController::new(container);
+
+        let spec = RipTaskSpecification {
+            drive: "Z:\\NonExistentDrive".to_string(),
+            out_dir: "C:\\Out".to_string(),
+            is_iso: true,
+            is_tv: false,
+            all_episodes: false,
+            film_name: Some("Test ISO".to_string()),
+            film_year: None,
+            season: 1,
+            start_episode: 1,
+            title_number: 1,
+            preset: "slow".to_string(),
+            ffmpeg_path: "ffmpeg".to_string(),
+            expected_runtime_secs: None,
+            detected_episodes: Vec::new(),
+            poster_bytes: None,
+            encoding_options: crate::cli::EncodingOptions::default(),
+        };
+
+        controller.start_ripping(spec);
+
+        std::thread::sleep(std::time::Duration::from_millis(150));
+        while let Some(_ev) = controller.poll_event() {}
+    }
+}

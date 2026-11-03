@@ -128,4 +128,79 @@ mod tests {
         proc.process(&ctx).unwrap();
         assert!(proc.called.load(std::sync::atomic::Ordering::SeqCst));
     }
+
+    #[test]
+    fn test_post_process_context_from_args_movie() {
+        let mut args = crate::cli::Args::default();
+        args.tv = false;
+        args.nfo = true;
+        args.tags = Some("Sci-Fi,Classic".to_string());
+        args.checksum = true;
+        args.audit_log = Some("audit.log".to_string());
+        args.auto_cleanup_days = Some(30);
+        args.post_script = Some("script.bat".to_string());
+        args.plex_url = Some("http://localhost:32400".to_string());
+        args.plex_token = Some("plextoken".to_string());
+        args.no_eject = true;
+        args.eject_autoclose = Some(15);
+        args.spindown = true;
+
+        let ctx = PostProcessContext::from_args(
+            &args,
+            Some(PathBuf::from("out.mp4")),
+            "The Matrix",
+            Some(1999),
+            PathBuf::from("D:\\"),
+            Some(vec![1, 2, 3]),
+        );
+
+        assert_eq!(ctx.media_type, "Movie");
+        assert_eq!(ctx.title, "The Matrix");
+        assert_eq!(ctx.year, Some(1999));
+        assert_eq!(ctx.season, None);
+        assert_eq!(ctx.episode, None);
+        assert!(ctx.nfo_enabled);
+        assert_eq!(ctx.nfo_tags.as_deref(), Some("Sci-Fi,Classic"));
+        assert!(ctx.checksum_enabled);
+        assert_eq!(ctx.audit_log_path, Some(PathBuf::from("audit.log")));
+        assert_eq!(ctx.auto_cleanup_days, Some(30));
+        assert_eq!(ctx.post_script.as_deref(), Some("script.bat"));
+        assert!(ctx.media_servers_enabled);
+        assert_eq!(ctx.plex_url.as_deref(), Some("http://localhost:32400"));
+        assert_eq!(ctx.plex_token.as_deref(), Some("plextoken"));
+        assert!(ctx.no_eject);
+        assert_eq!(ctx.eject_autoclose_secs, Some(15));
+        assert!(ctx.spindown);
+
+        let cloned = ctx.clone();
+        assert_eq!(cloned.title, ctx.title);
+    }
+
+    #[test]
+    fn test_post_process_context_from_args_tv() {
+        let mut args = crate::cli::Args::default();
+        args.tv = true;
+        args.season = 3;
+        args.start_episode = 4;
+        args.jellyfin_url = Some("http://localhost:8096".to_string());
+        args.jellyfin_key = Some("jfkey".to_string());
+        args.emby_url = Some("http://localhost:8096".to_string());
+        args.emby_key = Some("embykey".to_string());
+
+        let ctx = PostProcessContext::from_args(
+            &args,
+            Some(PathBuf::from("tv.mp4")),
+            "Lost",
+            Some(2004),
+            PathBuf::from("E:\\"),
+            None,
+        );
+
+        assert_eq!(ctx.media_type, "TV Series");
+        assert_eq!(ctx.season, Some(3));
+        assert_eq!(ctx.episode, Some(4));
+        assert!(ctx.media_servers_enabled);
+        assert_eq!(ctx.jellyfin_url.as_deref(), Some("http://localhost:8096"));
+        assert_eq!(ctx.emby_key.as_deref(), Some("embykey"));
+    }
 }

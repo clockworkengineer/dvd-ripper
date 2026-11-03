@@ -15,6 +15,12 @@ pub use tabs::ActiveTab;
 
 impl eframe::App for DvdRipperApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        self.render_ui(ctx);
+    }
+}
+
+impl DvdRipperApp {
+    pub fn render_ui(&mut self, ctx: &egui::Context) {
         self.poll_events(ctx);
 
         if self.is_ripping || self.detecting {
@@ -487,5 +493,48 @@ mod tests {
         // Valid movie
         let ok_movie = validate_preflight_checks("D:\\", false, false, "Inception", "C:\\Out");
         assert!(ok_movie.is_ok());
+    }
+
+    #[test]
+    fn test_render_ui_across_all_tabs_and_modals() {
+        let ctx = egui::Context::default();
+        let tabs = [
+            ActiveTab::Rip,
+            ActiveTab::TvSeries,
+            ActiveTab::Benchmark,
+            ActiveTab::History,
+            ActiveTab::Settings,
+        ];
+
+        for tab in tabs {
+            let mut app = DvdRipperApp::default();
+            app.active_tab = tab;
+            app.is_ripping = false;
+            app.detecting = false;
+            app.show_about_modal = true;
+            app.show_help_modal = true;
+            app.show_confirm_cancel = true;
+            app.show_confirm_clear = true;
+            app.history = vec![crate::history::RipRecord::new("Test", "Movie", "out.mp4", "Success")];
+
+            let _ = ctx.run(Default::default(), |ctx| {
+                app.render_ui(ctx);
+            });
+        }
+
+        // Test busy ripping state
+        let mut busy_app = DvdRipperApp::default();
+        busy_app.is_ripping = true;
+        busy_app.status_message = "Error: optical drive disc read failed".to_string();
+        let _ = ctx.run(Default::default(), |ctx| {
+            busy_app.render_ui(ctx);
+        });
+
+        // Test empty drive state
+        let mut empty_app = DvdRipperApp::default();
+        empty_app.input_drive.clear();
+        let _ = ctx.run(Default::default(), |ctx| {
+            empty_app.render_ui(ctx);
+        });
     }
 }

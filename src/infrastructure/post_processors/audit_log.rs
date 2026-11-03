@@ -35,4 +35,21 @@ mod tests {
         );
         assert!(processor.process(&ctx).is_ok());
     }
+
+    #[test]
+    fn test_audit_log_post_processor_some() {
+        let processor = AuditLogPostProcessor;
+        let temp = std::env::temp_dir().join(format!("audit_test_{}.jsonl", std::process::id()));
+        let mut ctx = PostProcessContext::new(
+            Some(PathBuf::from("test.mp4")),
+            "The Matrix",
+            PathBuf::from("D:\\"),
+        );
+        ctx.audit_log_path = Some(temp.clone());
+        ctx.year = Some(1999);
+
+        assert!(processor.process(&ctx).is_ok());
+        assert!(temp.exists());
+        let _ = std::fs::remove_file(temp);
+    }
 }

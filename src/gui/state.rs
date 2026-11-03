@@ -879,3 +879,194 @@ impl DvdRipperApp {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+    use crate::domain::ports::transcoder::ProgressObserver;
+    use crate::domain::entities::media::FilmMetadata;
+
+    #[test]
+    fn test_gui_progress_observer() {
+        let (tx, rx) = std::sync::mpsc::channel();
+        let observer = GuiProgressObserver { tx };
+
+        observer.on_progress(50.0, "30", "1.5x");
+        observer.on_log("Transcode step");
+
+        let ev1 = rx.recv().unwrap();
+        assert!(matches!(ev1, ProgressEvent::Progress { .. }));
+
+        let ev2 = rx.recv().unwrap();
+        assert!(matches!(ev2, ProgressEvent::Log(_)));
+    }
+
+    #[test]
+    fn test_dvd_ripper_app_defaults_and_helpers() {
+        let mut app = DvdRipperApp::default();
+        assert_eq!(app.film_name_opt(), None);
+        assert_eq!(app.effective_show_name(), "TV Show");
+
+        app.film_name = "  Inception  ".to_string();
+        assert_eq!(app.film_name_opt().as_deref(), Some("Inception"));
+        assert_eq!(app.effective_show_name(), "Inception");
+
+        let encoding_opts = app.build_encoding_options();
+        assert_eq!(encoding_opts.codec, "h264");
+        assert_eq!(encoding_opts.profile, "standard");
+
+        app.codec = "hevc".to_string();
+        app.reset_to_defaults();
+        assert_eq!(app.codec, "h264");
+
+        app.save_current_output_dir_preference();
+    }
+
+    #[test]
+    fn test_dvd_ripper_app_episode_names_update() {
+        let mut app = DvdRipperApp::default();
+        app.film_name = "Firefly".to_string();
+        app.season_number = 1;
+        app.start_episode = 1;
+
+        app.detected_episodes = vec![
+            TvEpisodeInfo {
+                title_num: 1,
+                episode_num: 1,
+                duration_secs: 2700.0,
+                formatted_name: "Original 1".to_string(),
+            },
+            TvEpisodeInfo {
+                title_num: 2,
+                episode_num: 2,
+                duration_secs: 2600.0,
+                formatted_name: "Original 2".to_string(),
+            },
+        ];
+
+        app.update_detected_episode_names();
+        assert_eq!(app.detected_episodes[0].formatted_name, "Firefly - S01E01");
+        assert_eq!(app.detected_episodes[1].formatted_name, "Firefly - S01E02");
+    }
+
+    #[test]
+    fn test_dvd_ripper_app_process_events_all_variants() {
+        let mut app = DvdRipperApp::default();
+        app.is_ripping = true;
+
+        // Progress event
+        let _ = app.event_tx.send(ProgressEvent::Progress {
+            percent: 45.0,
+            fps: "60.0".to_string(),
+            speed: "2.5x".to_string(),
+        });
+
+        // Log event
+        let _ = app.event_tx.send(ProgressEvent::Log("FFmpeg line output".to_string()));
+
+        // SearchResults event
+        let _ = app.event_tx.send(ProgressEvent::SearchResults(vec![
+            crate::imdb::SearchResultItem {
+                title: "Movie 1".to_string(),
+                year: Some(2000),
+                imdb_id: "tt1234567".to_string(),
+                type_field: "movie".to_string(),
+                poster_url: None,
+            },
+            crate::imdb::SearchResultItem {
+                title: "Movie 2".to_string(),
+                year: Some(2002),
+                imdb_id: "tt7654321".to_string(),
+                type_field: "movie".to_string(),
+                poster_url: None,
+            },
+        ]));
+
+        // Metadata event
+        let _ = app.event_tx.send(ProgressEvent::Metadata(FilmMetadata {
+            title: "Discovered Title".to_string(),
+            year: Some(2005),
+            runtime_secs: Some(7200.0),
+            plot: Some("Plot desc".to_string()),
+            genre: Some("Action".to_string()),
+            director: Some("Director".to_string()),
+            actors: Some("Actors".to_string()),
+            rating: Some("8.0".to_string()),
+            poster_bytes: None,
+            is_series: false,
+            ..Default::default()
+        }));
+
+        // DetectedTitle event
+        let _ = app.event_tx.send(ProgressEvent::DetectedTitle {
+            title_num: 3,
+            duration_secs: 5400.0,
+        });
+
+        // TitleThumbnailReady event
+        let _ = app.event_tx.send(ProgressEvent::TitleThumbnailReady {
+            title_num: 3,
+            image_bytes: vec![0, 1, 2],
+        });
+
+        // BenchmarkFinished event
+        let _ = app.event_tx.send(ProgressEvent::BenchmarkFinished(crate::dvd::DriveBenchmarkReport {
+            drive_path: "D:\\".to_string(),
+            test_duration_secs: 10,
+            read_bytes: 50_000_000,
+            read_speed_mbps: 5.0,
+            demux_speed_mbps: 4.8,
+            fps: "120.0".to_string(),
+            rating_summary: "Adequate Optical Read".to_string(),
+        }));
+
+        // Success event
+        let _ = app.event_tx.send(ProgressEvent::Success(PathBuf::from("C:\\Out\\Movie.mp4")));
+
+        app.process_events();
+
+        assert_eq!(app.progress_percent, 1.0);
+        assert!(!app.is_ripping);
+        assert_eq!(app.film_name, "Discovered Title");
+        assert_eq!(app.film_year, "2005");
+        assert_eq!(app.title_number, 3);
+        assert!(app.benchmark_report.is_some());
+    }
+
+    #[test]
+    fn test_dvd_ripper_app_headless_search_modal() {
+        let mut app = DvdRipperApp::default();
+        app.show_search_modal = true;
+        app.search_candidates = vec![
+            crate::imdb::SearchResultItem {
+                title: "Test Movie".to_string(),
+                year: Some(2021),
+                imdb_id: "tt9876543".to_string(),
+                type_field: "movie".to_string(),
+                poster_url: None,
+            },
+        ];
+
+        let ctx = egui::Context::default();
+        let _ = ctx.run(Default::default(), |ctx| {
+            app.render_search_modal(ctx);
+        });
+
+        assert!(app.show_search_modal);
+    }
+
+    #[test]
+    fn test_dvd_ripper_app_with_container_and_triggers() {
+        let container = Arc::new(crate::AppContainer::build_production("ffmpeg"));
+        let mut app = DvdRipperApp::with_container(container);
+
+        app.trigger_custom_search();
+        app.trigger_tv_scan();
+        app.trigger_thumbnail_preview(1);
+        app.trigger_benchmark();
+
+        let ctx = egui::Context::default();
+        app.poll_events(&ctx);
+    }
+}

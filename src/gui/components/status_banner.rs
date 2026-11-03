@@ -147,3 +147,105 @@ pub fn render_collapsible_log_drawer(ui: &mut egui::Ui, logs: &VecDeque<String>)
                 });
         });
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_format_mm_ss() {
+        assert_eq!(format_mm_ss(0), "00:00");
+        assert_eq!(format_mm_ss(59), "00:59");
+        assert_eq!(format_mm_ss(60), "01:00");
+        assert_eq!(format_mm_ss(3665), "61:05");
+    }
+
+    #[test]
+    fn test_system_drive_state_badges() {
+        let (txt, _) = SystemDriveState::Ready.badge();
+        assert!(txt.contains("READY"));
+
+        let (txt, _) = SystemDriveState::Scanning.badge();
+        assert!(txt.contains("SCANNING"));
+
+        let (txt, _) = SystemDriveState::Ripping.badge();
+        assert!(txt.contains("RIPPING"));
+
+        let (txt, _) = SystemDriveState::NoDisc.badge();
+        assert!(txt.contains("NO DISC"));
+
+        let (txt, _) = SystemDriveState::Error.badge();
+        assert!(txt.contains("ERROR"));
+
+        let cloned = SystemDriveState::Ready;
+        assert_eq!(SystemDriveState::Ready, cloned);
+        assert_eq!(format!("{:?}", SystemDriveState::Ready), format!("{:?}", cloned));
+    }
+
+    #[test]
+    fn test_headless_render_status_banner_and_telemetry() {
+        let ctx = egui::Context::default();
+        let _ = ctx.run(Default::default(), |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                render_drive_status_pill(ui, SystemDriveState::Ready);
+                render_drive_status_pill(ui, SystemDriveState::Scanning);
+                render_drive_status_pill(ui, SystemDriveState::Ripping);
+                render_drive_status_pill(ui, SystemDriveState::NoDisc);
+                render_drive_status_pill(ui, SystemDriveState::Error);
+
+                // Telemetry during ripping
+                render_telemetry_bar(
+                    ui,
+                    true,
+                    0.5,
+                    "30.0",
+                    "1.5x",
+                    "Ripping Title #1...",
+                    Some(Instant::now()),
+                    Some(120.0),
+                );
+
+                // Telemetry completed
+                render_telemetry_bar(
+                    ui,
+                    false,
+                    1.0,
+                    "N/A",
+                    "N/A",
+                    "Ripping completed successfully.",
+                    None,
+                    None,
+                );
+
+                // Telemetry cancelled
+                render_telemetry_bar(
+                    ui,
+                    false,
+                    0.0,
+                    "N/A",
+                    "N/A",
+                    "Process cancelled",
+                    None,
+                    None,
+                );
+
+                // Telemetry error
+                render_telemetry_bar(
+                    ui,
+                    false,
+                    0.0,
+                    "N/A",
+                    "N/A",
+                    "Error: drive failed",
+                    None,
+                    None,
+                );
+
+                let mut logs = VecDeque::new();
+                logs.push_back("Log line 1".to_string());
+                logs.push_back("Log line 2".to_string());
+                render_collapsible_log_drawer(ui, &logs);
+            });
+        });
+    }
+}

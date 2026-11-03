@@ -120,4 +120,14 @@ mod tests {
         assert!(path.exists());
         let _ = fs::remove_file(path);
     }
+
+    #[test]
+    fn test_temp_resource_into_path_and_as_ref() {
+        let temp_empty_ext = TempResource::new("no_ext", "");
+        assert_eq!(temp_empty_ext.as_ref(), temp_empty_ext.path());
+
+        let temp_dot_ext = TempResource::new("dot_ext", ".custom");
+        let path = temp_dot_ext.into_path();
+        assert!(path.to_string_lossy().ends_with(".custom"));
+    }
 }

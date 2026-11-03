@@ -958,5 +958,48 @@ mod tests {
         assert!(back_args.transcode);
         assert_eq!(back_args.codec, "av1");
         assert_eq!(back_args.preset, "medium");
+
+        let back_args_disc = Args::from(&disc_opt);
+        assert_eq!(back_args_disc.min_free_gb, 50);
+        assert!(back_args_disc.no_eject);
+    }
+
+    #[test]
+    fn test_remaining_segregated_configs_and_encoding_options() {
+        let mut args = Args::default();
+        args.all_audio = true;
+        args.normalize_audio = true;
+        args.subtitles = true;
+        args.sub_lang = Some("eng".to_string());
+        args.ocr = true;
+        args.tesseract = "tesseract-ocr".to_string();
+
+        let audio_sub: AudioSubtitleConfig = (&args).into();
+        assert!(audio_sub.all_audio);
+        assert!(audio_sub.normalize_audio);
+        assert!(audio_sub.subtitles);
+        assert_eq!(audio_sub.sub_lang.as_deref(), Some("eng"));
+        assert!(audio_sub.ocr);
+
+        let enc_opts = EncodingOptions {
+            codec: "hevc".to_string(),
+            profile: "high".to_string(),
+            deinterlace: true,
+            deinterlace_algo: Some("yadif".to_string()),
+            denoise: true,
+            hwaccel_fallback: true,
+            norm_target: Some(-14),
+            audio_downmix: Some("5.1".to_string()),
+            ..Default::default()
+        };
+        args.apply_encoding_options(enc_opts);
+        assert_eq!(args.codec, "hevc");
+        assert_eq!(args.profile, "high");
+        assert!(args.deinterlace);
+        assert_eq!(args.deinterlace_algo.as_deref(), Some("yadif"));
+        assert!(args.denoise);
+        assert!(args.hwaccel_fallback);
+        assert_eq!(args.norm_target, Some(-14));
+        assert_eq!(args.audio_downmix.as_deref(), Some("5.1"));
     }
 }

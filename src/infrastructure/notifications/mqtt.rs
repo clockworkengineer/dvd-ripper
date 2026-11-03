@@ -30,3 +30,61 @@ impl Notifier for MqttNotifier {
         crate::mqtt::publish_mqtt_status(&self.broker, title, status, progress)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Read;
+    use std::net::TcpListener;
+    use std::thread;
+
+    #[test]
+    fn test_mqtt_notifier_send_all_events() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let broker = format!("127.0.0.1:{}", port);
+
+        // Spawn mock broker responder thread
+        let handle = thread::spawn(move || {
+            for _ in 0..5 {
+                if let Ok((mut stream, _)) = listener.accept() {
+                    let mut buf = [0u8; 1024];
+                    let _ = stream.read(&mut buf);
+                }
+            }
+        });
+
+        let notifier = MqttNotifier::new(&broker, "test/dvd");
+        assert_eq!(notifier.broker, broker);
+        assert_eq!(notifier.topic_prefix, "test/dvd");
+
+        let events = [
+            NotificationEvent::RipStarted {
+                title: "Movie 1",
+                drive: "D:\\",
+            },
+            NotificationEvent::RipProgress {
+                title: "Movie 1",
+                percent: 45.0,
+            },
+            NotificationEvent::RipSuccess {
+                title: "Movie 1",
+                output_file: "out.mp4",
+                duration_secs: 100.0,
+            },
+            NotificationEvent::RipFailed {
+                title: "Movie 1",
+                error_message: "Error",
+            },
+            NotificationEvent::RipCancelled { title: "Movie 1" },
+        ];
+
+        for ev in &events {
+            let _ = notifier.send(ev);
+        }
+
+        let _ = handle.join();
+        let cloned = notifier.clone();
+        assert_eq!(format!("{:?}", notifier), format!("{:?}", cloned));
+    }
+}

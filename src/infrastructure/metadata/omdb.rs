@@ -78,3 +78,35 @@ impl MetadataProvider for OmdbMetadataProvider {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_omdb_metadata_provider_lifecycle() {
+        let provider = OmdbMetadataProvider::new(Some("custom_key".to_string()));
+        assert_eq!(provider.custom_api_key.as_deref(), Some("custom_key"));
+
+        let def = OmdbMetadataProvider::default();
+        assert!(def.custom_api_key.is_none());
+
+        let cloned = provider.clone();
+        assert_eq!(format!("{:?}", provider), format!("{:?}", cloned));
+    }
+
+    #[test]
+    fn test_omdb_metadata_provider_methods() {
+        let provider = OmdbMetadataProvider::new(None);
+
+        // Search returns candidate vector
+        let _ = provider.search("Aliens");
+
+        // Lookup by id
+        let _ = provider.get_details_by_id("tt0090605");
+
+        // Lookup by title and year
+        let _ = provider.get_details_by_title_and_year("Aliens", Some(1986));
+        let _ = provider.get_details_by_title_and_year("NonExistentXYZ123456789", None);
+    }
+}

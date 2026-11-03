@@ -148,3 +148,49 @@ impl Default for TranscodeOptions {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_default_video_codec_resolver() {
+        let resolver = DefaultVideoCodecResolver;
+        assert_eq!(resolver.resolve("hevc"), "libx265");
+        assert_eq!(resolver.resolve("h265"), "libx265");
+        assert_eq!(resolver.resolve("HEVC"), "libx265");
+        assert_eq!(resolver.resolve("H265"), "libx265");
+        assert_eq!(resolver.resolve("av1"), "libsvtav1");
+        assert_eq!(resolver.resolve("AV1"), "libsvtav1");
+        assert_eq!(resolver.resolve("h264"), "libx264");
+        assert_eq!(resolver.resolve("unknown"), "libx264");
+        assert_eq!(resolver.resolve("copy"), "libx264");
+
+        let cloned = resolver;
+        assert_eq!(format!("{:?}", resolver), format!("{:?}", cloned));
+    }
+
+    #[test]
+    fn test_transcode_job_and_options() {
+        let path = Path::new("test.mp4");
+        let src = Path::new("D:\\");
+        let job = TranscodeJob {
+            source_dvd: src,
+            title_number: 1,
+            output_path: path,
+            display_title: "Test Title",
+            expected_duration_secs: Some(3600.0),
+        };
+        assert_eq!(job.title_number, 1);
+        assert_eq!(job.display_title, "Test Title");
+        assert_eq!(job.expected_duration_secs, Some(3600.0));
+
+        let opts = TranscodeOptions::default();
+        let cloned_opts = opts.clone();
+        assert_eq!(opts, cloned_opts);
+
+        let json = serde_json::to_string(&opts).unwrap();
+        let de: TranscodeOptions = serde_json::from_str(&json).unwrap();
+        assert_eq!(opts, de);
+    }
+}

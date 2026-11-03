@@ -370,4 +370,47 @@ mod tests {
             "Queue status: 3 total queued (1 active)"
         );
     }
+
+    #[test]
+    fn test_queue_traits_and_clear_and_file_persistence() {
+        // 1. Clear queue
+        add_job("Movie A", "Movie", "D:\\");
+        clear_queue();
+        assert_eq!(list_jobs().len(), 0);
+
+        // 2. MemoryJobQueueStore
+        let mem_store = MemoryJobQueueStore;
+        let j_id = mem_store.enqueue("Title 1", "Movie", "D:\\");
+        assert_eq!(mem_store.list().len(), 1);
+        assert!(mem_store.remove(&j_id));
+        assert_eq!(mem_store.list().len(), 0);
+
+        // 3. FileBoxSetEpisodeTracker
+        let tracker = FileBoxSetEpisodeTracker;
+        let ep = tracker.get_next_episode("Firefly Special", 1);
+        assert_eq!(ep, 1);
+        let recorded = tracker.record_episodes("Firefly Special", 1, 3);
+        assert_eq!(recorded, 3);
+        assert!(tracker.reset_show("Firefly Special", 1));
+
+        // 4. Custom path save and load boxsets
+        let temp = std::env::temp_dir().join(format!("test_boxsets_{}.json", uuid_v4_short()));
+        let records = vec![BoxSetRecord {
+            show_name: "Custom Show".to_string(),
+            season: 2,
+            last_episode: 5,
+            total_discs_ripped: 1,
+            updated_at: "2026-01-01".to_string(),
+        }];
+        let save_res = save_boxsets(&records, Some(&temp.to_string_lossy()));
+        assert!(save_res.is_ok());
+        let loaded = load_boxsets(Some(&temp.to_string_lossy()));
+        assert_eq!(loaded.len(), 1);
+        assert_eq!(loaded[0].show_name, "Custom Show");
+        let _ = std::fs::remove_file(&temp);
+
+        // 5. Handles
+        assert!(get_job_queue_handle().lock().is_ok());
+        assert!(get_boxset_manager_handle().lock().is_ok());
+    }
 }

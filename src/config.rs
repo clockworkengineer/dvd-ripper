@@ -344,4 +344,90 @@ mod tests {
         assert_eq!(args.ocr_lang, "fra");
         assert_eq!(args.tesseract, "tesseract-ocr");
     }
+
+    #[test]
+    fn test_apply_config_all_branches() {
+        let mut args = Args::default();
+        let cfg = AppConfig {
+            profile: Some("jellyfin".to_string()),
+            webhook_url: Some("http://webhook.local".to_string()),
+            plex_url: Some("http://plex.local".to_string()),
+            jellyfin_url: Some("http://jf.local".to_string()),
+            emby_url: Some("http://emby.local".to_string()),
+            deinterlace: Some(true),
+            deinterlace_algo: Some("bwdif".to_string()),
+            denoise: Some(true),
+            min_free_gb: Some(25),
+            no_eject: Some(true),
+            sub_forced_only: Some(true),
+            sub_external_srt: Some(true),
+            audio_track: Some(2),
+            audit_log: Some("audit.log".to_string()),
+            spindown: Some(true),
+            sub_default: Some(true),
+            tags: Some("Action".to_string()),
+            checksum: Some(true),
+            fallback_out_dir: Some("Fallback".to_string()),
+            sub_burnin: Some(true),
+            norm_target: Some(-16),
+            eject_autoclose: Some(15),
+            label_regex_replace: Some("s/foo/bar/".to_string()),
+            audio_downmix: Some("stereo".to_string()),
+            auto_cleanup_days: Some(30),
+            drive_pool: Some("D:,E:".to_string()),
+            auto_rip: Some(true),
+            tonemap: Some("mobius".to_string()),
+            ignore_errors: Some(true),
+            iso: Some(true),
+            ..Default::default()
+        };
+
+        apply_config_defaults(&mut args, &cfg);
+        assert_eq!(args.profile, "jellyfin");
+        assert_eq!(args.webhook_url, Some("http://webhook.local".to_string()));
+        assert!(args.deinterlace);
+        assert_eq!(args.deinterlace_algo.as_deref(), Some("bwdif"));
+        assert!(args.denoise);
+        assert_eq!(args.min_free_gb, 25);
+        assert!(args.no_eject);
+        assert!(args.sub_forced_only);
+        assert!(args.sub_external_srt);
+        assert_eq!(args.audio_track, Some(2));
+        assert!(args.spindown);
+        assert!(args.sub_default);
+        assert!(args.checksum);
+        assert!(args.sub_burnin);
+        assert_eq!(args.norm_target, Some(-16));
+        assert_eq!(args.eject_autoclose, Some(15));
+        assert_eq!(args.audio_downmix, Some("stereo".to_string()));
+        assert_eq!(args.auto_cleanup_days, Some(30));
+        assert_eq!(args.drive_pool, Some("D:,E:".to_string()));
+        assert!(args.auto_rip);
+        assert!(args.ignore_errors);
+        assert!(args.iso);
+    }
+
+    #[test]
+    fn test_config_file_persistence_and_repo() {
+        let temp = std::env::temp_dir().join(format!("test_config_{}.toml", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        let cfg = AppConfig {
+            out_dir: Some("C:\\Saved".to_string()),
+            codec: Some("hevc".to_string()),
+            ..Default::default()
+        };
+
+        let res = save_config(&cfg, &temp);
+        assert!(res.is_ok());
+
+        let loaded = load_config(Some(&temp.to_string_lossy()));
+        assert_eq!(loaded.out_dir, Some("C:\\Saved".to_string()));
+        assert_eq!(loaded.codec, Some("hevc".to_string()));
+
+        let repo = FileConfigRepository;
+        let repo_cfg = repo.load_config(Some(&temp.to_string_lossy()));
+        assert_eq!(repo_cfg.out_dir, Some("C:\\Saved".to_string()));
+
+        let _ = get_default_config_path();
+        let _ = std::fs::remove_file(&temp);
+    }
 }

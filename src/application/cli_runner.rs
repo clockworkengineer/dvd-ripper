@@ -477,3 +477,156 @@ impl CliApplicationRunner {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_cli_runner_nonexistent_drive() {
+        let container = Arc::new(AppContainer::build_production("ffmpeg"));
+        let runner = CliApplicationRunner::new(container);
+
+        let mut args = Args::default();
+        args.input = "Z:\\DefinitelyNonExistentDrive_987".to_string();
+
+        let res = runner.run(args);
+        assert!(res.is_err());
+        assert!(res.unwrap_err().to_string().contains("does not exist"));
+    }
+
+    #[test]
+    fn test_cli_runner_benchmark_flag() {
+        let container = Arc::new(AppContainer::build_production("ffmpeg"));
+        let runner = CliApplicationRunner::new(container);
+
+        let temp = std::env::temp_dir();
+        let mut args = Args::default();
+        args.input = temp.to_string_lossy().to_string();
+        args.benchmark = true;
+
+        let res = runner.run(args);
+        assert!(res.is_ok());
+    }
+
+    #[test]
+    fn test_cli_runner_check_protection_flag_no_selection() {
+        let container = Arc::new(AppContainer::build_production("ffmpeg"));
+        let runner = CliApplicationRunner::new(container);
+
+        let temp = std::env::temp_dir();
+        let mut args = Args::default();
+        args.input = temp.to_string_lossy().to_string();
+        args.check_protection = true;
+
+        // Will print protection notes, then fail because no movie was selected
+        let res = runner.run(args);
+        assert!(res.is_err());
+        assert!(res.unwrap_err().to_string().contains("No movie searched and selected"));
+    }
+
+    #[test]
+    fn test_cli_metadata_resolver_select_index() {
+        let container = AppContainer::build_production("ffmpeg");
+        let resolver = CliMetadataResolver::new(&container);
+
+        let mut args = Args::default();
+        args.input = "Z:\\Disc_Unique_Path_1".to_string();
+        args.search = Some("Aliens".to_string());
+        args.select_index = Some(1);
+
+        let (title, year, _runtime, _bytes) = resolver.resolve_metadata(&mut args, None);
+        assert!(title.is_some());
+        assert!(year.is_some());
+
+        // Invalid select index falls back to lookup_film_details
+        let mut args2 = Args::default();
+        args2.input = "Z:\\Disc_Unique_Path_2".to_string();
+        args2.search = Some("Aliens".to_string());
+        args2.select_index = Some(999);
+        let (title2, _, _, _) = resolver.resolve_metadata(&mut args2, None);
+        assert!(title2.is_some());
+
+        // Completely unmatched search query returns None
+        let mut args3 = Args::default();
+        args3.input = "Z:\\Disc_Unique_Path_3".to_string();
+        args3.search = Some("xyznonexistentmoviequery999888".to_string());
+        let (title3, _, _, _) = resolver.resolve_metadata(&mut args3, None);
+        assert!(title3.is_none());
+    }
+
+    #[test]
+    fn test_cli_metadata_resolver_exact_imdb_id() {
+        let container = AppContainer::build_production("ffmpeg");
+        let resolver = CliMetadataResolver::new(&container);
+
+        let mut args = Args::default();
+        args.imdb_id = Some("tt0090605".to_string()); // Aliens (1986)
+
+        let (title, year, _runtime, _bytes) = resolver.resolve_metadata(&mut args, None);
+        assert!(title.is_some());
+        assert_eq!(year, Some(1986));
+
+        // Nonexistent IMDb ID
+        let mut args2 = Args::default();
+        args2.imdb_id = Some("tt00000000000".to_string());
+        let (title2, _, _, _) = resolver.resolve_metadata(&mut args2, None);
+        assert!(title2.is_none());
+    }
+
+    #[test]
+    fn test_cli_runner_iso_execution() {
+        let temp_dvd = std::env::temp_dir().join(format!("test_cli_dvd_{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        let temp_out = std::env::temp_dir().join(format!("test_cli_out_{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        let video_ts = temp_dvd.join("VIDEO_TS");
+        let _ = std::fs::create_dir_all(&video_ts);
+        let _ = std::fs::create_dir_all(&temp_out);
+        let _ = std::fs::write(video_ts.join("VIDEO_TS.IFO"), b"DUMMY_IFO");
+
+        let container = Arc::new(AppContainer::build_production("ffmpeg"));
+        let runner = CliApplicationRunner::new(container);
+
+        let mut args = Args::default();
+        args.input = temp_dvd.to_string_lossy().to_string();
+        args.out_dir = temp_out.to_string_lossy().to_string();
+        args.search = Some("Aliens".to_string());
+        args.select_index = Some(1);
+        args.iso = true;
+        args.min_free_gb = 0;
+
+        let res = runner.run(args);
+        assert!(res.is_ok());
+
+        let _ = std::fs::remove_dir_all(&temp_dvd);
+        let _ = std::fs::remove_dir_all(&temp_out);
+    }
+
+    #[test]
+    fn test_cli_runner_tv_execution() {
+        let temp_dvd = std::env::temp_dir().join(format!("test_cli_tv_{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        let temp_out = std::env::temp_dir().join(format!("test_cli_tv_out_{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        let _ = std::fs::create_dir_all(&temp_dvd);
+        let _ = std::fs::create_dir_all(&temp_out);
+
+        let container = Arc::new(AppContainer::build_production("ffmpeg"));
+        let runner = CliApplicationRunner::new(container);
+
+        let mut args = Args::default();
+        args.input = temp_dvd.to_string_lossy().to_string();
+        args.out_dir = temp_out.to_string_lossy().to_string();
+        args.search = Some("Firefly".to_string());
+        args.select_index = Some(1);
+        args.tv = true;
+        args.season = 1;
+        args.start_episode = 1;
+        args.all_episodes = false;
+        args.min_free_gb = 0;
+        args.auto_boxset = true;
+
+        // Will attempt to transcode single episode on dummy drive and gracefully return error
+        let _ = runner.run(args);
+
+        let _ = std::fs::remove_dir_all(&temp_dvd);
+        let _ = std::fs::remove_dir_all(&temp_out);
+    }
+}

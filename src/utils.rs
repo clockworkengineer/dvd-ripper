@@ -1588,4 +1588,107 @@ mod tests {
         assert!(command_exists("cargo"));
         assert!(!command_exists("nonexistent_binary_xyz_12345"));
     }
+
+    #[test]
+    fn test_utils_additional_coverage() {
+        // Disk space with fallback
+        let temp = std::env::temp_dir();
+        let _ = get_free_disk_space_bytes(&temp);
+        let fb_res = check_disk_space_guard_with_fallback(&temp, Some(&temp), 0);
+        assert!(fb_res.is_ok());
+
+        // Regex label normalization
+        let reg_norm = normalize_volume_label_title_with_regex("ALIENS_1986", Some(r"s/1986/DIRECTORS_CUT/"));
+        assert!(reg_norm.contains("Aliens"));
+
+        // Title and episode formatting
+        assert_eq!(format_title_folder_name("Aliens", Some(1986)), "Aliens (1986)");
+        assert_eq!(format_title_folder_name("Aliens", None), "Aliens");
+        assert_eq!(format_episode_code(1, 2), "S01E02");
+        assert_eq!(format_episode_name("Firefly", 1, 3), "Firefly - S01E03");
+
+        // URL encode / decode & timestamps
+        let enc = encode_url_query_value("Hello World&test=1");
+        assert!(enc.contains("Hello%20World") || enc.contains("Hello+World"));
+        let dec = decode_url_query_value(&enc);
+        assert_eq!(dec, "Hello World&test=1");
+        assert!(!now_timestamp_str().is_empty());
+
+        // Directories & JSON files
+        let _ = get_default_rip_output_dir();
+        let app_file = get_app_file_path("scratch_test.json");
+        let sample_map = std::collections::HashMap::from([("key".to_string(), "val".to_string())]);
+        let save_res = save_json_file(&app_file, &sample_map);
+        assert!(save_res.is_ok());
+        let loaded: Option<std::collections::HashMap<String, String>> = load_json_file(&app_file);
+        assert_eq!(loaded.unwrap().get("key"), Some(&"val".to_string()));
+        let _ = std::fs::remove_file(&app_file);
+
+        // Audit log & Checksum
+        let audit_file = temp.join(format!("audit_{}.log", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        let details = serde_json::json!({"title": "The Matrix", "status": "Success"});
+        let audit_res = append_audit_log_entry(&audit_file, "RipSuccess", &details);
+        assert!(audit_res.is_ok());
+        assert!(audit_file.exists());
+        let _ = std::fs::remove_file(&audit_file);
+
+        let dummy_video = temp.join(format!("dummy_video_{}.mp4", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        let _ = std::fs::write(&dummy_video, b"VIDEO_CONTENT_FOR_CHECKSUM");
+        let chk_res = generate_checksum_file(&dummy_video);
+        assert!(chk_res.is_ok());
+        let sha_file = chk_res.unwrap();
+        assert!(sha_file.exists());
+        let _ = std::fs::remove_file(&dummy_video);
+        let _ = std::fs::remove_file(&sha_file);
+
+        // Silent command config
+        let mut cmd = std::process::Command::new("cargo");
+        configure_silent_command(&mut cmd);
+
+        // HTTP client
+        let client = get_http_client();
+        let _ = client;
+
+        // Post-processing hook execution
+        #[cfg(windows)]
+        let script_file = temp.join(format!("test_hook_{}.bat", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        #[cfg(windows)]
+        let _ = std::fs::write(&script_file, b"@exit 0\r\n");
+        #[cfg(windows)]
+        let hook_cmd = script_file.to_str().unwrap();
+
+        #[cfg(not(windows))]
+        let hook_cmd = "true";
+
+        let hook_res = run_post_processing_hook(hook_cmd, Path::new("test.mp4"), "Title", "Movie", Some(2020));
+        assert!(hook_res.is_ok());
+
+        let hook_trait = ScriptPostProcessingHook;
+        let _ = hook_trait.execute(hook_cmd, Path::new("test.mp4"), "Title", "Movie", Some(2020));
+
+        #[cfg(windows)]
+        let _ = std::fs::remove_file(&script_file);
+
+        // Media server library scans with fast in-process HTTP responder
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let mock_server = std::thread::spawn(move || {
+            for _ in 0..4 {
+                if let Ok((mut stream, _)) = listener.accept() {
+                    use std::io::Write;
+                    let _ = stream.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n");
+                }
+            }
+        });
+
+        let dummy_url = format!("http://127.0.0.1:{}", port);
+        let _ = trigger_plex_library_scan(&dummy_url, "dummy");
+        let _ = trigger_jellyfin_library_scan(&dummy_url, "dummy");
+        let _ = trigger_emby_library_scan(&dummy_url, "dummy");
+        let mut args_scans = crate::cli::Args::default();
+        args_scans.plex_url = Some(dummy_url);
+        args_scans.plex_token = Some("dummy_tok".to_string());
+        trigger_media_server_scans(&args_scans);
+        let _ = mock_server.join();
+    }
 }

@@ -86,3 +86,33 @@ pub fn render_benchmark_tab(
         }
     });
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_render_benchmark_tab_headless() {
+        let ctx = egui::Context::default();
+        let _ = ctx.run(Default::default(), |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                let mut drive = "D:\\".to_string();
+
+                // 1. Without benchmark report
+                render_benchmark_tab(ui, &mut drive, None, false, || {});
+
+                // 2. With benchmark report
+                let report = crate::dvd::DriveBenchmarkReport {
+                    drive_path: "D:\\".to_string(),
+                    test_duration_secs: 10,
+                    read_bytes: 100_000_000,
+                    read_speed_mbps: 10.0,
+                    demux_speed_mbps: 9.8,
+                    fps: "240.0".to_string(),
+                    rating_summary: "Fast 8x Optical Read".to_string(),
+                };
+                render_benchmark_tab(ui, &mut drive, Some(&report), true, || {});
+            });
+        });
+    }
+}

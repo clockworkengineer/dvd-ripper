@@ -39,4 +39,23 @@ mod tests {
         );
         assert!(processor.process(&ctx).is_ok());
     }
+
+    #[test]
+    fn test_media_server_post_processor_enabled() {
+        let processor = MediaServerScanPostProcessor;
+        let mut ctx = PostProcessContext::new(
+            Some(PathBuf::from("test.mp4")),
+            "Movie",
+            PathBuf::from("D:\\"),
+        );
+        ctx.media_servers_enabled = true;
+        ctx.plex_url = Some("http://127.0.0.1:32400".to_string());
+        ctx.plex_token = Some("plextoken".to_string());
+        ctx.jellyfin_url = Some("http://127.0.0.1:8096".to_string());
+        ctx.jellyfin_key = Some("jfkey".to_string());
+        ctx.emby_url = Some("http://127.0.0.1:8096".to_string());
+        ctx.emby_key = Some("embykey".to_string());
+
+        assert!(processor.process(&ctx).is_ok());
+    }
 }

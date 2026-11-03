@@ -126,9 +126,29 @@ mod tests {
 
         if let Ok(child) = cmd {
             let mut guard = ChildGuard::new(child);
+            assert!(guard.id().is_some());
+            let _ = guard.deref();
+            let _ = guard.deref_mut();
             let status = guard.as_mut().wait().unwrap();
             assert!(status.success());
             guard.disarm();
         }
+    }
+
+    #[test]
+    fn test_run_ffmpeg_process_invocation() {
+        let args = Args::default();
+        let res = run_ffmpeg_process(
+            &args,
+            Path::new("Z:\\DefinitelyNonExistent"),
+            Path::new("out.mp4"),
+            "Test Process",
+            None,
+            None,
+            None,
+            None,
+            false,
+        );
+        assert!(res.is_err());
     }
 }

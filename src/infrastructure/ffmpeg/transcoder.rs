@@ -158,8 +158,43 @@ mod tests {
             preset: "fast".to_string(),
             ..Default::default()
         };
-        let transcoder_opts = FfmpegTranscoder::with_options("ffmpeg_custom", custom_opts);
-        assert_eq!(transcoder_opts.options.codec, "hevc");
-        assert_eq!(transcoder_opts.options.preset, "fast");
+        let transcoder_custom = FfmpegTranscoder::with_options("ffmpeg", custom_opts);
+        assert_eq!(transcoder_custom.options.codec, "hevc");
+        assert_eq!(transcoder_custom.options.preset, "fast");
+
+        let args = crate::cli::Args::default();
+        let transcoder_args = FfmpegTranscoder::with_args("ffmpeg", args);
+        assert_eq!(transcoder_args.ffmpeg_path, "ffmpeg");
+
+        let cloned = transcoder_custom.clone();
+        assert_eq!(format!("{:?}", transcoder_custom), format!("{:?}", cloned));
+    }
+
+    struct TestObserver;
+    impl ProgressObserver for TestObserver {
+        fn on_progress(&self, _percent: f64, _fps: &str, _speed: &str) {}
+        fn on_log(&self, _line: &str) {}
+    }
+
+    #[test]
+    fn test_ffmpeg_transcoder_transcode_execution() {
+        let transcoder = FfmpegTranscoder::new("ffmpeg");
+
+        let job = TranscodeJob {
+            source_dvd: std::path::Path::new("Z:\\DefinitelyNonExistentDVD"),
+            title_number: 1,
+            output_path: std::path::Path::new("test_out.mp4"),
+            display_title: "Test Job",
+            expected_duration_secs: Some(3600.0),
+        };
+
+        // 1. Without observer
+        let res_no_obs = transcoder.transcode(&job, None, None);
+        assert!(res_no_obs.is_err());
+
+        // 2. With observer
+        let obs = TestObserver;
+        let res_obs = transcoder.transcode(&job, Some(&obs), None);
+        assert!(res_obs.is_err());
     }
 }

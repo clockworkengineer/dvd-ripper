@@ -56,5 +56,21 @@ mod tests {
     fn test_ffmpeg_media_prober_construction() {
         let prober = FfmpegMediaProber::new("ffmpeg");
         assert_eq!(prober.ffmpeg_path, "ffmpeg");
+
+        let cloned = prober.clone();
+        assert_eq!(format!("{:?}", prober), format!("{:?}", cloned));
+
+        // probe_titles with nonexistent path returns empty vec
+        let titles = prober.probe_titles(Path::new("Z:\\DefinitelyNonExistent"));
+        assert!(titles.is_empty());
+
+        // extract_thumbnail with nonexistent path fails gracefully
+        let res = prober.extract_thumbnail(
+            Path::new("Z:\\DefinitelyNonExistent"),
+            1,
+            10.0,
+            Path::new("dummy_out.jpg"),
+        );
+        assert!(res.is_err());
     }
 }

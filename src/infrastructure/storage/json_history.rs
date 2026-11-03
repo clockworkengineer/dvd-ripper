@@ -70,5 +70,8 @@ mod tests {
 
         repo.clear_history(Some(&temp)).unwrap();
         assert!(repo.load_history(Some(&temp)).is_empty());
+
+        // Test default path resolution (None)
+        let _ = repo.load_history(None);
     }
 }

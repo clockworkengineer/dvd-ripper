@@ -67,3 +67,24 @@ pub use crate::infrastructure::{
 
 // Application Container & Lifecycle
 pub use crate::{AppContainer, AppInitializer, DefaultPathResolver, PathResolver};
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Arc;
+
+    #[test]
+    fn test_prelude_reexports() {
+        let container = AppContainer::build_production("ffmpeg");
+        assert!(Arc::strong_count(&container.transcoder) >= 1);
+
+        let resolver = DefaultPathResolver;
+        let p = resolver.resolve_path("D:\\");
+        assert!(!p.as_os_str().is_empty());
+
+        let _disc_opts = DiscOptions::default();
+        let _trans_opts = TranscodeOptions::default();
+        let _status = DriveStatusInfo::new("D:\\");
+        let _codec_res = DefaultVideoCodecResolver;
+    }
+}

@@ -137,3 +137,47 @@ pub fn render_settings_tab(
         });
     });
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_render_settings_tab_headless() {
+        let ctx = egui::Context::default();
+        let _ = ctx.run(Default::default(), |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                let mut out_dir = "C:\\Videos".to_string();
+                let mut codec = "h264".to_string();
+                let mut profile = "standard".to_string();
+                let mut preset = "slow".to_string();
+                let mut normalize_audio = true;
+                let mut norm_target = -23.0;
+                let mut hwaccel_fallback = true;
+                let mut min_free_gb = 10u64;
+                let mut webhook_url = "http://example.com/webhook".to_string();
+                let mut no_eject = false;
+                let mut checksum = true;
+                let mut nfo = true;
+
+                render_settings_tab(
+                    ui,
+                    &mut out_dir,
+                    &mut codec,
+                    &mut profile,
+                    &mut preset,
+                    &mut normalize_audio,
+                    &mut norm_target,
+                    &mut hwaccel_fallback,
+                    &mut min_free_gb,
+                    &mut webhook_url,
+                    &mut no_eject,
+                    &mut checksum,
+                    &mut nfo,
+                    || {},
+                    || {},
+                );
+            });
+        });
+    }
+}

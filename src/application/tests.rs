@@ -669,4 +669,91 @@ mod tests {
         assert_eq!(req.file_extension.as_deref(), Some("mkv"));
         assert_eq!(req.min_free_gb, 30);
     }
+
+    #[test]
+    fn test_dump_iso_builder_fallback_and_options() {
+        use crate::application::dump_iso::DumpIsoRequest;
+
+        // Fallback when neither display_title nor volume_label is provided
+        let req1 = DumpIsoRequest::builder("D:\\", "C:\\Out\\disc.iso")
+            .build()
+            .unwrap();
+        assert_eq!(req1.display_title, "Archival ISO Dump");
+
+        // Explicit display_title overrides volume_label
+        let req2 = DumpIsoRequest::builder("D:\\", "C:\\Out\\disc.iso")
+            .volume_label("DISC_LABEL")
+            .display_title("Custom ISO Title")
+            .build()
+            .unwrap();
+        assert_eq!(req2.display_title, "Custom ISO Title");
+    }
+
+    #[test]
+    fn test_dump_iso_use_case_failure_handling() {
+        use crate::application::dump_iso::{DumpIsoRequest, DumpIsoUseCase};
+
+        let notifier = Arc::new(MockNotifier::default());
+        let disk_guard = Arc::new(MockDiskSpaceGuard { allow: true });
+        let history = Arc::new(MockHistoryRepository::default());
+
+        let use_case = DumpIsoUseCase::new(notifier.clone(), disk_guard, history.clone());
+
+        let req = DumpIsoRequest {
+            source_dvd: PathBuf::from("Z:\\DefinitelyNonExistent123"),
+            output_path: PathBuf::from("Z:\\DefinitelyNonExistentOut\\image.iso"),
+            volume_label: Some("FAIL_DISC".to_string()),
+            display_title: "Failing ISO".to_string(),
+            min_free_gb: 1,
+        };
+
+        let res = use_case.execute(&req, None, None);
+        assert!(res.is_err());
+
+        let events = notifier.events.lock().unwrap();
+        assert!(events.iter().any(|e| e.contains("Failed: Failing ISO")));
+
+        let recs = history.records.lock().unwrap();
+        assert_eq!(recs.len(), 1);
+        assert_eq!(recs[0].status, "Failed");
+    }
+
+    #[test]
+    fn test_rip_tv_batch_use_case_transcode_failure() {
+        let transcoder = Arc::new(MockTranscoder {
+            calls: Arc::new(Mutex::new(Vec::new())),
+            should_fail: true,
+        });
+        let notifier = Arc::new(MockNotifier::default());
+        let disk_guard = Arc::new(MockDiskSpaceGuard { allow: true });
+        let history = Arc::new(MockHistoryRepository::default());
+
+        let batch_use_case =
+            RipTvBatchUseCase::new(transcoder, notifier.clone(), disk_guard, history);
+
+        let episodes = vec![TvEpisodeInfo {
+            title_num: 1,
+            episode_num: 1,
+            duration_secs: 1500.0,
+            formatted_name: "Episode 1".to_string(),
+        }];
+
+        let req = RipTvBatchRequest::builder("D:\\", "Failing Show", "C:\\Out\\TV")
+            .episodes(episodes)
+            .build()
+            .unwrap();
+
+        let res = batch_use_case.execute(&req, None, None);
+        assert!(res.is_err());
+    }
+
+    #[test]
+    fn test_rip_single_title_builder_defaults() {
+        let req = RipSingleTitleRequest::builder("D:\\", 1, "C:\\Out\\Movie.mp4")
+            .build()
+            .unwrap();
+
+        assert_eq!(req.display_title, "Movie");
+        assert_eq!(req.min_free_gb, 10);
+    }
 }

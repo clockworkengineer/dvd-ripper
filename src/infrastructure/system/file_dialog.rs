@@ -32,3 +32,20 @@ impl FileDialogService for NativeFileDialogService {
         crate::utils::open_folder_in_explorer(directory);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_file_dialog_service_instantiation() {
+        let service = NativeFileDialogService::new();
+        let service_def = NativeFileDialogService::default();
+        let cloned = service.clone();
+        assert_eq!(format!("{:?}", service), format!("{:?}", cloned));
+        assert_eq!(format!("{:?}", service), format!("{:?}", service_def));
+
+        // Note: pick_folder cannot be invoked in headless CI, but open_in_explorer can be called
+        service.open_in_explorer(Path::new("dummy_nonexistent_dir"));
+    }
+}

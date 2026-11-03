@@ -887,4 +887,27 @@ mod tests {
 
         let _ = std::fs::remove_dir_all(temp_dir);
     }
+
+    #[test]
+    fn test_dvd_drive_pool_and_tray_helpers() {
+        let pool = resolve_drive_pool_handles(Some("D:, E:\\, F"));
+        assert_eq!(pool, vec!["D:", "E:\\", "F"]);
+
+        let pool_none = resolve_drive_pool_handles(None);
+        assert!(!pool_none.is_empty());
+
+        let def_path = default_dvd_drive_path();
+        assert!(!def_path.is_empty());
+
+        let _ = get_volume_label("D:\\");
+        let _ = eject_disc("D:\\");
+        let _ = close_disc_tray("D:\\");
+        let _ = spindown_drive("D:\\");
+
+        let reader = FileSystemDiscFingerprintReader::default();
+        let fp = reader.compute_fingerprint("D:\\");
+        assert!(fp.starts_with("disc_"));
+
+        let _ = run_drive_benchmark("nonexistent_ffmpeg", std::path::Path::new("Z:\\NonExistent"), 1);
+    }
 }

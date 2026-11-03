@@ -2238,6 +2238,8 @@ fn send_http_response(
 mod tests {
     use super::*;
 
+    static TEST_API_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
     #[test]
     fn test_format_content_length_header() {
         assert_eq!(format_content_length_header(100), "Content-Length: 100\r\n");
@@ -2363,6 +2365,7 @@ mod tests {
 
     #[test]
     fn test_api_key_validation() {
+        let _lock = TEST_API_LOCK.lock().unwrap();
         set_api_key("secret123".to_string());
         let req_valid = b"POST /api/rip HTTP/1.1\r\nAuthorization: Bearer secret123\r\n\r\n";
         assert!(validate_api_key_header(req_valid, "/api/rip"));
@@ -2631,5 +2634,201 @@ mod tests {
         giant_headers.extend_from_slice(b"\r\n\r\n");
         let res_headers = read_http_request_safely(Cursor::new(giant_headers));
         assert_eq!(res_headers, SafeHttpReadResult::HeadersTooLarge);
+    }
+
+    fn test_handle_client_route(req: &[u8]) -> (String, Vec<u8>) {
+        let req_vec = req.to_vec();
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        let client = std::thread::spawn(move || {
+            let mut client = std::net::TcpStream::connect(addr).unwrap();
+            use std::io::{Read, Write};
+            client.write_all(&req_vec).unwrap();
+            client.shutdown(std::net::Shutdown::Write).unwrap();
+            let mut buf = Vec::new();
+            let _ = client.read_to_end(&mut buf);
+            buf
+        });
+
+        let (server_stream, _) = listener.accept().unwrap();
+        let _ = handle_client(server_stream, "D:\\");
+        let client_bytes = client.join().unwrap();
+        let client_str = String::from_utf8_lossy(&client_bytes).to_string();
+        (client_str, client_bytes)
+    }
+
+    #[test]
+    fn test_api_handle_client_routes() {
+        let _lock = TEST_API_LOCK.lock().unwrap();
+        set_api_key(String::new()); // No key required
+
+        // 1. Root & Dashboard
+        let (r1, _) = test_handle_client_route(b"GET / HTTP/1.1\r\n\r\n");
+        assert!(r1.contains("200 OK"));
+
+        let (r2, _) = test_handle_client_route(b"GET /dashboard HTTP/1.1\r\n\r\n");
+        assert!(r2.contains("200 OK"));
+
+        let (r3, _) = test_handle_client_route(b"GET /docs HTTP/1.1\r\n\r\n");
+        assert!(r3.contains("200 OK"));
+
+        // 2. Metrics & OpenAPI
+        let (r4, _) = test_handle_client_route(b"GET /metrics HTTP/1.1\r\n\r\n");
+        assert!(r4.contains("200 OK"));
+
+        let (r5, _) = test_handle_client_route(b"GET /api/openapi.json HTTP/1.1\r\n\r\n");
+        assert!(r5.contains("200 OK"));
+
+        // 3. Status & Drives
+        let (r6, _) = test_handle_client_route(b"GET /api/status HTTP/1.1\r\n\r\n");
+        assert!(r6.contains("200 OK"));
+
+        let (r7, _) = test_handle_client_route(b"GET /api/status?drive=D:\\ HTTP/1.1\r\n\r\n");
+        assert!(r7.contains("200 OK"));
+
+        let (r8, _) = test_handle_client_route(b"GET /api/pool/status HTTP/1.1\r\n\r\n");
+        assert!(r8.contains("200 OK"));
+
+        let (r9, _) = test_handle_client_route(b"GET /api/drives HTTP/1.1\r\n\r\n");
+        assert!(r9.contains("200 OK"));
+
+        let (r10, _) = test_handle_client_route(b"GET /api/health HTTP/1.1\r\n\r\n");
+        assert!(r10.contains("200 OK"));
+
+        // 4. History
+        let (r11, _) = test_handle_client_route(b"GET /api/history HTTP/1.1\r\n\r\n");
+        assert!(r11.contains("200 OK"));
+
+        let (r12, _) = test_handle_client_route(b"POST /api/history/clear HTTP/1.1\r\n\r\n");
+        assert!(r12.contains("200 OK"));
+
+        // 5. Disc cache
+        let (r13, _) = test_handle_client_route(b"GET /api/disc-cache HTTP/1.1\r\n\r\n");
+        assert!(r13.contains("200 OK"));
+
+        // 6. Queue
+        let (r14, _) = test_handle_client_route(b"GET /api/queue/list HTTP/1.1\r\n\r\n");
+        assert!(r14.contains("200 OK"));
+
+        let (r15, _) = test_handle_client_route(b"POST /api/queue/add?title=TestMovie&type=Movie HTTP/1.1\r\n\r\n");
+        assert!(r15.contains("200 OK"));
+
+        let batch_req = b"POST /api/queue/batch HTTP/1.1\r\nContent-Type: application/json\r\nContent-Length: 47\r\n\r\n[{\"title\":\"T1\",\"media_type\":\"Movie\",\"drive\":\"D:\"}]";
+        let (r16, _) = test_handle_client_route(batch_req);
+        assert!(r16.contains("200 OK"));
+
+        let (r17, _) = test_handle_client_route(b"POST /api/queue/remove?id=nonexistent HTTP/1.1\r\n\r\n");
+        assert!(r17.contains("200 OK"));
+
+        // 7. Search & Select
+        let (r18, _) = test_handle_client_route(b"GET /api/search?q=Aliens HTTP/1.1\r\n\r\n");
+        assert!(r18.contains("200 OK"));
+
+        let (r19, _) = test_handle_client_route(b"GET /api/search HTTP/1.1\r\n\r\n");
+        assert!(r19.contains("200 OK"));
+
+        let (r20, _) = test_handle_client_route(b"POST /api/select HTTP/1.1\r\n\r\n");
+        assert!(r20.contains("400 Bad Request"));
+
+        let (r21, _) = test_handle_client_route(b"POST /api/select?imdb_id=tt0090605 HTTP/1.1\r\n\r\n");
+        assert!(r21.contains("200 OK"));
+
+        let (r22, _) = test_handle_client_route(b"POST /api/select?imdb_id=tt0000000000 HTTP/1.1\r\n\r\n");
+        assert!(r22.contains("404 Not Found"));
+
+        // 8. Eject, Cancel, Trigger, Boxset
+        let (r23, _) = test_handle_client_route(b"POST /api/eject?drive=D: HTTP/1.1\r\n\r\n");
+        assert!(r23.contains("200 OK"));
+
+        let (r24, _) = test_handle_client_route(b"POST /api/cancel?drive=D: HTTP/1.1\r\n\r\n");
+        assert!(r24.contains("200 OK"));
+
+        let (r25, _) = test_handle_client_route(b"POST /api/cancel HTTP/1.1\r\n\r\n");
+        assert!(r25.contains("200 OK"));
+
+        let (r26, _) = test_handle_client_route(b"GET /api/boxset HTTP/1.1\r\n\r\n");
+        assert!(r26.contains("200 OK"));
+
+        let (r27, _) = test_handle_client_route(b"POST /api/boxset/reset?show=Firefly&season=1 HTTP/1.1\r\n\r\n");
+        assert!(r27.contains("200 OK"));
+
+        let (r28, _) = test_handle_client_route(b"POST /api/trigger?drive=D: HTTP/1.1\r\n\r\n");
+        assert!(r28.contains("200 OK"));
+
+        let (r29, _) = test_handle_client_route(b"GET /api/ws HTTP/1.1\r\n\r\n");
+        assert!(r29.contains("101 Switching Protocols"));
+
+        let (r30, _) = test_handle_client_route(b"GET /api/unknown_route_404 HTTP/1.1\r\n\r\n");
+        assert!(r30.contains("404 Not Found"));
+
+        let bad_json = b"POST /api/rip HTTP/1.1\r\nContent-Type: application/json\r\nContent-Length: 10\r\n\r\n{bad_json:";
+        let (r31, _) = test_handle_client_route(bad_json);
+        assert!(r31.contains("400 Bad Request"));
+
+        // 9. Additional rip & benchmark & thumbnail routes
+        let (r_rip, _) = test_handle_client_route(b"POST /api/rip?drive=Z:\\NonExistent HTTP/1.1\r\n\r\n");
+        assert!(r_rip.contains("400 Bad Request"));
+
+        let (r_rip_iso, _) = test_handle_client_route(b"POST /api/rip?drive=Z:\\NonExistent&iso=true HTTP/1.1\r\n\r\n");
+        assert!(r_rip_iso.contains("400 Bad Request"));
+
+        let (r_bench, _) = test_handle_client_route(b"POST /api/benchmark?drive=Z:\\NonExistent HTTP/1.1\r\n\r\n");
+        assert!(r_bench.contains("500 Internal Server Error") || r_bench.contains("200 OK"));
+
+        let (r_thumb, _) = test_handle_client_route(b"GET /api/thumbnail?drive=Z:\\NonExistent&title=1 HTTP/1.1\r\n\r\n");
+        assert!(r_thumb.contains("500 Internal Server Error"));
+
+        let json_eject = b"POST /api/eject HTTP/1.1\r\nContent-Type: application/json\r\nContent-Length: 14\r\n\r\n{\"drive\":\"D:\"}";
+        let (r_ej, _) = test_handle_client_route(json_eject);
+        assert!(r_ej.contains("200 OK"));
+
+        let json_cancel = b"POST /api/cancel HTTP/1.1\r\nContent-Type: application/json\r\nContent-Length: 14\r\n\r\n{\"drive\":\"D:\"}";
+        let (r_can, _) = test_handle_client_route(json_cancel);
+        assert!(r_can.contains("200 OK"));
+
+        let json_select = b"POST /api/select HTTP/1.1\r\nContent-Type: application/json\r\nContent-Length: 26\r\n\r\n{\"imdb_id\":\"tt0090605\"}";
+        let (r_sel, _) = test_handle_client_route(json_select);
+        assert!(r_sel.contains("200 OK"));
+
+        // 10. Unauthorized when API key set
+        set_api_key("super_secret".to_string());
+        let (r32, _) = test_handle_client_route(b"POST /api/rip HTTP/1.1\r\n\r\n");
+        assert!(r32.contains("401 Unauthorized"));
+        set_api_key(String::new());
+    }
+
+    #[test]
+    fn test_api_traits_and_appliance_status_updates() {
+        let _lock = TEST_API_LOCK.lock().unwrap();
+        let status_ep = DefaultApiStatusEndpoint::default();
+        let _ = status_ep.query_status();
+
+        let drives_ep = DefaultApiDrivesEndpoint::default();
+        let _ = drives_ep.query_drives();
+
+        let diag = DefaultDriveDiagnosticProvider::default();
+        let _ = diag.detect_drives();
+        let _ = diag.benchmark("D:\\");
+
+        update_appliance_status("Active", "THE_DISC", "The Movie", 75.0, "30", "1.8x");
+        set_disc_detected("THE_DISC");
+        reset_appliance_status("Idle");
+        fail_appliance_status("The Movie", "C:\\Out", "Simulated error");
+
+        let handle = get_cancel_flag_handle();
+        handle.store(false, Ordering::SeqCst);
+        assert!(!handle.load(Ordering::SeqCst));
+
+        let tx_handle = get_cancel_tx_handle();
+        assert!(tx_handle.lock().is_ok());
+
+        let drives_registry = get_drive_pool_registry();
+        assert!(drives_registry.lock().is_ok());
+
+        let flags_map = get_drive_cancel_flags_map();
+        assert!(flags_map.lock().is_ok());
+
+        reset_drive_status("Z:\\", "Idle");
     }
 }

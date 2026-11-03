@@ -77,3 +77,36 @@ pub fn render_tab_bar(ui: &mut egui::Ui, current_tab: &mut ActiveTab, is_busy: b
         }
     });
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_active_tab_labels_and_tooltips() {
+        assert_eq!(ActiveTab::default(), ActiveTab::Rip);
+        let all_tabs = [
+            ActiveTab::Rip,
+            ActiveTab::TvSeries,
+            ActiveTab::Benchmark,
+            ActiveTab::History,
+            ActiveTab::Settings,
+        ];
+        for tab in all_tabs {
+            assert!(!tab.label().is_empty());
+            assert!(!tab.tooltip().is_empty());
+        }
+    }
+
+    #[test]
+    fn test_render_tab_bar_headless() {
+        let ctx = egui::Context::default();
+        let _ = ctx.run(Default::default(), |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                let mut current = ActiveTab::Rip;
+                render_tab_bar(ui, &mut current, false);
+                render_tab_bar(ui, &mut current, true);
+            });
+        });
+    }
+}

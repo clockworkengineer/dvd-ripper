@@ -421,4 +421,59 @@ mod tests {
         assert_eq!(result.unwrap(), input_data.len() as u64);
         assert_eq!(cursor_out.into_inner(), input_data);
     }
+
+    #[test]
+    fn test_resolve_raw_optical_source() {
+        let (p1, is_dir1) = resolve_raw_optical_source("D:\\");
+        assert!(!is_dir1);
+        #[cfg(target_os = "windows")]
+        assert!(p1.to_string_lossy().contains(r"\\.\"));
+
+        let temp = std::env::temp_dir();
+        let (_p2, is_dir2) = resolve_raw_optical_source(&temp.to_string_lossy());
+        assert!(is_dir2);
+    }
+
+    #[test]
+    fn test_dump_directory_to_iso_and_dump_disc_to_iso() {
+        let temp_base = std::env::temp_dir().join(format!(
+            "test_iso_dir_{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let video_ts = temp_base.join("VIDEO_TS");
+        let _ = std::fs::create_dir_all(&video_ts);
+        let ifo_file = video_ts.join("VIDEO_TS.IFO");
+        let _ = std::fs::write(&ifo_file, b"MOCK_IFO_DATA_12345678");
+
+        let out_iso1 = temp_base.join("output1.iso");
+        let dump_res = dump_directory_to_iso(&temp_base, &out_iso1, Some("MY_TEST_DISC"));
+        assert!(dump_res.is_ok());
+        assert!(out_iso1.exists());
+
+        // Test dump_disc_to_iso with fallback to directory packaging
+        let out_iso2 = temp_base.join("output2.iso");
+        let (tx, rx) = std::sync::mpsc::channel();
+        let cancel = Arc::new(AtomicBool::new(false));
+        let disc_res = dump_disc_to_iso(
+            &temp_base.to_string_lossy(),
+            &out_iso2,
+            Some("DISC_FALLBACK"),
+            Some(&cancel),
+            Some(&tx),
+        );
+        assert!(disc_res.is_ok());
+        assert!(out_iso2.exists());
+
+        // Verify that events were transmitted to rx
+        let mut events_count = 0;
+        while let Ok(_) = rx.try_recv() {
+            events_count += 1;
+        }
+        assert!(events_count > 0);
+
+        let _ = std::fs::remove_dir_all(&temp_base);
+    }
 }
