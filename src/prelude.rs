@@ -52,6 +52,18 @@ pub use crate::application::{
     RipTvBatchRequest, RipTvBatchRequestBuilder, RipTvBatchUseCase,
 };
 
+// Infrastructure Adapters (DIP)
+pub use crate::infrastructure::{
+    ffmpeg::{FfmpegMediaProber, FfmpegTranscoder},
+    metadata::{OmdbMetadataProvider, TvmazeMetadataProvider},
+    optical::{
+        FfmpegDriveBenchmarkService, PhysicalOpticalDrive, SystemDiscInspector,
+        SystemDriveDetector, SystemTrayController,
+    },
+    post_processors::PostProcessingPipeline,
+    storage::{JsonHistoryRepository, SystemDiskSpaceGuard, TempResource},
+    system::NativeFileDialogService,
+};
+
 // Application Container & Lifecycle
-pub use crate::infrastructure::storage::TempResource;
 pub use crate::{AppContainer, AppInitializer, DefaultPathResolver, PathResolver};

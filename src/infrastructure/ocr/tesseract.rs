@@ -9,6 +9,12 @@ pub struct TesseractOcrService {
     pub binary_path: String,
 }
 
+impl Default for TesseractOcrService {
+    fn default() -> Self {
+        Self::new("tesseract")
+    }
+}
+
 impl TesseractOcrService {
     pub fn new(binary_path: impl Into<String>) -> Self {
         Self {

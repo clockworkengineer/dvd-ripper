@@ -78,6 +78,35 @@ pub fn find_episode_title(
         .map(|ep| ep.name.clone())
 }
 
+use crate::domain::entities::media::TvEpisodeMetadata;
+use crate::domain::ports::metadata::TvSeriesMetadataProvider;
+
+/// Concrete TvSeriesMetadataProvider implementation using the TVMaze REST API.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct TvmazeMetadataProvider;
+
+impl TvmazeMetadataProvider {
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+impl TvSeriesMetadataProvider for TvmazeMetadataProvider {
+    fn fetch_episodes(&self, series_name: &str) -> Result<Vec<TvEpisodeMetadata>> {
+        let episodes = fetch_tvmaze_episodes(series_name)?;
+        Ok(episodes
+            .into_iter()
+            .map(|ep| TvEpisodeMetadata {
+                season: ep.season,
+                episode_num: ep.number.unwrap_or(0),
+                title: ep.name,
+                summary: ep.summary,
+                runtime_minutes: ep.runtime,
+            })
+            .collect())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

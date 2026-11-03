@@ -69,10 +69,14 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use crate::cli::Args;
+use crate::domain::ports::benchmark::DriveBenchmarkService;
 use crate::domain::ports::dialogs::FileDialogService;
-use crate::domain::ports::metadata::MetadataProvider;
+use crate::domain::ports::media_probe::ThumbnailExtractor;
+use crate::domain::ports::metadata::{MetadataProvider, TvSeriesMetadataProvider};
 use crate::domain::ports::notification::Notifier;
-use crate::domain::ports::optical_drive::DriveDetector;
+use crate::domain::ports::ocr::OcrProcessor;
+use crate::domain::ports::optical_drive::{DiscInspector, DriveDetector, TrayController};
+use crate::domain::ports::post_processor::PostProcessor;
 use crate::domain::ports::storage::{DiskSpaceGuard, HistoryRepository};
 use crate::domain::ports::transcoder::Transcoder;
 use crate::dvd::normalize_dvd_path;
@@ -122,8 +126,15 @@ impl AppInitializer {
 pub struct AppContainer {
     pub transcoder: Arc<dyn Transcoder>,
     pub metadata_provider: Arc<dyn MetadataProvider>,
+    pub tv_metadata_provider: Arc<dyn TvSeriesMetadataProvider>,
     pub drive_detector: Arc<dyn DriveDetector>,
+    pub disc_inspector: Arc<dyn DiscInspector>,
+    pub tray_controller: Arc<dyn TrayController>,
+    pub drive_benchmark: Arc<dyn DriveBenchmarkService>,
+    pub thumbnail_extractor: Arc<dyn ThumbnailExtractor>,
+    pub ocr_processor: Arc<dyn OcrProcessor>,
     pub notifier: Arc<dyn Notifier>,
+    pub post_processor: Arc<dyn PostProcessor>,
     pub history_repo: Arc<dyn HistoryRepository>,
     pub disk_guard: Arc<dyn DiskSpaceGuard>,
     pub dialog_service: Arc<dyn FileDialogService>,
@@ -145,6 +156,14 @@ impl AppContainer {
     /// let container = AppContainer::build_production("ffmpeg");
     /// ```
     pub fn build_production(ffmpeg_bin: &str) -> Self {
+        let tray_controller: Arc<dyn TrayController> =
+            Arc::new(crate::infrastructure::optical::SystemTrayController::new());
+        let post_processor = Arc::new(
+            crate::infrastructure::post_processors::PostProcessingPipeline::build_production(Some(
+                tray_controller.clone(),
+            )),
+        );
+
         Self {
             transcoder: Arc::new(crate::infrastructure::ffmpeg::FfmpegTranscoder::new(
                 ffmpeg_bin,
@@ -152,12 +171,25 @@ impl AppContainer {
             metadata_provider: Arc::new(
                 crate::infrastructure::metadata::OmdbMetadataProvider::new(None),
             ),
+            tv_metadata_provider: Arc::new(
+                crate::infrastructure::metadata::TvmazeMetadataProvider::new(),
+            ),
             drive_detector: Arc::new(crate::infrastructure::optical::SystemDriveDetector::new()),
+            disc_inspector: Arc::new(crate::infrastructure::optical::SystemDiscInspector::new()),
+            tray_controller,
+            drive_benchmark: Arc::new(
+                crate::infrastructure::optical::FfmpegDriveBenchmarkService::new(ffmpeg_bin),
+            ),
+            thumbnail_extractor: Arc::new(crate::infrastructure::ffmpeg::FfmpegMediaProber::new(
+                ffmpeg_bin,
+            )),
+            ocr_processor: Arc::new(crate::infrastructure::ocr::TesseractOcrService::default()),
             notifier: Arc::new(
                 crate::infrastructure::notifications::CompositeNotifier::new(vec![Box::new(
                     crate::infrastructure::notifications::MediaServerNotifier::new(),
                 )]),
             ),
+            post_processor,
             history_repo: Arc::new(crate::infrastructure::storage::JsonHistoryRepository::new()),
             disk_guard: Arc::new(crate::infrastructure::storage::SystemDiskSpaceGuard::new()),
             dialog_service: Arc::new(crate::infrastructure::system::NativeFileDialogService::new()),
@@ -197,6 +229,17 @@ impl AppContainer {
         let notifier =
             Arc::new(crate::infrastructure::notifications::CompositeNotifier::new(notifiers));
 
+        let tray_controller: Arc<dyn TrayController> =
+            Arc::new(crate::infrastructure::optical::SystemTrayController::new());
+        let post_processor = Arc::new(
+            crate::infrastructure::post_processors::PostProcessingPipeline::build_production(Some(
+                tray_controller.clone(),
+            )),
+        );
+
+        let ocr_processor: Arc<dyn OcrProcessor> =
+            Arc::new(crate::infrastructure::ocr::TesseractOcrService::default());
+
         Self {
             transcoder: Arc::new(
                 crate::infrastructure::ffmpeg::FfmpegTranscoder::with_options(
@@ -207,8 +250,21 @@ impl AppContainer {
             metadata_provider: Arc::new(
                 crate::infrastructure::metadata::OmdbMetadataProvider::new(None),
             ),
+            tv_metadata_provider: Arc::new(
+                crate::infrastructure::metadata::TvmazeMetadataProvider::new(),
+            ),
             drive_detector: Arc::new(crate::infrastructure::optical::SystemDriveDetector::new()),
+            disc_inspector: Arc::new(crate::infrastructure::optical::SystemDiscInspector::new()),
+            tray_controller,
+            drive_benchmark: Arc::new(
+                crate::infrastructure::optical::FfmpegDriveBenchmarkService::new(&args.ffmpeg),
+            ),
+            thumbnail_extractor: Arc::new(crate::infrastructure::ffmpeg::FfmpegMediaProber::new(
+                &args.ffmpeg,
+            )),
+            ocr_processor,
             notifier,
+            post_processor,
             history_repo: Arc::new(crate::infrastructure::storage::JsonHistoryRepository::new()),
             disk_guard: Arc::new(crate::infrastructure::storage::SystemDiskSpaceGuard::new()),
             dialog_service: Arc::new(crate::infrastructure::system::NativeFileDialogService::new()),
@@ -280,5 +336,39 @@ pub struct DefaultPathResolver;
 impl PathResolver for DefaultPathResolver {
     fn resolve_path(&self, raw_path: &str) -> PathBuf {
         normalize_dvd_path(raw_path)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_app_container_build_production_initializes_all_ports() {
+        let container = AppContainer::build_production("ffmpeg");
+        assert!(Arc::strong_count(&container.transcoder) >= 1);
+        assert!(Arc::strong_count(&container.metadata_provider) >= 1);
+        assert!(Arc::strong_count(&container.tv_metadata_provider) >= 1);
+        assert!(Arc::strong_count(&container.drive_detector) >= 1);
+        assert!(Arc::strong_count(&container.disc_inspector) >= 1);
+        assert!(Arc::strong_count(&container.tray_controller) >= 1);
+        assert!(Arc::strong_count(&container.drive_benchmark) >= 1);
+        assert!(Arc::strong_count(&container.thumbnail_extractor) >= 1);
+        assert!(Arc::strong_count(&container.ocr_processor) >= 1);
+        assert!(Arc::strong_count(&container.post_processor) >= 1);
+        assert!(Arc::strong_count(&container.notifier) >= 1);
+        assert!(Arc::strong_count(&container.history_repo) >= 1);
+        assert!(Arc::strong_count(&container.disk_guard) >= 1);
+        assert!(Arc::strong_count(&container.dialog_service) >= 1);
+    }
+
+    #[test]
+    fn test_app_container_build_from_args() {
+        let args = Args::default();
+        let container = AppContainer::build_from_args(&args);
+        let _single_uc = container.rip_single_title_use_case();
+        let _tv_uc = container.rip_tv_batch_use_case();
+        let _probe_uc = container.probe_disc_use_case();
+        let _iso_uc = container.dump_iso_use_case();
     }
 }
