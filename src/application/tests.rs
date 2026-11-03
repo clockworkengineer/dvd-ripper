@@ -3,7 +3,7 @@
 mod tests {
     use anyhow::{Result, anyhow};
     use std::path::{Path, PathBuf};
-    use std::sync::atomic::AtomicBool;
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
     use std::sync::{Arc, Mutex};
 
     use crate::application::probe_disc::ProbeDiscUseCase;
@@ -113,6 +113,7 @@ mod tests {
         pub path: PathBuf,
         pub label: Option<String>,
         pub titles: Vec<DvdTitleInfo>,
+        pub probe_count: Arc<AtomicUsize>,
     }
 
     impl OpticalDrive for MockOpticalDrive {
@@ -123,6 +124,7 @@ mod tests {
             self.label.clone()
         }
         fn probe_titles(&self) -> Vec<DvdTitleInfo> {
+            self.probe_count.fetch_add(1, Ordering::SeqCst);
             self.titles.clone()
         }
         fn inspect_protection(&self) -> DiscCopyProtectionReport {
@@ -461,10 +463,12 @@ mod tests {
             }, // Trailer
         ];
 
+        let probe_count = Arc::new(AtomicUsize::new(0));
         let mock_drive = MockOpticalDrive {
             path: PathBuf::from("D:\\"),
             label: Some("JOHN_WICK_3".to_string()),
             titles,
+            probe_count: probe_count.clone(),
         };
 
         let mock_meta = MockMetadataProvider {
@@ -485,6 +489,44 @@ mod tests {
             result.metadata.unwrap().title,
             "John Wick: Chapter 3 - Parabellum"
         );
+        assert_eq!(probe_count.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn test_probe_disc_session_cache() {
+        use crate::application::probe_disc::SessionDiscCache;
+
+        let titles = vec![DvdTitleInfo {
+            title_num: 1,
+            duration_secs: 7200.0,
+        }];
+
+        let probe_count = Arc::new(AtomicUsize::new(0));
+        let mock_drive = MockOpticalDrive {
+            path: PathBuf::from("D:\\"),
+            label: Some("CACHED_DISC".to_string()),
+            titles,
+            probe_count: probe_count.clone(),
+        };
+
+        let cache = SessionDiscCache::new();
+        let use_case = ProbeDiscUseCase::with_cache(None, cache.clone());
+
+        // First probe executes hardware interrogation
+        let res1 = use_case.execute(&mock_drive).unwrap();
+        assert_eq!(res1.disc_info.volume_label.as_deref(), Some("CACHED_DISC"));
+        assert_eq!(probe_count.load(Ordering::SeqCst), 1);
+
+        // Second probe utilizes session cache, bypassing hardware read
+        let res2 = use_case.execute(&mock_drive).unwrap();
+        assert_eq!(res2.disc_info.fingerprint, res1.disc_info.fingerprint);
+        assert_eq!(probe_count.load(Ordering::SeqCst), 1);
+
+        // Explicit cache clear causes subsequent probe to re-read hardware
+        cache.clear();
+        let res3 = use_case.execute(&mock_drive).unwrap();
+        assert_eq!(res3.disc_info.fingerprint, res1.disc_info.fingerprint);
+        assert_eq!(probe_count.load(Ordering::SeqCst), 2);
     }
 
     #[test]

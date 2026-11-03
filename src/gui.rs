@@ -409,17 +409,19 @@ impl DvdRipperApp {
                     title_num: best_title,
                     duration_secs: best_dur.unwrap_or(0.0),
                 });
-                let temp_thumb =
-                    std::env::temp_dir().join(format!("dvd_thumb_title_{}.jpg", best_title));
+                let temp_thumb = crate::infrastructure::storage::TempResource::new(
+                    &format!("dvd_thumb_title_{}", best_title),
+                    "jpg",
+                );
                 if crate::ffmpeg::generate_title_thumbnail(
                     "ffmpeg",
                     &dvd_path,
                     best_title,
                     120.0,
-                    &temp_thumb,
+                    temp_thumb.path(),
                 )
                 .is_ok()
-                    && let Ok(bytes) = std::fs::read(&temp_thumb)
+                    && let Ok(bytes) = std::fs::read(temp_thumb.path())
                 {
                     let _ = tx.send(ProgressEvent::TitleThumbnailReady {
                         title_num: best_title,
@@ -561,8 +563,10 @@ impl DvdRipperApp {
 
         std::thread::spawn(move || {
             let dvd_path = normalize_dvd_path(&drive);
-            let temp_thumb =
-                std::env::temp_dir().join(format!("dvd_thumb_title_{}.jpg", target_title));
+            let temp_thumb = crate::infrastructure::storage::TempResource::new(
+                &format!("dvd_thumb_title_{}", target_title),
+                "jpg",
+            );
             let ffmpeg = if ffmpeg_path.is_empty() {
                 "ffmpeg"
             } else {
@@ -573,11 +577,11 @@ impl DvdRipperApp {
                 &dvd_path,
                 target_title,
                 120.0,
-                &temp_thumb,
+                temp_thumb.path(),
             )
             .is_ok()
             {
-                if let Ok(bytes) = std::fs::read(&temp_thumb) {
+                if let Ok(bytes) = std::fs::read(temp_thumb.path()) {
                     let _ = tx.send(ProgressEvent::TitleThumbnailReady {
                         title_num: target_title,
                         image_bytes: bytes,

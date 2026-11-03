@@ -36,7 +36,7 @@ impl DrivePool {
 
     /// Initializes pool with a list of optical drive paths.
     pub fn init_drives(&self, drives: &[String]) {
-        let mut map = self.statuses.lock().unwrap();
+        let mut map = self.statuses.lock().unwrap_or_else(|e| e.into_inner());
         for drive in drives {
             map.entry(drive.clone())
                 .or_insert_with(|| DriveStatusInfo::new(drive));
@@ -45,7 +45,7 @@ impl DrivePool {
 
     /// Retrieves status list for all drives, sorted by drive path.
     pub fn get_statuses(&self) -> Vec<DriveStatusInfo> {
-        let map = self.statuses.lock().unwrap();
+        let map = self.statuses.lock().unwrap_or_else(|e| e.into_inner());
         let mut list: Vec<DriveStatusInfo> = map.values().cloned().collect();
         list.sort_by(|a, b| a.drive.cmp(&b.drive));
         list
@@ -53,7 +53,7 @@ impl DrivePool {
 
     /// Retrieves status for a specific drive.
     pub fn get_drive_status(&self, drive: &str) -> Option<DriveStatusInfo> {
-        let map = self.statuses.lock().unwrap();
+        let map = self.statuses.lock().unwrap_or_else(|e| e.into_inner());
         map.get(drive).cloned()
     }
 
@@ -62,7 +62,7 @@ impl DrivePool {
     where
         F: FnOnce(&mut DriveStatusInfo),
     {
-        let mut map = self.statuses.lock().unwrap();
+        let mut map = self.statuses.lock().unwrap_or_else(|e| e.into_inner());
         let entry = map
             .entry(drive.to_string())
             .or_insert_with(|| DriveStatusInfo::new(drive));
@@ -71,7 +71,7 @@ impl DrivePool {
 
     /// Registers a drive as actively ripping and returns its atomic cancel flag handle.
     pub fn register(&self, drive_path: &Path) -> Arc<AtomicBool> {
-        let mut map = self.active_drives.lock().unwrap();
+        let mut map = self.active_drives.lock().unwrap_or_else(|e| e.into_inner());
         let flag = Arc::new(AtomicBool::new(false));
         map.insert(drive_path.to_path_buf(), flag.clone());
         flag
@@ -79,7 +79,7 @@ impl DrivePool {
 
     /// Signals cancellation for an ongoing rip on a specific drive.
     pub fn cancel(&self, drive_path: &Path) -> bool {
-        let map = self.active_drives.lock().unwrap();
+        let map = self.active_drives.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(flag) = map.get(drive_path) {
             flag.store(true, Ordering::SeqCst);
             true
@@ -90,7 +90,7 @@ impl DrivePool {
 
     /// Signals cancellation across all currently running rip operations.
     pub fn cancel_all(&self) {
-        let map = self.active_drives.lock().unwrap();
+        let map = self.active_drives.lock().unwrap_or_else(|e| e.into_inner());
         for flag in map.values() {
             flag.store(true, Ordering::SeqCst);
         }
@@ -98,13 +98,13 @@ impl DrivePool {
 
     /// Deregisters a drive when its job completes or errors.
     pub fn unregister(&self, drive_path: &Path) {
-        let mut map = self.active_drives.lock().unwrap();
+        let mut map = self.active_drives.lock().unwrap_or_else(|e| e.into_inner());
         map.remove(drive_path);
     }
 
     /// Checks if a drive is actively ripping.
     pub fn is_active(&self, drive_path: &Path) -> bool {
-        let map = self.active_drives.lock().unwrap();
+        let map = self.active_drives.lock().unwrap_or_else(|e| e.into_inner());
         map.contains_key(drive_path)
     }
 }
@@ -149,5 +149,24 @@ mod tests {
         let updated = pool.get_drive_status("D:\\").unwrap();
         assert_eq!(updated.status, "Ripping");
         assert_eq!(updated.progress, 50.0);
+    }
+
+    #[test]
+    fn test_drive_pool_poison_resilience() {
+        let pool = Arc::new(DrivePool::new());
+        let pool_clone = pool.clone();
+
+        // Intentionally poison the mutex by panicking inside a thread while holding lock
+        let _ = std::panic::catch_unwind(move || {
+            let _lock = pool_clone.statuses.lock().unwrap();
+            panic!("Simulated worker panic causing mutex poisoning");
+        });
+
+        // DrivePool must safely recover and continue servicing requests without panicking!
+        let drives = vec!["F:\\".to_string()];
+        pool.init_drives(&drives);
+        let statuses = pool.get_statuses();
+        assert_eq!(statuses.len(), 1);
+        assert_eq!(statuses[0].drive, "F:\\");
     }
 }

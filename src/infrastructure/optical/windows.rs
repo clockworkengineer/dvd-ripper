@@ -75,8 +75,7 @@ impl DiscInspector for PhysicalOpticalDrive {
 
 impl TrayController for PhysicalOpticalDrive {
     fn eject_tray(&self, drive_path: &Path) -> Result<()> {
-        let p = drive_path.to_string_lossy();
-        if crate::dvd::eject_disc(&p) {
+        if super::platform::current::eject_tray(drive_path) {
             Ok(())
         } else {
             Err(anyhow!(
@@ -87,8 +86,7 @@ impl TrayController for PhysicalOpticalDrive {
     }
 
     fn close_tray(&self, drive_path: &Path) -> Result<()> {
-        let p = drive_path.to_string_lossy();
-        if crate::dvd::close_disc_tray(&p) {
+        if super::platform::current::close_tray(drive_path) {
             Ok(())
         } else {
             Err(anyhow!(
@@ -99,8 +97,7 @@ impl TrayController for PhysicalOpticalDrive {
     }
 
     fn spindown(&self, drive_path: &Path) -> Result<()> {
-        let p = drive_path.to_string_lossy();
-        if crate::dvd::spindown_drive(&p) {
+        if super::platform::current::spindown(drive_path) {
             Ok(())
         } else {
             Err(anyhow!(
@@ -123,19 +120,11 @@ impl SystemDriveDetector {
 
 impl DriveDetector for SystemDriveDetector {
     fn detect_available_drives(&self) -> Vec<PathBuf> {
-        crate::dvd::detect_dvd_drives()
-            .into_iter()
-            .map(PathBuf::from)
-            .collect()
+        super::platform::current::detect_drives()
     }
 
     fn auto_detect_primary(&self) -> Option<PathBuf> {
-        let auto = crate::dvd::auto_detect_dvd_drive();
-        if auto.is_empty() {
-            None
-        } else {
-            Some(PathBuf::from(auto))
-        }
+        super::platform::current::auto_detect_primary()
     }
 }
 
@@ -184,8 +173,7 @@ impl SystemTrayController {
 
 impl TrayController for SystemTrayController {
     fn eject_tray(&self, drive_path: &Path) -> Result<()> {
-        let p = drive_path.to_string_lossy();
-        if crate::dvd::eject_disc(&p) {
+        if super::platform::current::eject_tray(drive_path) {
             Ok(())
         } else {
             Err(anyhow!(
@@ -196,8 +184,7 @@ impl TrayController for SystemTrayController {
     }
 
     fn close_tray(&self, drive_path: &Path) -> Result<()> {
-        let p = drive_path.to_string_lossy();
-        if crate::dvd::close_disc_tray(&p) {
+        if super::platform::current::close_tray(drive_path) {
             Ok(())
         } else {
             Err(anyhow!(
@@ -208,8 +195,7 @@ impl TrayController for SystemTrayController {
     }
 
     fn spindown(&self, drive_path: &Path) -> Result<()> {
-        let p = drive_path.to_string_lossy();
-        if crate::dvd::spindown_drive(&p) {
+        if super::platform::current::spindown(drive_path) {
             Ok(())
         } else {
             Err(anyhow!(

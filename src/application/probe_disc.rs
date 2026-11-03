@@ -7,7 +7,8 @@ use crate::domain::heuristics::tv_detector::detect_tv_episodes_from_titles;
 use crate::domain::ports::metadata::MetadataProvider;
 use crate::domain::ports::optical_drive::OpticalDrive;
 use anyhow::Result;
-use std::sync::Arc;
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 
 /// Result of probing a disc, combining disc hardware details, title tracks, TV episodes, and metadata.
 #[derive(Debug, Clone)]
@@ -19,9 +20,47 @@ pub struct DiscProbeResult {
     pub tv_episodes: Vec<TvEpisodeInfo>,
 }
 
+/// Thread-safe in-memory cache for probed disc inspection results within an active session.
+#[derive(Debug, Default, Clone)]
+pub struct SessionDiscCache {
+    cache: Arc<Mutex<HashMap<String, DiscProbeResult>>>,
+}
+
+impl SessionDiscCache {
+    /// Creates a new empty [`SessionDiscCache`].
+    pub fn new() -> Self {
+        Self {
+            cache: Arc::new(Mutex::new(HashMap::new())),
+        }
+    }
+
+    /// Retrieves a cached probe result by disc fingerprint if present.
+    pub fn get(&self, fingerprint: &str) -> Option<DiscProbeResult> {
+        self.cache
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(fingerprint)
+            .cloned()
+    }
+
+    /// Stores a probe result in the session cache.
+    pub fn insert(&self, fingerprint: String, result: DiscProbeResult) {
+        self.cache
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(fingerprint, result);
+    }
+
+    /// Clears all entries from the session cache.
+    pub fn clear(&self) {
+        self.cache.lock().unwrap_or_else(|e| e.into_inner()).clear();
+    }
+}
+
 /// Use case that probes optical disc layout, analyzes copy protection, detects TV episodes, and fetches metadata.
 pub struct ProbeDiscUseCase {
     metadata_provider: Option<Arc<dyn MetadataProvider>>,
+    session_cache: SessionDiscCache,
 }
 
 impl ProbeDiscUseCase {
@@ -30,7 +69,21 @@ impl ProbeDiscUseCase {
     /// # Panics
     /// Never panics.
     pub fn new(metadata_provider: Option<Arc<dyn MetadataProvider>>) -> Self {
-        Self { metadata_provider }
+        Self {
+            metadata_provider,
+            session_cache: SessionDiscCache::new(),
+        }
+    }
+
+    /// Creates a new [`ProbeDiscUseCase`] with an external [`SessionDiscCache`].
+    pub fn with_cache(
+        metadata_provider: Option<Arc<dyn MetadataProvider>>,
+        session_cache: SessionDiscCache,
+    ) -> Self {
+        Self {
+            metadata_provider,
+            session_cache,
+        }
     }
 
     /// Probes the specified optical drive device, extracting title hierarchy, copy protection,
@@ -46,11 +99,16 @@ impl ProbeDiscUseCase {
     /// Never panics.
     pub fn execute(&self, drive: &dyn OpticalDrive) -> Result<DiscProbeResult> {
         let drive_path = drive.get_path();
+        let fingerprint = crate::dvd::compute_disc_fingerprint(&drive_path.to_string_lossy());
+
+        // Check in-memory session cache first for fast-path bypass
+        if let Some(cached_result) = self.session_cache.get(&fingerprint) {
+            return Ok(cached_result);
+        }
+
         let volume_label = drive.read_volume_label();
         let protection = drive.inspect_protection();
         let titles = drive.probe_titles();
-
-        let fingerprint = crate::dvd::compute_disc_fingerprint(&drive_path.to_string_lossy());
 
         // 1. Check local persistent fingerprint cache for instant offline match
         let cached_meta = crate::imdb::lookup_fingerprint_cache(&fingerprint);
@@ -87,17 +145,20 @@ impl ProbeDiscUseCase {
         let disc_info = DiscInfo {
             device_path: drive_path.to_path_buf(),
             volume_label,
-            fingerprint,
+            fingerprint: fingerprint.clone(),
             titles,
             protection,
         };
 
-        Ok(DiscProbeResult {
+        let result = DiscProbeResult {
             disc_info,
             primary_title_num,
             primary_duration_secs,
             metadata,
             tv_episodes,
-        })
+        };
+
+        self.session_cache.insert(fingerprint, result.clone());
+        Ok(result)
     }
 }

@@ -1395,11 +1395,13 @@ pub fn run_ffmpeg_with_channel(
     cmd.stdout(std::process::Stdio::null());
     cmd.stderr(std::process::Stdio::piped());
 
-    let mut child = cmd
+    let raw_child = cmd
         .spawn()
         .context("Failed to spawn FFmpeg process. Is it installed and in your PATH?")?;
+    let mut child = crate::infrastructure::ffmpeg::ChildGuard::new(raw_child);
 
     let mut stderr = child
+        .as_mut()
         .stderr
         .take()
         .ok_or_else(|| anyhow!("Failed to capture FFmpeg stderr"))?;
@@ -1419,8 +1421,8 @@ pub fn run_ffmpeg_with_channel(
         if let Some(ref flag) = cancel_flag
             && flag.load(std::sync::atomic::Ordering::SeqCst)
         {
-            let _ = child.kill();
-            let _ = child.wait();
+            let _ = child.as_mut().kill();
+            let _ = child.as_mut().wait();
             if absolute_output.exists() {
                 let _ = std::fs::remove_file(absolute_output);
             }
@@ -1434,8 +1436,8 @@ pub fn run_ffmpeg_with_channel(
         if let Some(ref rx) = cancel_rx
             && rx.try_recv().is_ok()
         {
-            let _ = child.kill();
-            let _ = child.wait();
+            let _ = child.as_mut().kill();
+            let _ = child.as_mut().wait();
             if absolute_output.exists() {
                 let _ = std::fs::remove_file(absolute_output);
             }
@@ -1448,7 +1450,7 @@ pub fn run_ffmpeg_with_channel(
 
         let n = match stderr.read(&mut buf) {
             Ok(0) => {
-                if let Ok(Some(_)) = child.try_wait() {
+                if let Ok(Some(_)) = child.as_mut().try_wait() {
                     break;
                 }
                 std::thread::sleep(std::time::Duration::from_millis(10));
@@ -1456,7 +1458,7 @@ pub fn run_ffmpeg_with_channel(
             }
             Ok(n) => n,
             Err(_) => {
-                if let Ok(Some(_)) = child.try_wait() {
+                if let Ok(Some(_)) = child.as_mut().try_wait() {
                     break;
                 }
                 std::thread::sleep(std::time::Duration::from_millis(10));
@@ -1579,8 +1581,8 @@ pub fn run_ffmpeg_with_channel(
     if let Some(ref flag) = cancel_flag
         && flag.load(std::sync::atomic::Ordering::SeqCst)
     {
-        let _ = child.kill();
-        let _ = child.wait();
+        let _ = child.as_mut().kill();
+        let _ = child.as_mut().wait();
         if absolute_output.exists() {
             let _ = std::fs::remove_file(absolute_output);
         }
@@ -1588,7 +1590,11 @@ pub fn run_ffmpeg_with_channel(
         return Err(anyhow!(msg));
     }
 
-    let status = child.wait().context("Failed to wait on FFmpeg process")?;
+    let status = child
+        .as_mut()
+        .wait()
+        .context("Failed to wait on FFmpeg process")?;
+    child.disarm();
     let output_size = std::fs::metadata(absolute_output)
         .map(|metadata| metadata.len())
         .unwrap_or(0);

@@ -410,7 +410,7 @@ pub fn atomic_write_file(path: &std::path::Path, content: impl AsRef<[u8]>) -> s
     Ok(())
 }
 
-/// Validates whether a filename string is safe from path traversal (`..`), path separators, and Windows reserved names.
+/// Validates whether a filename string is safe from path traversal (`..`), path separators, control characters, and Windows reserved names.
 #[allow(dead_code)]
 pub fn is_safe_filename(name: &str) -> bool {
     let trimmed = name.trim();
@@ -419,6 +419,7 @@ pub fn is_safe_filename(name: &str) -> bool {
         || trimmed.contains('/')
         || trimmed.contains('\\')
         || trimmed.starts_with('.')
+        || trimmed.chars().any(|c| c.is_control())
     {
         return false;
     }
@@ -431,8 +432,50 @@ pub fn is_safe_filename(name: &str) -> bool {
     !reserved.contains(&stem)
 }
 
-/// Validates that target path stays strictly contained within base directory bounds, blocking path traversal (`..`).
+/// Helper: Strips Windows extended-length prefix (`\\?\`) from paths for prefix comparison.
+fn strip_verbatim_prefix(path: &Path) -> PathBuf {
+    let s = path.to_string_lossy();
+    if let Some(stripped) = s.strip_prefix(r"\\?\") {
+        PathBuf::from(stripped)
+    } else {
+        path.to_path_buf()
+    }
+}
+
+/// Validates that target path stays strictly contained within base directory bounds, blocking path traversal (`..`),
+/// non-printable control characters, and directory boundary escapes.
 pub fn ensure_path_contained(base: &Path, target: &Path) -> Result<PathBuf> {
+    // 1. Upfront component-level path traversal check
+    for component in target.components() {
+        if matches!(component, std::path::Component::ParentDir) {
+            return Err(anyhow!(
+                "Path Traversal Safeguard Triggered: Target path '{}' contains '..' traversal segment.",
+                target.display()
+            ));
+        }
+    }
+
+    // 2. Reject non-printable control characters
+    let target_str = target.to_string_lossy();
+    if target_str.chars().any(|c| c.is_control()) {
+        return Err(anyhow!(
+            "Path Security Safeguard Triggered: Target path '{}' contains non-printable control characters.",
+            target.display()
+        ));
+    }
+
+    // 3. String-level traversal tokens check
+    if target_str.contains("/..")
+        || target_str.contains("\\..")
+        || target_str.contains("../")
+        || target_str.contains("..\\")
+    {
+        return Err(anyhow!(
+            "Path Traversal Safeguard Triggered: Target path '{}' attempts to escape base directory bounds.",
+            target.display()
+        ));
+    }
+
     let base_canonical = if base.exists() {
         base.canonicalize().unwrap_or_else(|_| base.to_path_buf())
     } else {
@@ -445,16 +488,25 @@ pub fn ensure_path_contained(base: &Path, target: &Path) -> Result<PathBuf> {
         base_canonical.join(target)
     };
 
-    let target_str = full_target.to_string_lossy();
-    if target_str.contains("/..")
-        || target_str.contains("\\..")
-        || target_str.contains("../")
-        || target_str.contains("..\\")
-    {
-        return Err(anyhow!(
-            "Path Traversal Safeguard Triggered: Target path '{}' attempts to escape base directory bounds.",
-            full_target.display()
-        ));
+    // 4. Prefix containment check for existing ancestors
+    let norm_base = strip_verbatim_prefix(&base_canonical);
+    let mut ancestor = full_target.as_path();
+    while !ancestor.exists() && ancestor.parent().is_some() {
+        ancestor = ancestor.parent().unwrap();
+    }
+
+    if ancestor.exists() {
+        let ancestor_canonical = ancestor
+            .canonicalize()
+            .unwrap_or_else(|_| ancestor.to_path_buf());
+        let norm_ancestor = strip_verbatim_prefix(&ancestor_canonical);
+        if !norm_ancestor.starts_with(&norm_base) {
+            return Err(anyhow!(
+                "Path Traversal Safeguard Triggered: Target path '{}' escapes base directory bounds '{}'.",
+                full_target.display(),
+                base.display()
+            ));
+        }
     }
 
     Ok(full_target)
@@ -478,6 +530,7 @@ pub fn sanitize_filename(name: &str) -> String {
         .map(|c| match c {
             ':' => ' ',                                            // Replace colons with spaces
             '\\' | '/' | '*' | '?' | '"' | '<' | '>' | '|' => '_', // Replace other invalid characters
+            c if c.is_control() => ' ', // Replace control characters with spaces
             _ => c,
         })
         .collect();
@@ -1486,6 +1539,32 @@ mod tests {
 
         let invalid_target = base.join("../../../etc/shadow");
         assert!(ensure_path_contained(&base, &invalid_target).is_err());
+
+        // Control characters rejected
+        let control_target = base.join("bad\x00file.mp4");
+        assert!(ensure_path_contained(&base, &control_target).is_err());
+
+        // Escaping absolute path rejected
+        #[cfg(windows)]
+        {
+            let system_dir = PathBuf::from("C:\\Windows\\System32");
+            if system_dir.exists() && system_dir != base {
+                assert!(ensure_path_contained(&base, &system_dir).is_err());
+            }
+        }
+    }
+
+    #[test]
+    fn test_is_safe_filename_safeguards() {
+        assert!(is_safe_filename("Matrix_1999.mp4"));
+        assert!(!is_safe_filename(""));
+        assert!(!is_safe_filename(".."));
+        assert!(!is_safe_filename("../escape"));
+        assert!(!is_safe_filename("dir\\file.mp4"));
+        assert!(!is_safe_filename("CON.mp4"));
+        assert!(!is_safe_filename("NUL"));
+        assert!(!is_safe_filename("bad\x00file.mp4"));
+        assert!(!is_safe_filename("bad\x1bfile.mp4"));
     }
 
     #[test]

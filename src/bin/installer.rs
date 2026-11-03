@@ -266,19 +266,20 @@ fn configure_path(target_dir: &Path, _system: bool) -> Result<()> {
     {
         let scope = if _system { "Machine" } else { "User" };
         println!("      [+] Updating Windows {} Registry PATH...", scope);
-        let safe_target = target_str.replace('\\', "\\\\").replace('\'', "''");
-        let ps_cmd = format!(
-            "$oldPath = [Environment]::GetEnvironmentVariable('Path', '{scope}'); \
-             if (-not $oldPath.Split(';').Contains('{target}')) {{ \
-                 $newPath = \"$oldPath;{target}\"; \
-                 [Environment]::SetEnvironmentVariable('Path', $newPath, '{scope}'); \
-                 Write-Host 'PATH updated successfully.'; \
-             }} else {{ Write-Host 'Directory already present in PATH.'; }}",
-            scope = scope,
-            target = safe_target
-        );
+        let ps_cmd = "\
+            $scope = $env:DVD_RIPPER_SCOPE; \
+            $target = $env:DVD_RIPPER_TARGET; \
+            $oldPath = [Environment]::GetEnvironmentVariable('Path', $scope); \
+            if (-not $oldPath.Split(';').Contains($target)) { \
+                $newPath = \"$oldPath;$target\"; \
+                [Environment]::SetEnvironmentVariable('Path', $newPath, $scope); \
+                Write-Host 'PATH updated successfully.'; \
+            } else { Write-Host 'Directory already present in PATH.'; }";
+
         let output = Command::new("powershell")
-            .args(["-NoProfile", "-Command", &ps_cmd])
+            .args(["-NoProfile", "-NonInteractive", "-Command", ps_cmd])
+            .env("DVD_RIPPER_SCOPE", scope)
+            .env("DVD_RIPPER_TARGET", &target_str)
             .output();
 
         if let Ok(out) = output {
@@ -403,34 +404,38 @@ fn run_uninstall(args: &InstallerArgs) -> Result<()> {
 fn create_shortcuts(target_exe: &Path) -> Result<()> {
     #[cfg(windows)]
     {
-        let script = format!(
-            "$ws = New-Object -ComObject WScript.Shell; \
-             $programs = [Environment]::GetFolderPath('Programs'); \
-             if ($programs -and (Test-Path $programs)) {{ \
-                 $s1 = $ws.CreateShortcut(\"$programs\\DVD Ripper.lnk\"); \
-                 $s1.TargetPath = '{target}'; \
-                 $s1.WorkingDirectory = '{workdir}'; \
-                 $s1.Description = 'Fast, automated DVD & TV Series backup tool'; \
-                 $s1.IconLocation = '{target},0'; \
-                 $s1.Save(); \
-                 Write-Output 'StartMenu:OK'; \
-             }} \
-             $desktop = [Environment]::GetFolderPath('Desktop'); \
-             if ($desktop -and (Test-Path $desktop)) {{ \
-                 $s2 = $ws.CreateShortcut(\"$desktop\\DVD Ripper.lnk\"); \
-                 $s2.TargetPath = '{target}'; \
-                 $s2.WorkingDirectory = '{workdir}'; \
-                 $s2.Description = 'Fast, automated DVD & TV Series backup tool'; \
-                 $s2.IconLocation = '{target},0'; \
-                 $s2.Save(); \
-                 Write-Output 'Desktop:OK'; \
-             }}",
-            target = target_exe.display(),
-            workdir = target_exe.parent().unwrap_or(Path::new("")).display(),
-        );
+        let script = "\
+            $target = $env:DVD_RIPPER_TARGET_EXE; \
+            $workdir = $env:DVD_RIPPER_WORKDIR; \
+            $ws = New-Object -ComObject WScript.Shell; \
+            $programs = [Environment]::GetFolderPath('Programs'); \
+            if ($programs -and (Test-Path $programs)) { \
+                $s1 = $ws.CreateShortcut(\"$programs\\DVD Ripper.lnk\"); \
+                $s1.TargetPath = $target; \
+                $s1.WorkingDirectory = $workdir; \
+                $s1.Description = 'Fast, automated DVD & TV Series backup tool'; \
+                $s1.IconLocation = \"$target,0\"; \
+                $s1.Save(); \
+                Write-Output 'StartMenu:OK'; \
+            } \
+            $desktop = [Environment]::GetFolderPath('Desktop'); \
+            if ($desktop -and (Test-Path $desktop)) { \
+                $s2 = $ws.CreateShortcut(\"$desktop\\DVD Ripper.lnk\"); \
+                $s2.TargetPath = $target; \
+                $s2.WorkingDirectory = $workdir; \
+                $s2.Description = 'Fast, automated DVD & TV Series backup tool'; \
+                $s2.IconLocation = \"$target,0\"; \
+                $s2.Save(); \
+                Write-Output 'Desktop:OK'; \
+            }";
 
         let output = Command::new("powershell")
-            .args(["-NoProfile", "-NonInteractive", "-Command", &script])
+            .args(["-NoProfile", "-NonInteractive", "-Command", script])
+            .env("DVD_RIPPER_TARGET_EXE", target_exe)
+            .env(
+                "DVD_RIPPER_WORKDIR",
+                target_exe.parent().unwrap_or(Path::new("")),
+            )
             .output();
 
         match output {

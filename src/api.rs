@@ -1167,20 +1167,158 @@ pub const OPENAPI_V3_JSON: &str = r#"{
   }
 }"#;
 
+/// Maximum allowable HTTP request body size (1 MB). Requests exceeding this limit receive 413 Payload Too Large.
+pub const MAX_REQUEST_BODY_SIZE: usize = 1024 * 1024;
+
+/// Maximum allowable HTTP request header size (64 KB) to protect against header inflation attacks.
+pub const MAX_HEADER_SIZE: usize = 64 * 1024;
+
+/// Result of safely reading an HTTP request from a stream with DoS safeguards.
+#[derive(Debug, PartialEq, Eq)]
+pub enum SafeHttpReadResult {
+    /// Successfully read complete request bytes.
+    Ok(Vec<u8>),
+    /// Client disconnected or sent empty request.
+    Empty,
+    /// Request headers exceeded MAX_HEADER_SIZE.
+    HeadersTooLarge,
+    /// Request body exceeded MAX_REQUEST_BODY_SIZE.
+    PayloadTooLarge,
+    /// Malformed request or I/O error.
+    Malformed(String),
+}
+
+/// Helper: Extracts Content-Length from raw header bytes if present.
+pub fn extract_content_length(header_bytes: &[u8]) -> Option<usize> {
+    let s = std::str::from_utf8(header_bytes).ok()?;
+    for line in s.lines() {
+        if let Some(colon_idx) = line.find(':') {
+            let key = line[..colon_idx].trim();
+            if key.eq_ignore_ascii_case("content-length") {
+                return line[colon_idx + 1..].trim().parse::<usize>().ok();
+            }
+        }
+    }
+    None
+}
+
+/// Safely reads an HTTP request from a stream enforcing header and body limits.
+pub fn read_http_request_safely<R: Read>(mut reader: R) -> SafeHttpReadResult {
+    let mut buffer = Vec::with_capacity(4096);
+    let mut chunk = [0u8; 4096];
+    let mut header_end = None;
+
+    // 1. Read until end of headers \r\n\r\n
+    loop {
+        match reader.read(&mut chunk) {
+            Ok(0) => break,
+            Ok(n) => {
+                buffer.extend_from_slice(&chunk[..n]);
+                if let Some(pos) = buffer.windows(4).position(|w| w == b"\r\n\r\n") {
+                    if pos + 4 > MAX_HEADER_SIZE {
+                        return SafeHttpReadResult::HeadersTooLarge;
+                    }
+                    header_end = Some(pos + 4);
+                    break;
+                }
+                if buffer.len() > MAX_HEADER_SIZE {
+                    return SafeHttpReadResult::HeadersTooLarge;
+                }
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(e) => return SafeHttpReadResult::Malformed(e.to_string()),
+        }
+    }
+
+    if buffer.is_empty() {
+        return SafeHttpReadResult::Empty;
+    }
+
+    let header_pos = match header_end {
+        Some(pos) => pos,
+        None => {
+            if buffer.len() > MAX_HEADER_SIZE {
+                return SafeHttpReadResult::HeadersTooLarge;
+            }
+            buffer.len()
+        }
+    };
+
+    // 2. Parse Content-Length from headers if present
+    let header_slice = &buffer[..header_pos];
+    let content_len = extract_content_length(header_slice);
+
+    if let Some(len) = content_len {
+        if len > MAX_REQUEST_BODY_SIZE {
+            return SafeHttpReadResult::PayloadTooLarge;
+        }
+
+        let mut body_read = buffer.len() - header_pos;
+        while body_read < len {
+            let to_read = (len - body_read).min(chunk.len());
+            match reader.read(&mut chunk[..to_read]) {
+                Ok(0) => break,
+                Ok(n) => {
+                    buffer.extend_from_slice(&chunk[..n]);
+                    body_read += n;
+                    if body_read > MAX_REQUEST_BODY_SIZE {
+                        return SafeHttpReadResult::PayloadTooLarge;
+                    }
+                }
+                Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+                Err(e) => return SafeHttpReadResult::Malformed(e.to_string()),
+            }
+        }
+    }
+
+    let total_body_len = buffer.len().saturating_sub(header_pos);
+    if total_body_len > MAX_REQUEST_BODY_SIZE {
+        return SafeHttpReadResult::PayloadTooLarge;
+    }
+
+    SafeHttpReadResult::Ok(buffer)
+}
+
 /// Returns the OpenAPI v3 JSON specification string.
 pub fn generate_openapi_spec() -> &'static str {
     OPENAPI_V3_JSON
 }
 
 fn handle_client(mut stream: TcpStream, drive_path: &str) -> Result<()> {
-    let mut buffer = [0u8; 4096];
-    let bytes_read = stream.read(&mut buffer)?;
-    if bytes_read == 0 {
-        return Ok(());
-    }
+    let req_bytes = match read_http_request_safely(&mut stream) {
+        SafeHttpReadResult::Ok(bytes) => bytes,
+        SafeHttpReadResult::Empty => return Ok(()),
+        SafeHttpReadResult::HeadersTooLarge => {
+            let body = "{\"success\":false,\"message\":\"Request Header Fields Too Large\"}";
+            let _ = send_http_response(
+                &mut stream,
+                "431 Request Header Fields Too Large",
+                "application/json",
+                body,
+            );
+            return Ok(());
+        }
+        SafeHttpReadResult::PayloadTooLarge => {
+            let body = "{\"success\":false,\"message\":\"Payload Too Large: Maximum allowed request size is 1MB\"}";
+            let _ = send_http_response(
+                &mut stream,
+                "413 Payload Too Large",
+                "application/json",
+                body,
+            );
+            return Ok(());
+        }
+        SafeHttpReadResult::Malformed(err) => {
+            let body = format!(
+                "{{\"success\":false,\"message\":\"Malformed HTTP request: {}\"}}",
+                crate::utils::escape_json_str(&err)
+            );
+            let _ = send_http_response(&mut stream, "400 Bad Request", "application/json", &body);
+            return Ok(());
+        }
+    };
 
-    let req_bytes = &buffer[..bytes_read];
-    let (method, path) = parse_http_route(req_bytes);
+    let (method, path) = parse_http_route(&req_bytes);
 
     let path_str = String::from_utf8_lossy(path);
     let method_str = String::from_utf8_lossy(method);
@@ -1197,10 +1335,27 @@ fn handle_client(mut stream: TcpStream, drive_path: &str) -> Result<()> {
 
     if path_str.starts_with("/api/")
         && path_str != "/api/status"
-        && !validate_api_key_header(req_bytes, &path_str)
+        && !validate_api_key_header(&req_bytes, &path_str)
     {
         let body = "{\"success\":false,\"message\":\"Unauthorized: Invalid or missing API key header (Authorization: Bearer <KEY>)\"}";
         send_http_response(&mut stream, "401 Unauthorized", "application/json", body)?;
+        return Ok(());
+    }
+
+    let body_str = extract_body(&req_bytes).unwrap_or_default();
+    let is_json_post_endpoint = method_str == "POST"
+        && (path_str.starts_with("/api/queue/batch")
+            || path_str.starts_with("/api/select")
+            || path_str.starts_with("/api/rip")
+            || path_str.starts_with("/api/cancel")
+            || path_str.starts_with("/api/eject"));
+
+    if is_json_post_endpoint
+        && !body_str.trim().is_empty()
+        && serde_json::from_str::<serde_json::Value>(body_str).is_err()
+    {
+        let resp = "{\"success\":false,\"message\":\"Malformed JSON request body\"}";
+        send_http_response(&mut stream, "400 Bad Request", "application/json", resp)?;
         return Ok(());
     }
 
@@ -1334,7 +1489,10 @@ fn handle_client(mut stream: TcpStream, drive_path: &str) -> Result<()> {
             .unwrap_or(120.0);
         let drive = parse_query_param(&path_str, "drive").unwrap_or_else(|| drive_path.to_string());
 
-        let temp_thumb = std::env::temp_dir().join(format!("dvd_ripper_thumb_{}.jpg", title_num));
+        let temp_thumb = crate::infrastructure::storage::TempResource::new(
+            &format!("dvd_ripper_thumb_{}", title_num),
+            "jpg",
+        );
         let ffmpeg_path = std::env::var("FFMPEG").unwrap_or_else(|_| "ffmpeg".to_string());
 
         match crate::ffmpeg::generate_title_thumbnail(
@@ -1342,10 +1500,10 @@ fn handle_client(mut stream: TcpStream, drive_path: &str) -> Result<()> {
             std::path::Path::new(&drive),
             title_num,
             time_sec,
-            &temp_thumb,
+            temp_thumb.path(),
         ) {
             Ok(_) => {
-                if let Ok(bytes) = std::fs::read(&temp_thumb) {
+                if let Ok(bytes) = std::fs::read(temp_thumb.path()) {
                     let resp = build_http_response_bytes("200 OK", "image/jpeg", &bytes);
                     stream.write_all(&resp)?;
                 } else {
@@ -1395,7 +1553,7 @@ fn handle_client(mut stream: TcpStream, drive_path: &str) -> Result<()> {
             &resp_obj.to_string(),
         )?;
     } else if method_str == "POST" && path_str.starts_with("/api/queue/batch") {
-        let body_str = extract_body(req_bytes).unwrap_or_default();
+        let body_str = extract_body(&req_bytes).unwrap_or_default();
         let mut added_ids = Vec::new();
         if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(body_str)
             && let Some(arr) = parsed.as_array()
@@ -1445,7 +1603,7 @@ fn handle_client(mut stream: TcpStream, drive_path: &str) -> Result<()> {
         let json_body = serde_json::to_string(&candidates).unwrap_or_else(|_| "[]".to_string());
         send_http_response(&mut stream, "200 OK", "application/json", &json_body)?;
     } else if method_str == "POST" && path_str.starts_with("/api/select") {
-        let body_str = extract_body(req_bytes).unwrap_or_default();
+        let body_str = extract_body(&req_bytes).unwrap_or_default();
         let mut imdb_id = parse_query_param(&path_str, "imdb_id");
         let mut target_drive = parse_query_param(&path_str, "drive");
         if !body_str.trim().is_empty()
@@ -1497,7 +1655,7 @@ fn handle_client(mut stream: TcpStream, drive_path: &str) -> Result<()> {
     } else if method_str == "POST"
         && (path_str == "/api/eject" || path_str.starts_with("/api/eject"))
     {
-        let body_str = extract_body(req_bytes).unwrap_or_default();
+        let body_str = extract_body(&req_bytes).unwrap_or_default();
         let mut target_drive = parse_query_param(&path_str, "drive");
         if target_drive.is_none()
             && !body_str.trim().is_empty()
@@ -1517,7 +1675,7 @@ fn handle_client(mut stream: TcpStream, drive_path: &str) -> Result<()> {
             &resp_obj.to_string(),
         )?;
     } else if method_str == "POST" && (path_str == "/api/rip" || path_str.starts_with("/api/rip")) {
-        let body_str = extract_body(req_bytes).unwrap_or_default();
+        let body_str = extract_body(&req_bytes).unwrap_or_default();
         let mut target_drive = parse_query_param(&path_str, "drive");
         if target_drive.is_none()
             && !body_str.trim().is_empty()
@@ -1576,7 +1734,7 @@ fn handle_client(mut stream: TcpStream, drive_path: &str) -> Result<()> {
     } else if method_str == "POST"
         && (path_str == "/api/cancel" || path_str.starts_with("/api/cancel"))
     {
-        let body_str = extract_body(req_bytes).unwrap_or_default();
+        let body_str = extract_body(&req_bytes).unwrap_or_default();
         let mut target_drive = parse_query_param(&path_str, "drive");
         if target_drive.is_none()
             && !body_str.trim().is_empty()
@@ -2427,5 +2585,51 @@ mod tests {
 
         cancel_all_drive_rips();
         assert!(flag_y.load(Ordering::SeqCst));
+    }
+
+    #[test]
+    fn test_extract_content_length() {
+        let headers = b"POST /api/rip HTTP/1.1\r\nContent-Type: application/json\r\nContent-Length: 42\r\n\r\n";
+        assert_eq!(extract_content_length(headers), Some(42));
+
+        let headers_case = b"POST /api/rip HTTP/1.1\r\ncontent-length: 1024\r\n\r\n";
+        assert_eq!(extract_content_length(headers_case), Some(1024));
+
+        let no_cl = b"GET /api/status HTTP/1.1\r\nHost: localhost\r\n\r\n";
+        assert_eq!(extract_content_length(no_cl), None);
+
+        let invalid_cl = b"POST /api/rip HTTP/1.1\r\nContent-Length: not-a-number\r\n\r\n";
+        assert_eq!(extract_content_length(invalid_cl), None);
+    }
+
+    #[test]
+    fn test_read_http_request_safely() {
+        use std::io::Cursor;
+
+        // Normal request
+        let req = b"GET /api/status HTTP/1.1\r\nHost: localhost\r\n\r\n";
+        let res = read_http_request_safely(Cursor::new(req));
+        assert_eq!(res, SafeHttpReadResult::Ok(req.to_vec()));
+
+        // Empty stream
+        let empty = b"";
+        assert_eq!(
+            read_http_request_safely(Cursor::new(empty)),
+            SafeHttpReadResult::Empty
+        );
+
+        // Payload Too Large (> 1MB via Content-Length)
+        let large_cl = format!(
+            "POST /api/rip HTTP/1.1\r\nContent-Length: {}\r\n\r\n",
+            MAX_REQUEST_BODY_SIZE + 1
+        );
+        let res_large = read_http_request_safely(Cursor::new(large_cl.as_bytes()));
+        assert_eq!(res_large, SafeHttpReadResult::PayloadTooLarge);
+
+        // Headers Too Large (> 64KB)
+        let mut giant_headers = vec![b'A'; MAX_HEADER_SIZE + 10];
+        giant_headers.extend_from_slice(b"\r\n\r\n");
+        let res_headers = read_http_request_safely(Cursor::new(giant_headers));
+        assert_eq!(res_headers, SafeHttpReadResult::HeadersTooLarge);
     }
 }

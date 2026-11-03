@@ -41,4 +41,5 @@ pub use crate::application::{
 };
 
 // Application Container & Lifecycle
+pub use crate::infrastructure::storage::TempResource;
 pub use crate::{AppContainer, AppInitializer, DefaultPathResolver, PathResolver};

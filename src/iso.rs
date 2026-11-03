@@ -33,7 +33,16 @@ pub fn probe_iso_disc_size<R: Read + Seek>(reader: &mut R) -> Option<u64> {
     None
 }
 
-/// Copies raw optical sectors from a readable stream into an output writer with real-time throughput metrics.
+/// Standard optical DVD sector size in bytes (ISO-9660 / UDF).
+pub const OPTICAL_SECTOR_SIZE: usize = 2048;
+
+/// Minimum aligned DMA transfer buffer size (64 KB = 32 sectors).
+pub const MIN_DMA_BUFFER_SIZE: usize = 32 * OPTICAL_SECTOR_SIZE;
+
+/// Maximum aligned DMA transfer buffer size (2 MB = 1024 sectors).
+pub const MAX_DMA_BUFFER_SIZE: usize = 1024 * OPTICAL_SECTOR_SIZE;
+
+/// Copies raw optical sectors from a readable stream into an output writer with dynamic DMA buffer scaling and real-time throughput metrics.
 pub fn copy_sectors_with_progress<R: Read, W: Write, F: FnMut(f64, f64, u64)>(
     mut reader: R,
     mut writer: W,
@@ -41,11 +50,12 @@ pub fn copy_sectors_with_progress<R: Read, W: Write, F: FnMut(f64, f64, u64)>(
     cancel_flag: Option<&Arc<AtomicBool>>,
     mut progress_cb: F,
 ) -> Result<u64> {
-    const BUFFER_SIZE: usize = 256 * 1024; // 256 KB buffer for high sequential throughput
-    let mut buffer = vec![0u8; BUFFER_SIZE];
+    let mut current_buf_size = MIN_DMA_BUFFER_SIZE;
+    let mut buffer = vec![0u8; current_buf_size];
     let mut total_copied = 0u64;
     let start_time = Instant::now();
     let mut last_progress_report = Instant::now();
+    let mut consecutive_full_reads = 0;
 
     loop {
         if let Some(flag) = cancel_flag
@@ -61,6 +71,18 @@ pub fn copy_sectors_with_progress<R: Read, W: Write, F: FnMut(f64, f64, u64)>(
 
         writer.write_all(&buffer[..bytes_read])?;
         total_copied += bytes_read as u64;
+
+        // Dynamic DMA buffer scaling: expand buffer up to MAX_DMA_BUFFER_SIZE on sustained sequential reads
+        if bytes_read == current_buf_size {
+            consecutive_full_reads += 1;
+            if consecutive_full_reads >= 4 && current_buf_size < MAX_DMA_BUFFER_SIZE {
+                current_buf_size = (current_buf_size * 2).min(MAX_DMA_BUFFER_SIZE);
+                buffer.resize(current_buf_size, 0);
+                consecutive_full_reads = 0;
+            }
+        } else {
+            consecutive_full_reads = 0;
+        }
 
         if last_progress_report.elapsed().as_millis() >= 250 {
             let elapsed_secs = start_time.elapsed().as_secs_f64().max(0.001);
@@ -129,25 +151,27 @@ pub fn dump_directory_to_iso(
     #[cfg(target_os = "windows")]
     {
         // Use PowerShell with native IMAPI2FS COM object (included in all modern Windows versions)
-        let ps_script = format!(
-            "$fsi = New-Object -ComObject IMAPI2FS.MsftFileSystemImage; \
-             $fsi.FileSystemsToCreate = 3; \
-             $fsi.VolumeName = '{}'; \
-             $fsi.Root.AddTree('{}', $false); \
-             $iso = $fsi.CreateResultImage(); \
-             $stream = $iso.ImageStream; \
-             $out = [System.IO.File]::OpenWrite('{}'); \
-             $buf = New-Object byte[] 65536; \
-             while (($read = $stream.Read($buf, 0, $buf.Length)) -gt 0) {{ $out.Write($buf, 0, $read) }}; \
-             $out.Close()",
-            label.replace('\'', "''"),
-            dir_path.display().to_string().replace('\'', "''"),
-            output_iso_path.display().to_string().replace('\'', "''")
-        );
+        // Pass arguments safely via environment variables to eliminate shell interpolation vulnerabilities.
+        let ps_script = "\
+            $fsi = New-Object -ComObject IMAPI2FS.MsftFileSystemImage; \
+            $fsi.FileSystemsToCreate = 3; \
+            $fsi.VolumeName = $env:DVD_RIPPER_VOL; \
+            $fsi.Root.AddTree($env:DVD_RIPPER_DIR, $false); \
+            $iso = $fsi.CreateResultImage(); \
+            $stream = $iso.ImageStream; \
+            $out = [System.IO.File]::OpenWrite($env:DVD_RIPPER_OUT); \
+            $buf = New-Object byte[] 65536; \
+            while (($read = $stream.Read($buf, 0, $buf.Length)) -gt 0) { $out.Write($buf, 0, $read) }; \
+            $out.Close()";
 
         let mut cmd = std::process::Command::new("powershell");
         crate::utils::configure_silent_command(&mut cmd);
-        let output = cmd.args(["-NoProfile", "-Command", &ps_script]).output()?;
+        let output = cmd
+            .args(["-NoProfile", "-NonInteractive", "-Command", ps_script])
+            .env("DVD_RIPPER_VOL", label)
+            .env("DVD_RIPPER_DIR", dir_path)
+            .env("DVD_RIPPER_OUT", output_iso_path)
+            .output()?;
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
