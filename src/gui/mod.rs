@@ -1,6 +1,7 @@
 #![cfg(feature = "gui")]
 
 pub mod components;
+pub mod controller;
 pub mod state;
 pub mod tabs;
 pub mod theme;
@@ -8,6 +9,7 @@ pub mod theme;
 use eframe::egui;
 use std::path::Path;
 
+pub use controller::{GuiApplicationController, RipTaskSpecification};
 pub use state::DvdRipperApp;
 pub use tabs::ActiveTab;
 

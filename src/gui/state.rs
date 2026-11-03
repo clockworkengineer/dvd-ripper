@@ -3,23 +3,18 @@
 
 use eframe::egui;
 use std::collections::{HashMap, VecDeque};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::{Receiver, Sender, channel};
+use std::sync::mpsc::Sender;
 use std::time::Instant;
 
-use crate::cli::Args;
+use super::controller::{GuiApplicationController, RipTaskSpecification};
+use super::tabs::ActiveTab;
 use crate::domain::entities::disc::TvEpisodeInfo;
 use crate::dvd::{get_volume_label, normalize_dvd_path};
-use crate::ffmpeg::{
-    ProgressEvent, detect_tv_episodes, resolve_output_path, resolve_tv_output_path,
-};
-use crate::history::{RipRecord, load_history, record_rip_event, save_history};
-use crate::imdb::lookup_film_details;
-use crate::utils::{format_episode_name, sanitize_filename};
-
-use super::tabs::ActiveTab;
+use crate::ffmpeg::ProgressEvent;
+use crate::history::{RipRecord, load_history, record_rip_event};
+use crate::utils::format_episode_name;
 
 pub struct GuiProgressObserver {
     pub tx: Sender<ProgressEvent>,
@@ -134,17 +129,18 @@ pub struct DvdRipperApp {
     pub status_message: String,
     pub logs: VecDeque<String>,
 
+    pub controller: GuiApplicationController,
     pub event_tx: Sender<ProgressEvent>,
-    pub event_rx: Receiver<ProgressEvent>,
-    pub cancel_tx: Option<Sender<()>>,
-    pub cancel_flag: Option<Arc<AtomicBool>>,
 
     pub history: Vec<RipRecord>,
 }
 
 impl Default for DvdRipperApp {
     fn default() -> Self {
-        let (event_tx, event_rx) = channel();
+        let container = Arc::new(crate::AppContainer::build_production("ffmpeg"));
+        let controller = GuiApplicationController::new(container.clone());
+        let event_tx = controller.event_tx();
+
         let cfg = crate::config::load_config(None);
         let default_out = cfg.out_dir.clone().unwrap_or_else(|| {
             crate::utils::get_default_rip_output_dir()
@@ -221,7 +217,7 @@ impl Default for DvdRipperApp {
             checksum: false,
             nfo: false,
             norm_target: -23.0,
-            container: None,
+            container: Some(container),
 
             show_search_modal: false,
             search_candidates: Vec::new(),
@@ -237,10 +233,8 @@ impl Default for DvdRipperApp {
             status_message: "Ready to rip".to_string(),
             logs: VecDeque::new(),
 
+            controller,
             event_tx,
-            event_rx,
-            cancel_tx: None,
-            cancel_flag: None,
 
             history: load_history(None),
         }
@@ -256,8 +250,12 @@ impl DvdRipperApp {
 
     #[allow(dead_code)]
     pub fn with_container(container: Arc<crate::AppContainer>) -> Self {
+        let controller = GuiApplicationController::new(container.clone());
+        let event_tx = controller.event_tx();
         let mut app = Self {
             container: Some(container),
+            controller,
+            event_tx,
             ..Default::default()
         };
         app.trigger_detection();
@@ -279,17 +277,15 @@ impl DvdRipperApp {
     }
 
     pub fn pick_output_dir(&mut self) {
-        let starting_dir = if Path::new(&self.out_dir).exists() {
-            self.out_dir.clone()
+        let starting = if Path::new(&self.out_dir).exists() {
+            Some(Path::new(&self.out_dir))
         } else {
-            String::new()
+            None
         };
-        let mut dialog =
-            rfd::FileDialog::new().set_title("Select Default Output Folder for Ripped DVDs");
-        if !starting_dir.is_empty() {
-            dialog = dialog.set_directory(&starting_dir);
-        }
-        if let Some(folder) = dialog.pick_folder() {
+        if let Some(folder) = self
+            .controller
+            .pick_folder(starting, "Select Default Output Folder for Ripped DVDs")
+        {
             let path_str = folder.to_string_lossy().to_string();
             self.out_dir = path_str.clone();
             if !self.recent_out_dirs.contains(&path_str) {
@@ -419,19 +415,7 @@ impl DvdRipperApp {
     pub fn select_candidate_by_id(&mut self, imdb_id: &str) {
         self.detecting = true;
         self.detect_status = "Loading selected title details...".to_string();
-        let id = imdb_id.to_string();
-        let tx = self.event_tx.clone();
-
-        std::thread::spawn(move || {
-            if let Some(meta) = crate::imdb::lookup_omdb_by_id(&id) {
-                let _ = tx.send(ProgressEvent::Metadata(meta));
-            } else {
-                let _ = tx.send(ProgressEvent::Log(
-                    "Failed to load details for selected title.".to_string(),
-                ));
-                let _ = tx.send(ProgressEvent::Log("META_FAIL".to_string()));
-            }
-        });
+        self.controller.start_search_lookup(imdb_id);
     }
 
     pub fn trigger_detection_with_query(&mut self, query_override: Option<String>) {
@@ -441,116 +425,8 @@ impl DvdRipperApp {
 
         self.detecting = true;
         self.detect_status = "Searching metadata...".to_string();
-
-        let drive = self.input_drive.clone();
-        let tx = self.event_tx.clone();
-
-        std::thread::spawn(move || {
-            let dvd_path = normalize_dvd_path(&drive);
-            let (best_title, best_dur) = crate::ffmpeg::detect_best_title_info("", &dvd_path, None);
-            if best_title > 0 {
-                let _ = tx.send(ProgressEvent::DetectedTitle {
-                    title_num: best_title,
-                    duration_secs: best_dur.unwrap_or(0.0),
-                });
-                let temp_thumb = crate::infrastructure::storage::TempResource::new(
-                    &format!("dvd_thumb_title_{}", best_title),
-                    "jpg",
-                );
-                if crate::ffmpeg::generate_title_thumbnail(
-                    "ffmpeg",
-                    &dvd_path,
-                    best_title,
-                    120.0,
-                    temp_thumb.path(),
-                )
-                .is_ok()
-                    && let Ok(bytes) = std::fs::read(temp_thumb.path())
-                {
-                    let _ = tx.send(ProgressEvent::TitleThumbnailReady {
-                        title_num: best_title,
-                        image_bytes: bytes,
-                    });
-                }
-            }
-
-            let volume_label = get_volume_label(&dvd_path.to_string_lossy());
-            if query_override.is_none() && volume_label.is_some() {
-                let fp = crate::dvd::compute_disc_fingerprint(&dvd_path.to_string_lossy());
-                let cache = crate::infrastructure::metadata::DiskFingerprintCache::new();
-                if let Some(entry) = cache.lookup_entry(&fp) {
-                    let _ = tx.send(ProgressEvent::Log(format!(
-                        "💾 Instant Recognition from Disc Cache: {} ({:?})",
-                        entry.metadata.title, entry.metadata.year
-                    )));
-                    let clean = sanitize_filename(&entry.metadata.title);
-                    let year_str = entry
-                        .metadata
-                        .year
-                        .map(|y| y.to_string())
-                        .unwrap_or_default();
-                    let runtime_desc = entry
-                        .metadata
-                        .runtime_secs
-                        .map(|r| format!(" [Runtime: {:.0}m]", r / 60.0))
-                        .unwrap_or_default();
-                    let _ = tx.send(ProgressEvent::Log(format!(
-                        "Metadata Found: {} ({}){}",
-                        clean, year_str, runtime_desc
-                    )));
-                    let _ = tx.send(ProgressEvent::Metadata(entry.to_imdb_metadata()));
-                    return;
-                }
-            }
-
-            let search_term = if let Some(q) = query_override {
-                q
-            } else if let Some(label) = volume_label {
-                let _ = tx.send(ProgressEvent::Log(format!(
-                    "Detected Volume Label: {}",
-                    label
-                )));
-                label
-            } else {
-                let _ = tx.send(ProgressEvent::Log(
-                    "Could not read volume label.".to_string(),
-                ));
-                let _ = tx.send(ProgressEvent::Log("META_FAIL".to_string()));
-                return;
-            };
-
-            let _ = tx.send(ProgressEvent::Log(format!(
-                "Searching metadata candidates for query: '{}'",
-                search_term
-            )));
-            let candidates = crate::imdb::fetch_search_candidates(&search_term);
-            if !candidates.is_empty() {
-                let _ = tx.send(ProgressEvent::SearchResults(candidates));
-            } else {
-                match lookup_film_details(&search_term) {
-                    Ok(meta) => {
-                        let clean = sanitize_filename(&meta.title);
-                        let year_str = meta.year.map(|y| y.to_string()).unwrap_or_default();
-                        let runtime_desc = meta
-                            .runtime_secs
-                            .map(|r| format!(" [Runtime: {:.0}m]", r / 60.0))
-                            .unwrap_or_default();
-                        let _ = tx.send(ProgressEvent::Log(format!(
-                            "Metadata Found: {} ({}){}",
-                            clean, year_str, runtime_desc
-                        )));
-                        let _ = tx.send(ProgressEvent::Metadata(meta));
-                    }
-                    Err(e) => {
-                        let _ = tx.send(ProgressEvent::Log(format!(
-                            "Lookup notice: {}. If '{}' is a disc catalog code, enter the show name (e.g. 'Doctor Who') and click '🔍 Search'.",
-                            e, search_term
-                        )));
-                        let _ = tx.send(ProgressEvent::Log("META_FAIL".to_string()));
-                    }
-                }
-            }
-        });
+        self.controller
+            .start_detection(&self.input_drive, query_override);
     }
 
     pub fn trigger_tv_scan(&mut self) {
@@ -560,38 +436,12 @@ impl DvdRipperApp {
 
         self.detecting = true;
         self.detect_status = "Scanning disc for TV episode titles...".to_string();
-
-        let cancel_flag = Arc::new(AtomicBool::new(false));
-        self.cancel_flag = Some(cancel_flag.clone());
-
-        let ffmpeg_path = self.ffmpeg_path.clone();
-        let dvd_path = normalize_dvd_path(&self.input_drive);
-        let show_name = self.effective_show_name();
-        let season = self.season_number;
-        let start_ep = self.start_episode;
-        let tx = self.event_tx.clone();
-
-        std::thread::spawn(move || {
-            let episodes = detect_tv_episodes(
-                &ffmpeg_path,
-                &dvd_path,
-                &show_name,
-                season,
-                start_ep,
-                Some(&cancel_flag),
-            );
-            if cancel_flag.load(Ordering::SeqCst) {
-                let _ = tx.send(ProgressEvent::Log(
-                    "Disc episode scanning cancelled by user.".to_string(),
-                ));
-                return;
-            }
-            let _ = tx.send(ProgressEvent::Log(format!(
-                "Scanned disc: found {} episode titles",
-                episodes.len()
-            )));
-            let _ = tx.send(ProgressEvent::TvEpisodesDetected(episodes));
-        });
+        self.controller.start_tv_scan(
+            &self.input_drive,
+            &self.effective_show_name(),
+            self.season_number,
+            self.start_episode,
+        );
     }
 
     pub fn trigger_thumbnail_preview(&mut self, title_num: u32) {
@@ -599,45 +449,10 @@ impl DvdRipperApp {
             return;
         }
         let target_title = if title_num == 0 { 1 } else { title_num };
-        let drive = self.input_drive.clone();
-        let ffmpeg_path = self.ffmpeg_path.clone();
-        let tx = self.event_tx.clone();
         self.is_fetching_thumb = true;
         self.status_message = format!("Capturing preview thumbnail for Title #{}...", target_title);
-
-        std::thread::spawn(move || {
-            let dvd_path = normalize_dvd_path(&drive);
-            let temp_thumb = crate::infrastructure::storage::TempResource::new(
-                &format!("dvd_thumb_title_{}", target_title),
-                "jpg",
-            );
-            let ffmpeg = if ffmpeg_path.is_empty() {
-                "ffmpeg"
-            } else {
-                &ffmpeg_path
-            };
-            if crate::ffmpeg::generate_title_thumbnail(
-                ffmpeg,
-                &dvd_path,
-                target_title,
-                120.0,
-                temp_thumb.path(),
-            )
-            .is_ok()
-            {
-                if let Ok(bytes) = std::fs::read(temp_thumb.path()) {
-                    let _ = tx.send(ProgressEvent::TitleThumbnailReady {
-                        title_num: target_title,
-                        image_bytes: bytes,
-                    });
-                }
-            } else {
-                let _ = tx.send(ProgressEvent::Log(format!(
-                    "Thumbnail snapshot extraction failed for Title #{}",
-                    target_title
-                )));
-            }
-        });
+        self.controller
+            .start_thumbnail_preview(&self.input_drive, target_title);
     }
 
     pub fn trigger_benchmark(&mut self) {
@@ -648,27 +463,7 @@ impl DvdRipperApp {
         self.detecting = true;
         self.detect_status = "Running 10-second optical drive throughput benchmark...".to_string();
         self.status_message = "Running drive benchmark...".to_string();
-
-        let ffmpeg_path = self.ffmpeg_path.clone();
-        let drive = self.input_drive.clone();
-        let tx = self.event_tx.clone();
-
-        std::thread::spawn(move || {
-            let dvd_path = normalize_dvd_path(&drive);
-            match crate::dvd::run_drive_benchmark(&ffmpeg_path, &dvd_path, 10) {
-                Ok(report) => {
-                    let msg = format!(
-                        "Drive Benchmark: {:.2} MB/s throughput ({}, {} FPS)",
-                        report.read_speed_mbps, report.rating_summary, report.fps
-                    );
-                    let _ = tx.send(ProgressEvent::Log(msg));
-                    let _ = tx.send(ProgressEvent::BenchmarkFinished(report));
-                }
-                Err(e) => {
-                    let _ = tx.send(ProgressEvent::Error(format!("Benchmark error: {}", e)));
-                }
-            }
-        });
+        self.controller.start_benchmark(&self.input_drive);
     }
 
     pub fn start_ripping(&mut self) {
@@ -692,249 +487,30 @@ impl DvdRipperApp {
         self.start_time = Some(Instant::now());
         self.eta_seconds = None;
 
-        let (cancel_tx, _cancel_rx) = channel();
-        self.cancel_tx = Some(cancel_tx);
+        let spec = RipTaskSpecification {
+            drive: self.input_drive.clone(),
+            out_dir: self.out_dir.clone(),
+            is_iso: self.iso_mode,
+            is_tv: self.is_tv_mode,
+            all_episodes: self.all_episodes,
+            film_name: self.film_name_opt(),
+            film_year: self.film_year.trim().parse::<u32>().ok(),
+            season: self.season_number,
+            start_episode: self.start_episode,
+            title_number: self.title_number,
+            preset: self.preset.clone(),
+            ffmpeg_path: self.ffmpeg_path.clone(),
+            expected_runtime_secs: self.expected_runtime_secs,
+            detected_episodes: self.detected_episodes.clone(),
+            poster_bytes: self.raw_poster_bytes.clone(),
+            encoding_options: self.build_encoding_options(),
+        };
 
-        let cancel_flag = Arc::new(AtomicBool::new(false));
-        self.cancel_flag = Some(cancel_flag.clone());
-
-        let is_iso = self.iso_mode;
-        let is_tv = self.is_tv_mode;
-        let all_eps = self.all_episodes;
-        let show_name_opt = self.film_name_opt();
-        let year_opt = self.film_year.trim().parse::<u32>().ok();
-        let season = self.season_number;
-        let start_ep = self.start_episode;
-        let title_num = self.title_number;
-        let out_dir = self.out_dir.clone();
-        let transcode = self.transcode;
-        let preset = self.preset.clone();
-        let ffmpeg_path = self.ffmpeg_path.clone();
-        let expected_runtime = self.expected_runtime_secs;
-        let tx = self.event_tx.clone();
-
-        let opts = self.build_encoding_options();
-
-        let container = self.container.clone().unwrap_or_else(|| {
-            let mut base_args = Args {
-                input: drive.clone(),
-                out_dir: out_dir.clone(),
-                ffmpeg: ffmpeg_path.clone(),
-                ..Default::default()
-            };
-            base_args.apply_encoding_options(opts.clone());
-            Arc::new(crate::AppContainer::build_from_args(&base_args))
-        });
-
-        std::thread::spawn(move || {
-            let observer = GuiProgressObserver { tx: tx.clone() };
-
-            if is_iso {
-                let mut args = Args::new_movie(
-                    drive.clone(),
-                    out_dir.clone(),
-                    title_num,
-                    false,
-                    preset.clone(),
-                    ffmpeg_path.clone(),
-                );
-                args.iso = true;
-                args.apply_encoding_options(opts.clone());
-
-                match resolve_output_path(&args, show_name_opt.as_deref(), year_opt) {
-                    Ok(abs_out) => {
-                        let label = crate::dvd::get_volume_label(&dvd_path.to_string_lossy());
-                        let display_title =
-                            show_name_opt.unwrap_or_else(|| "Archival ISO Dump".to_string());
-                        let request = crate::application::dump_iso::DumpIsoRequest {
-                            source_dvd: dvd_path.clone(),
-                            output_path: abs_out.clone(),
-                            volume_label: label,
-                            display_title,
-                            min_free_gb: opts.min_free_gb,
-                        };
-                        let use_case = container.dump_iso_use_case();
-                        match use_case.execute(&request, Some(&observer), Some(cancel_flag.clone()))
-                        {
-                            Ok(_) => {
-                                let _ = tx.send(ProgressEvent::Success(abs_out));
-                            }
-                            Err(e) => {
-                                if cancel_flag.load(Ordering::SeqCst) {
-                                    let _ = tx.send(ProgressEvent::Error(
-                                        "Archival ISO dump cancelled by user.".to_string(),
-                                    ));
-                                } else {
-                                    let _ = tx.send(ProgressEvent::Error(format!(
-                                        "ISO dump error: {}",
-                                        e
-                                    )));
-                                }
-                            }
-                        }
-                    }
-                    Err(e) => {
-                        let _ = tx.send(ProgressEvent::Error(format!(
-                            "Path resolution error: {}",
-                            e
-                        )));
-                    }
-                }
-                return;
-            }
-
-            if is_tv && all_eps {
-                let show_name = show_name_opt.unwrap_or_else(|| "TV Show".to_string());
-                let eps = detect_tv_episodes(
-                    &ffmpeg_path,
-                    &dvd_path,
-                    &show_name,
-                    season,
-                    start_ep,
-                    Some(&cancel_flag),
-                );
-
-                if cancel_flag.load(Ordering::SeqCst) {
-                    let _ = tx.send(ProgressEvent::Error(
-                        "TV batch ripping cancelled by user.".to_string(),
-                    ));
-                    return;
-                }
-
-                if eps.is_empty() {
-                    let _ = tx.send(ProgressEvent::Error(
-                        "No TV episode titles found on disc.".to_string(),
-                    ));
-                    return;
-                }
-
-                let total = eps.len();
-                let _ = tx.send(ProgressEvent::Log(format!(
-                    "Starting batch rip of {} TV episodes...",
-                    total
-                )));
-
-                let request = crate::application::rip_tv_batch::RipTvBatchRequest {
-                    source_dvd: dvd_path.clone(),
-                    series_title: show_name.clone(),
-                    season_number: season,
-                    start_episode: start_ep,
-                    output_dir: PathBuf::from(&out_dir),
-                    episodes: eps,
-                    metadata: None,
-                    min_free_gb: opts.min_free_gb,
-                    file_extension: if opts.mkv {
-                        Some("mkv".to_string())
-                    } else {
-                        None
-                    },
-                    lookup_episode_titles: true,
-                    track_boxset: opts.auto_boxset,
-                };
-                let use_case = container.rip_tv_batch_use_case();
-                match use_case.execute(&request, Some(&observer), Some(cancel_flag.clone())) {
-                    Ok(ripped_count) => {
-                        let _ = tx.send(ProgressEvent::Success(PathBuf::from(format!(
-                            "Completed batch ripping {} episodes to TV directory",
-                            ripped_count
-                        ))));
-                    }
-                    Err(e) => {
-                        if cancel_flag.load(Ordering::SeqCst) {
-                            let _ = tx.send(ProgressEvent::Error(
-                                "TV batch ripping cancelled by user.".to_string(),
-                            ));
-                        } else {
-                            let _ = tx.send(ProgressEvent::Error(format!(
-                                "TV batch ripping error: {}",
-                                e
-                            )));
-                        }
-                    }
-                }
-                return;
-            }
-
-            let display_title = show_name_opt.unwrap_or_else(|| "DVD Title".to_string());
-            let args = if is_tv {
-                let ep_num = if start_ep > 0 { start_ep } else { 1 };
-                let mut a = Args::new_tv(
-                    drive.clone(),
-                    out_dir.clone(),
-                    title_num,
-                    season,
-                    ep_num,
-                    transcode,
-                    preset.clone(),
-                    ffmpeg_path.clone(),
-                );
-                a.apply_encoding_options(opts.clone());
-                a
-            } else {
-                let mut a = Args::new_movie(
-                    drive.clone(),
-                    out_dir.clone(),
-                    title_num,
-                    transcode,
-                    preset.clone(),
-                    ffmpeg_path.clone(),
-                );
-                a.apply_encoding_options(opts.clone());
-                a
-            };
-
-            let res_out = if is_tv {
-                let ep_num = if start_ep > 0 { start_ep } else { 1 };
-                resolve_tv_output_path(&args, Some(&display_title), year_opt, season, ep_num)
-            } else {
-                resolve_output_path(&args, Some(&display_title), year_opt)
-            };
-
-            match res_out {
-                Ok(abs_out) => {
-                    let request = crate::application::rip_single_title::RipSingleTitleRequest {
-                        source_dvd: dvd_path.clone(),
-                        title_number: if title_num == 0 { 1 } else { title_num },
-                        output_path: abs_out.clone(),
-                        display_title: display_title.clone(),
-                        expected_duration_secs: expected_runtime,
-                        metadata: None,
-                        min_free_gb: opts.min_free_gb,
-                    };
-                    let use_case = container.rip_single_title_use_case();
-                    match use_case.execute(&request, Some(&observer), Some(cancel_flag.clone())) {
-                        Ok(_) => {
-                            let _ = tx.send(ProgressEvent::Success(abs_out));
-                        }
-                        Err(e) => {
-                            if cancel_flag.load(Ordering::SeqCst) {
-                                let _ = tx.send(ProgressEvent::Error(
-                                    "Ripping process cancelled by user.".to_string(),
-                                ));
-                            } else {
-                                let _ =
-                                    tx.send(ProgressEvent::Error(format!("Ripping error: {}", e)));
-                            }
-                        }
-                    }
-                }
-                Err(e) => {
-                    let _ = tx.send(ProgressEvent::Error(format!(
-                        "Path resolution error: {}",
-                        e
-                    )));
-                }
-            }
-        });
+        self.controller.start_ripping(spec);
     }
 
     pub fn cancel_ripping(&mut self) {
-        if let Some(flag) = self.cancel_flag.take() {
-            flag.store(true, Ordering::SeqCst);
-        }
-        if let Some(tx) = self.cancel_tx.take() {
-            let _ = tx.send(());
-        }
+        self.controller.cancel();
         self.is_ripping = false;
         self.detecting = false;
         self.progress_percent = 0.0;
@@ -954,7 +530,7 @@ impl DvdRipperApp {
         };
         let record = RipRecord::new(&title, media_type, &self.out_dir, "Cancelled");
         self.history.insert(0, record);
-        let _ = save_history(&self.history, None);
+        let _ = crate::history::save_history(&self.history, None);
     }
 
     pub fn poll_events(&mut self, ctx: &egui::Context) {
@@ -990,7 +566,7 @@ impl DvdRipperApp {
     }
 
     pub fn process_events(&mut self) {
-        while let Ok(event) = self.event_rx.try_recv() {
+        while let Some(event) = self.controller.poll_event() {
             match event {
                 ProgressEvent::Log(line) => {
                     if line == "META_FAIL" {
@@ -1129,8 +705,6 @@ impl DvdRipperApp {
                     self.eta_seconds = None;
                     self.progress_percent = 1.0;
                     self.status_message = format!("Success! Saved to {}", path.display());
-                    self.cancel_tx = None;
-                    self.cancel_flag = None;
 
                     let title = if self.film_name.trim().is_empty() {
                         path.file_stem()
@@ -1218,8 +792,6 @@ impl DvdRipperApp {
                     self.detecting = false;
                     self.start_time = None;
                     self.eta_seconds = None;
-                    self.cancel_tx = None;
-                    self.cancel_flag = None;
                     self.progress_percent = 0.0;
                     self.fps = "N/A".to_string();
                     self.speed = "N/A".to_string();
