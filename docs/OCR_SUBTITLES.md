@@ -127,3 +127,4 @@ classDiagram
 - **Domain Port**: `src/domain/ports/` defines the `OcrService` contract.
 - **Infrastructure Adapter**: `src/infrastructure/ocr/tesseract.rs` coordinates FFmpeg subtitle stream demuxing and Tesseract page segmentation (`--psm 6`).
 - **Test Doubles**: `src/ocr.rs` contains in-memory mock processors for regression testing without external binary dependencies.
+

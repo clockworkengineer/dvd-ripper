@@ -134,3 +134,4 @@ fn test_api_route() {
 
 ### 4.5 Non-Destructive Hardware Independence
 Unit tests must never attempt physical tray ejection, raw optical device IO, or disk partition modification on the developer host. All hardware interactions are routed through injectable trait adapters.
+
