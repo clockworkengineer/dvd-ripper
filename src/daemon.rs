@@ -24,9 +24,21 @@ impl DaemonDriveWatcher {
     }
 
     pub fn poll_drive_state(&mut self) -> Option<String> {
+        self.poll_drive_state_with_inspector(None)
+    }
+
+    pub fn poll_drive_state_with_inspector(
+        &mut self,
+        inspector: Option<&dyn crate::domain::ports::optical_drive::DiscInspector>,
+    ) -> Option<String> {
         let dvd_path = normalize_dvd_path(&self.drive_path_str);
         if dvd_path.exists() {
-            if let Some(label) = get_volume_label(&dvd_path.to_string_lossy())
+            let label_opt = if let Some(ins) = inspector {
+                ins.read_volume_label(&dvd_path)
+            } else {
+                get_volume_label(&dvd_path.to_string_lossy())
+            };
+            if let Some(label) = label_opt
                 && !label.is_empty()
                 && label != self.last_processed_label
             {
@@ -50,7 +62,9 @@ fn spawn_drive_watcher(
     thread::spawn(move || {
         let mut watcher = DaemonDriveWatcher::new(drive_path_str.clone());
         loop {
-            if let Some(label) = watcher.poll_drive_state() {
+            if let Some(label) =
+                watcher.poll_drive_state_with_inspector(Some(container.disc_inspector.as_ref()))
+            {
                 println!(
                     "[Daemon Drive '{}'] New Disc Detected: {}",
                     drive_path_str, label
