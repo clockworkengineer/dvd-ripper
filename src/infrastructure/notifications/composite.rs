@@ -33,8 +33,8 @@ impl Notifier for CompositeNotifier {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
 
     struct DummyNotifier {
         count: Arc<AtomicUsize>,

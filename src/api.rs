@@ -2711,14 +2711,17 @@ mod tests {
         let (r14, _) = test_handle_client_route(b"GET /api/queue/list HTTP/1.1\r\n\r\n");
         assert!(r14.contains("200 OK"));
 
-        let (r15, _) = test_handle_client_route(b"POST /api/queue/add?title=TestMovie&type=Movie HTTP/1.1\r\n\r\n");
+        let (r15, _) = test_handle_client_route(
+            b"POST /api/queue/add?title=TestMovie&type=Movie HTTP/1.1\r\n\r\n",
+        );
         assert!(r15.contains("200 OK"));
 
         let batch_req = b"POST /api/queue/batch HTTP/1.1\r\nContent-Type: application/json\r\nContent-Length: 47\r\n\r\n[{\"title\":\"T1\",\"media_type\":\"Movie\",\"drive\":\"D:\"}]";
         let (r16, _) = test_handle_client_route(batch_req);
         assert!(r16.contains("200 OK"));
 
-        let (r17, _) = test_handle_client_route(b"POST /api/queue/remove?id=nonexistent HTTP/1.1\r\n\r\n");
+        let (r17, _) =
+            test_handle_client_route(b"POST /api/queue/remove?id=nonexistent HTTP/1.1\r\n\r\n");
         assert!(r17.contains("200 OK"));
 
         // 7. Search & Select
@@ -2731,10 +2734,12 @@ mod tests {
         let (r20, _) = test_handle_client_route(b"POST /api/select HTTP/1.1\r\n\r\n");
         assert!(r20.contains("400 Bad Request"));
 
-        let (r21, _) = test_handle_client_route(b"POST /api/select?imdb_id=tt0090605 HTTP/1.1\r\n\r\n");
+        let (r21, _) =
+            test_handle_client_route(b"POST /api/select?imdb_id=tt0090605 HTTP/1.1\r\n\r\n");
         assert!(r21.contains("200 OK"));
 
-        let (r22, _) = test_handle_client_route(b"POST /api/select?imdb_id=tt0000000000 HTTP/1.1\r\n\r\n");
+        let (r22, _) =
+            test_handle_client_route(b"POST /api/select?imdb_id=tt0000000000 HTTP/1.1\r\n\r\n");
         assert!(r22.contains("404 Not Found"));
 
         // 8. Eject, Cancel, Trigger, Boxset
@@ -2750,7 +2755,9 @@ mod tests {
         let (r26, _) = test_handle_client_route(b"GET /api/boxset HTTP/1.1\r\n\r\n");
         assert!(r26.contains("200 OK"));
 
-        let (r27, _) = test_handle_client_route(b"POST /api/boxset/reset?show=Firefly&season=1 HTTP/1.1\r\n\r\n");
+        let (r27, _) = test_handle_client_route(
+            b"POST /api/boxset/reset?show=Firefly&season=1 HTTP/1.1\r\n\r\n",
+        );
         assert!(r27.contains("200 OK"));
 
         let (r28, _) = test_handle_client_route(b"POST /api/trigger?drive=D: HTTP/1.1\r\n\r\n");
@@ -2767,16 +2774,22 @@ mod tests {
         assert!(r31.contains("400 Bad Request"));
 
         // 9. Additional rip & benchmark & thumbnail routes
-        let (r_rip, _) = test_handle_client_route(b"POST /api/rip?drive=Z:\\NonExistent HTTP/1.1\r\n\r\n");
+        let (r_rip, _) =
+            test_handle_client_route(b"POST /api/rip?drive=Z:\\NonExistent HTTP/1.1\r\n\r\n");
         assert!(r_rip.contains("400 Bad Request"));
 
-        let (r_rip_iso, _) = test_handle_client_route(b"POST /api/rip?drive=Z:\\NonExistent&iso=true HTTP/1.1\r\n\r\n");
+        let (r_rip_iso, _) = test_handle_client_route(
+            b"POST /api/rip?drive=Z:\\NonExistent&iso=true HTTP/1.1\r\n\r\n",
+        );
         assert!(r_rip_iso.contains("400 Bad Request"));
 
-        let (r_bench, _) = test_handle_client_route(b"POST /api/benchmark?drive=Z:\\NonExistent HTTP/1.1\r\n\r\n");
+        let (r_bench, _) =
+            test_handle_client_route(b"POST /api/benchmark?drive=Z:\\NonExistent HTTP/1.1\r\n\r\n");
         assert!(r_bench.contains("500 Internal Server Error") || r_bench.contains("200 OK"));
 
-        let (r_thumb, _) = test_handle_client_route(b"GET /api/thumbnail?drive=Z:\\NonExistent&title=1 HTTP/1.1\r\n\r\n");
+        let (r_thumb, _) = test_handle_client_route(
+            b"GET /api/thumbnail?drive=Z:\\NonExistent&title=1 HTTP/1.1\r\n\r\n",
+        );
         assert!(r_thumb.contains("500 Internal Server Error"));
 
         let json_eject = b"POST /api/eject HTTP/1.1\r\nContent-Type: application/json\r\nContent-Length: 14\r\n\r\n{\"drive\":\"D:\"}";
@@ -2801,13 +2814,13 @@ mod tests {
     #[test]
     fn test_api_traits_and_appliance_status_updates() {
         let _lock = TEST_API_LOCK.lock().unwrap();
-        let status_ep = DefaultApiStatusEndpoint::default();
+        let status_ep = DefaultApiStatusEndpoint;
         let _ = status_ep.query_status();
 
-        let drives_ep = DefaultApiDrivesEndpoint::default();
+        let drives_ep = DefaultApiDrivesEndpoint;
         let _ = drives_ep.query_drives();
 
-        let diag = DefaultDriveDiagnosticProvider::default();
+        let diag = DefaultDriveDiagnosticProvider;
         let _ = diag.detect_drives();
         let _ = diag.benchmark("D:\\");
 

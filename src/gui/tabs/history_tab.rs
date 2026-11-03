@@ -156,8 +156,10 @@ mod tests {
                 render_history_tab(ui, &[], &mut filter, || {});
 
                 // 2. History with records and filtering
-                let rec1 = RipRecord::new("The Matrix", "Movie", "C:\\Videos\\matrix.mp4", "Success");
-                let rec2 = RipRecord::new("Breaking Bad", "TV Series", "C:\\Videos\\bb.mp4", "Failed");
+                let rec1 =
+                    RipRecord::new("The Matrix", "Movie", "C:\\Videos\\matrix.mp4", "Success");
+                let rec2 =
+                    RipRecord::new("Breaking Bad", "TV Series", "C:\\Videos\\bb.mp4", "Failed");
                 let history = vec![rec1, rec2];
 
                 render_history_tab(ui, &history, &mut filter, || {});

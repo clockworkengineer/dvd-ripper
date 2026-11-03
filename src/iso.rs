@@ -469,7 +469,7 @@ mod tests {
 
         // Verify that events were transmitted to rx
         let mut events_count = 0;
-        while let Ok(_) = rx.try_recv() {
+        while rx.try_recv().is_ok() {
             events_count += 1;
         }
         assert!(events_count > 0);

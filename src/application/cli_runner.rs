@@ -522,7 +522,11 @@ mod tests {
         // Will print protection notes, then fail because no movie was selected
         let res = runner.run(args);
         assert!(res.is_err());
-        assert!(res.unwrap_err().to_string().contains("No movie searched and selected"));
+        assert!(
+            res.unwrap_err()
+                .to_string()
+                .contains("No movie searched and selected")
+        );
     }
 
     #[test]
@@ -576,8 +580,20 @@ mod tests {
 
     #[test]
     fn test_cli_runner_iso_execution() {
-        let temp_dvd = std::env::temp_dir().join(format!("test_cli_dvd_{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
-        let temp_out = std::env::temp_dir().join(format!("test_cli_out_{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        let temp_dvd = std::env::temp_dir().join(format!(
+            "test_cli_dvd_{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let temp_out = std::env::temp_dir().join(format!(
+            "test_cli_out_{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
         let video_ts = temp_dvd.join("VIDEO_TS");
         let _ = std::fs::create_dir_all(&video_ts);
         let _ = std::fs::create_dir_all(&temp_out);
@@ -603,8 +619,20 @@ mod tests {
 
     #[test]
     fn test_cli_runner_tv_execution() {
-        let temp_dvd = std::env::temp_dir().join(format!("test_cli_tv_{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
-        let temp_out = std::env::temp_dir().join(format!("test_cli_tv_out_{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        let temp_dvd = std::env::temp_dir().join(format!(
+            "test_cli_tv_{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let temp_out = std::env::temp_dir().join(format!(
+            "test_cli_tv_out_{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
         let _ = std::fs::create_dir_all(&temp_dvd);
         let _ = std::fs::create_dir_all(&temp_out);
 

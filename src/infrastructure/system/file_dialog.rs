@@ -40,7 +40,7 @@ mod tests {
     #[test]
     fn test_file_dialog_service_instantiation() {
         let service = NativeFileDialogService::new();
-        let service_def = NativeFileDialogService::default();
+        let service_def = NativeFileDialogService;
         let cloned = service.clone();
         assert_eq!(format!("{:?}", service), format!("{:?}", cloned));
         assert_eq!(format!("{:?}", service), format!("{:?}", service_def));

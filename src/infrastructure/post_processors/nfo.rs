@@ -49,11 +49,7 @@ mod tests {
         let _ = std::fs::create_dir_all(&temp_dir);
         let out_file = temp_dir.join("film.mp4");
 
-        let mut ctx = PostProcessContext::new(
-            Some(out_file),
-            "Aliens",
-            PathBuf::from("D:\\"),
-        );
+        let mut ctx = PostProcessContext::new(Some(out_file), "Aliens", PathBuf::from("D:\\"));
         ctx.nfo_enabled = true;
         ctx.year = Some(1986);
         ctx.nfo_tags = Some("Sci-Fi".to_string());

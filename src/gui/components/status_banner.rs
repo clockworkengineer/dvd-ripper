@@ -179,7 +179,10 @@ mod tests {
 
         let cloned = SystemDriveState::Ready;
         assert_eq!(SystemDriveState::Ready, cloned);
-        assert_eq!(format!("{:?}", SystemDriveState::Ready), format!("{:?}", cloned));
+        assert_eq!(
+            format!("{:?}", SystemDriveState::Ready),
+            format!("{:?}", cloned)
+        );
     }
 
     #[test]

@@ -87,12 +87,7 @@ pub fn process_detected_disc(
     crate::api::set_drive_disc_detected(drive_path_str, label);
 
     if let Some(ref broker) = args.mqtt_broker {
-        let _ = crate::mqtt::publish_mqtt_status(
-            broker,
-            label,
-            "Detected - Search Required",
-            0.0,
-        );
+        let _ = crate::mqtt::publish_mqtt_status(broker, label, "Detected - Search Required", 0.0);
     }
     if let Some(ref webhook) = args.webhook_url {
         let msg = format!(
@@ -113,10 +108,8 @@ pub fn process_detected_disc(
             "[Daemon Drive '{}'] ⚡ Auto-Rip enabled. Identifying metadata for '{}'...",
             drive_path_str, label
         );
-        let physical_drive = crate::infrastructure::optical::PhysicalOpticalDrive::new(
-            drive_path_str,
-            &args.ffmpeg,
-        );
+        let physical_drive =
+            crate::infrastructure::optical::PhysicalOpticalDrive::new(drive_path_str, &args.ffmpeg);
         let probe_uc = container.probe_disc_use_case();
         let probe_res = probe_uc.execute(&physical_drive);
 
@@ -150,9 +143,7 @@ pub fn process_detected_disc(
                 is_series,
                 matched_year,
             );
-            if let Err(e) =
-                crate::api::execute_rip_for_drive(drive_path_str, Some(args.clone()))
-            {
+            if let Err(e) = crate::api::execute_rip_for_drive(drive_path_str, Some(args.clone())) {
                 eprintln!(
                     "[Daemon Drive '{}'] Auto-rip failed to start: {}",
                     drive_path_str, e
@@ -300,7 +291,9 @@ mod tests {
         assert_eq!(res2, None);
 
         // Third poll with empty label: returns None
-        let empty_inspector = MockInspector { label: Some("".to_string()) };
+        let empty_inspector = MockInspector {
+            label: Some("".to_string()),
+        };
         let res3 = watcher.poll_drive_state_with_inspector(Some(&empty_inspector));
         assert_eq!(res3, None);
 

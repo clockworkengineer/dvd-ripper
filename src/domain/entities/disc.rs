@@ -178,7 +178,8 @@ mod tests {
         rep.vob_count = 5;
         rep.ifo_count = 2;
         rep.total_bytes = 4_700_000_000;
-        rep.diagnostic_notes.push("CSS encrypted sectors detected".to_string());
+        rep.diagnostic_notes
+            .push("CSS encrypted sectors detected".to_string());
 
         let cloned = rep.clone();
         assert_eq!(rep, cloned);

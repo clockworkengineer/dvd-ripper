@@ -125,7 +125,8 @@ mod tests {
         assert!(errs_tv[0].contains("TV Show Name"));
 
         // Movie mode empty title
-        let errs_movie = validate_preflight_checks("D:\\", false, false, "", "C:\\Out").unwrap_err();
+        let errs_movie =
+            validate_preflight_checks("D:\\", false, false, "", "C:\\Out").unwrap_err();
         assert_eq!(errs_movie.len(), 1);
         assert!(errs_movie[0].contains("Movie Title"));
 

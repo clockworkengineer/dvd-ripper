@@ -74,7 +74,10 @@ mod tests {
         assert_eq!(drive_not_found.to_string(), "Optical drive not found: Z:\\");
 
         let no_disc = DvdError::NoDiscDetected("D:\\".to_string());
-        assert_eq!(no_disc.to_string(), "No optical disc media detected in drive 'D:\\'");
+        assert_eq!(
+            no_disc.to_string(),
+            "No optical disc media detected in drive 'D:\\'"
+        );
 
         let copy_prot = DvdError::CopyProtectionTrap {
             title: 3,

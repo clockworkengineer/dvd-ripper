@@ -904,10 +904,14 @@ mod tests {
         let _ = close_disc_tray("D:\\");
         let _ = spindown_drive("D:\\");
 
-        let reader = FileSystemDiscFingerprintReader::default();
+        let reader = FileSystemDiscFingerprintReader;
         let fp = reader.compute_fingerprint("D:\\");
         assert!(fp.starts_with("disc_"));
 
-        let _ = run_drive_benchmark("nonexistent_ffmpeg", std::path::Path::new("Z:\\NonExistent"), 1);
+        let _ = run_drive_benchmark(
+            "nonexistent_ffmpeg",
+            std::path::Path::new("Z:\\NonExistent"),
+            1,
+        );
     }
 }

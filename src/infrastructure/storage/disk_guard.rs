@@ -44,6 +44,11 @@ mod tests {
         // Extremely high threshold to exercise the error branch
         let err_res = guard.check_free_space(Path::new("."), 1_000_000);
         assert!(err_res.is_err());
-        assert!(err_res.unwrap_err().to_string().contains("Disk Space Guard Safeguard Triggered"));
+        assert!(
+            err_res
+                .unwrap_err()
+                .to_string()
+                .contains("Disk Space Guard Safeguard Triggered")
+        );
     }
 }

@@ -515,7 +515,9 @@ mod tests {
             app.show_help_modal = true;
             app.show_confirm_cancel = true;
             app.show_confirm_clear = true;
-            app.history = vec![crate::history::RipRecord::new("Test", "Movie", "out.mp4", "Success")];
+            app.history = vec![crate::history::RipRecord::new(
+                "Test", "Movie", "out.mp4", "Success",
+            )];
 
             let _ = ctx.run(Default::default(), |ctx| {
                 app.render_ui(ctx);

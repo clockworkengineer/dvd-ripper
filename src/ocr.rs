@@ -406,25 +406,24 @@ mod tests {
 
         // process_subtitle_ocr_sidecar with ocr disabled
         let args_disabled = crate::cli::Args::default();
-        let res_disabled = process_subtitle_ocr_sidecar(
-            &args_disabled,
-            Path::new("video.mp4"),
-            "Sample Title",
-        );
+        let res_disabled =
+            process_subtitle_ocr_sidecar(&args_disabled, Path::new("video.mp4"), "Sample Title");
         assert_eq!(res_disabled.unwrap(), None);
 
         // process_subtitle_ocr_sidecar with ocr enabled
-        let temp_dir = std::env::temp_dir().join(format!("test_sidecar_{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        let temp_dir = std::env::temp_dir().join(format!(
+            "test_sidecar_{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
         let _ = std::fs::create_dir_all(&temp_dir);
         let video_path = temp_dir.join("sample.mp4");
         let mut args_enabled = crate::cli::Args::default();
         args_enabled.ocr = true;
         args_enabled.ocr_lang = "eng".to_string();
-        let res_enabled = process_subtitle_ocr_sidecar(
-            &args_enabled,
-            &video_path,
-            "Sample Title",
-        );
+        let res_enabled = process_subtitle_ocr_sidecar(&args_enabled, &video_path, "Sample Title");
         assert!(res_enabled.is_ok());
         let srt_path = res_enabled.unwrap();
         assert!(srt_path.is_some());

@@ -409,7 +409,13 @@ mod tests {
 
     #[test]
     fn test_config_file_persistence_and_repo() {
-        let temp = std::env::temp_dir().join(format!("test_config_{}.toml", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        let temp = std::env::temp_dir().join(format!(
+            "test_config_{}.toml",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
         let cfg = AppConfig {
             out_dir: Some("C:\\Saved".to_string()),
             codec: Some("hevc".to_string()),

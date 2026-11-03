@@ -1598,11 +1598,15 @@ mod tests {
         assert!(fb_res.is_ok());
 
         // Regex label normalization
-        let reg_norm = normalize_volume_label_title_with_regex("ALIENS_1986", Some(r"s/1986/DIRECTORS_CUT/"));
+        let reg_norm =
+            normalize_volume_label_title_with_regex("ALIENS_1986", Some(r"s/1986/DIRECTORS_CUT/"));
         assert!(reg_norm.contains("Aliens"));
 
         // Title and episode formatting
-        assert_eq!(format_title_folder_name("Aliens", Some(1986)), "Aliens (1986)");
+        assert_eq!(
+            format_title_folder_name("Aliens", Some(1986)),
+            "Aliens (1986)"
+        );
         assert_eq!(format_title_folder_name("Aliens", None), "Aliens");
         assert_eq!(format_episode_code(1, 2), "S01E02");
         assert_eq!(format_episode_name("Firefly", 1, 3), "Firefly - S01E03");
@@ -1625,14 +1629,26 @@ mod tests {
         let _ = std::fs::remove_file(&app_file);
 
         // Audit log & Checksum
-        let audit_file = temp.join(format!("audit_{}.log", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        let audit_file = temp.join(format!(
+            "audit_{}.log",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
         let details = serde_json::json!({"title": "The Matrix", "status": "Success"});
         let audit_res = append_audit_log_entry(&audit_file, "RipSuccess", &details);
         assert!(audit_res.is_ok());
         assert!(audit_file.exists());
         let _ = std::fs::remove_file(&audit_file);
 
-        let dummy_video = temp.join(format!("dummy_video_{}.mp4", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        let dummy_video = temp.join(format!(
+            "dummy_video_{}.mp4",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
         let _ = std::fs::write(&dummy_video, b"VIDEO_CONTENT_FOR_CHECKSUM");
         let chk_res = generate_checksum_file(&dummy_video);
         assert!(chk_res.is_ok());
@@ -1651,7 +1667,13 @@ mod tests {
 
         // Post-processing hook execution
         #[cfg(windows)]
-        let script_file = temp.join(format!("test_hook_{}.bat", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        let script_file = temp.join(format!(
+            "test_hook_{}.bat",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
         #[cfg(windows)]
         let _ = std::fs::write(&script_file, b"@exit 0\r\n");
         #[cfg(windows)]
@@ -1660,11 +1682,23 @@ mod tests {
         #[cfg(not(windows))]
         let hook_cmd = "true";
 
-        let hook_res = run_post_processing_hook(hook_cmd, Path::new("test.mp4"), "Title", "Movie", Some(2020));
+        let hook_res = run_post_processing_hook(
+            hook_cmd,
+            Path::new("test.mp4"),
+            "Title",
+            "Movie",
+            Some(2020),
+        );
         assert!(hook_res.is_ok());
 
         let hook_trait = ScriptPostProcessingHook;
-        let _ = hook_trait.execute(hook_cmd, Path::new("test.mp4"), "Title", "Movie", Some(2020));
+        let _ = hook_trait.execute(
+            hook_cmd,
+            Path::new("test.mp4"),
+            "Title",
+            "Movie",
+            Some(2020),
+        );
 
         #[cfg(windows)]
         let _ = std::fs::remove_file(&script_file);

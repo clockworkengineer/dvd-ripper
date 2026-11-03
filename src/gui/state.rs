@@ -883,9 +883,9 @@ impl DvdRipperApp {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::PathBuf;
-    use crate::domain::ports::transcoder::ProgressObserver;
     use crate::domain::entities::media::FilmMetadata;
+    use crate::domain::ports::transcoder::ProgressObserver;
+    use std::path::PathBuf;
 
     #[test]
     fn test_gui_progress_observer() {
@@ -963,7 +963,9 @@ mod tests {
         });
 
         // Log event
-        let _ = app.event_tx.send(ProgressEvent::Log("FFmpeg line output".to_string()));
+        let _ = app
+            .event_tx
+            .send(ProgressEvent::Log("FFmpeg line output".to_string()));
 
         // SearchResults event
         let _ = app.event_tx.send(ProgressEvent::SearchResults(vec![
@@ -1011,18 +1013,22 @@ mod tests {
         });
 
         // BenchmarkFinished event
-        let _ = app.event_tx.send(ProgressEvent::BenchmarkFinished(crate::dvd::DriveBenchmarkReport {
-            drive_path: "D:\\".to_string(),
-            test_duration_secs: 10,
-            read_bytes: 50_000_000,
-            read_speed_mbps: 5.0,
-            demux_speed_mbps: 4.8,
-            fps: "120.0".to_string(),
-            rating_summary: "Adequate Optical Read".to_string(),
-        }));
+        let _ = app.event_tx.send(ProgressEvent::BenchmarkFinished(
+            crate::dvd::DriveBenchmarkReport {
+                drive_path: "D:\\".to_string(),
+                test_duration_secs: 10,
+                read_bytes: 50_000_000,
+                read_speed_mbps: 5.0,
+                demux_speed_mbps: 4.8,
+                fps: "120.0".to_string(),
+                rating_summary: "Adequate Optical Read".to_string(),
+            },
+        ));
 
         // Success event
-        let _ = app.event_tx.send(ProgressEvent::Success(PathBuf::from("C:\\Out\\Movie.mp4")));
+        let _ = app
+            .event_tx
+            .send(ProgressEvent::Success(PathBuf::from("C:\\Out\\Movie.mp4")));
 
         app.process_events();
 
@@ -1038,15 +1044,13 @@ mod tests {
     fn test_dvd_ripper_app_headless_search_modal() {
         let mut app = DvdRipperApp::default();
         app.show_search_modal = true;
-        app.search_candidates = vec![
-            crate::imdb::SearchResultItem {
-                title: "Test Movie".to_string(),
-                year: Some(2021),
-                imdb_id: "tt9876543".to_string(),
-                type_field: "movie".to_string(),
-                poster_url: None,
-            },
-        ];
+        app.search_candidates = vec![crate::imdb::SearchResultItem {
+            title: "Test Movie".to_string(),
+            year: Some(2021),
+            imdb_id: "tt9876543".to_string(),
+            type_field: "movie".to_string(),
+            poster_url: None,
+        }];
 
         let ctx = egui::Context::default();
         let _ = ctx.run(Default::default(), |ctx| {

@@ -2532,8 +2532,14 @@ mod tests {
     fn test_ffmpeg_formatting_and_detection_helpers() {
         assert_eq!(format_episode_code(2, 4), "S02E04");
         assert_eq!(format_episode_filename("Firefly", 1, 2), "Firefly - S01E02");
-        assert_eq!(format_tv_season_folder("Firefly", Some(2002), 1), PathBuf::from("TV").join("Firefly (2002)").join("Season 01"));
-        assert_eq!(format_movie_folder("Aliens", Some(1986)), PathBuf::from("Films").join("Aliens (1986)"));
+        assert_eq!(
+            format_tv_season_folder("Firefly", Some(2002), 1),
+            PathBuf::from("TV").join("Firefly (2002)").join("Season 01")
+        );
+        assert_eq!(
+            format_movie_folder("Aliens", Some(1986)),
+            PathBuf::from("Films").join("Aliens (1986)")
+        );
 
         let vf_chain = format_hwaccel_vf_chain("cuda", &["yadif".to_string()]);
         assert!(vf_chain.is_some());
@@ -2544,25 +2550,43 @@ mod tests {
         let langs = parse_ranked_audio_languages("eng,jpn,fra");
         assert_eq!(langs, vec!["eng", "jpn", "fra"]);
 
-        let best_title = detect_best_title("nonexistent_ffmpeg", Path::new("Z:\\NonExistent"), Some(5400.0));
+        let best_title = detect_best_title(
+            "nonexistent_ffmpeg",
+            Path::new("Z:\\NonExistent"),
+            Some(5400.0),
+        );
         assert!(best_title <= 99);
 
-        let longest_title = detect_longest_title("nonexistent_ffmpeg", Path::new("Z:\\NonExistent"));
+        let longest_title =
+            detect_longest_title("nonexistent_ffmpeg", Path::new("Z:\\NonExistent"));
         assert!(longest_title <= 99);
 
-        let best_info = detect_best_title_info("nonexistent_ffmpeg", Path::new("Z:\\NonExistent"), Some(5400.0));
+        let best_info = detect_best_title_info(
+            "nonexistent_ffmpeg",
+            Path::new("Z:\\NonExistent"),
+            Some(5400.0),
+        );
         assert!(best_info.0 <= 99);
 
-        let tv_eps = detect_tv_episodes("nonexistent_ffmpeg", Path::new("Z:\\NonExistent"), "Firefly", 1, 1, None);
+        let tv_eps = detect_tv_episodes(
+            "nonexistent_ffmpeg",
+            Path::new("Z:\\NonExistent"),
+            "Firefly",
+            1,
+            1,
+            None,
+        );
         assert!(tv_eps.is_empty());
 
         let titles_fast = probe_dvd_titles_fast("nonexistent_ffmpeg", Path::new("Z:\\NonExistent"));
         assert!(titles_fast.is_empty());
 
-        let titles_slow = probe_dvd_titles("nonexistent_ffmpeg", Path::new("Z:\\NonExistent"), None);
+        let titles_slow =
+            probe_dvd_titles("nonexistent_ffmpeg", Path::new("Z:\\NonExistent"), None);
         assert!(titles_slow.is_empty());
 
-        let dur = probe_single_title_duration("nonexistent_ffmpeg", Path::new("Z:\\NonExistent"), 1);
+        let dur =
+            probe_single_title_duration("nonexistent_ffmpeg", Path::new("Z:\\NonExistent"), 1);
         assert!(dur.is_none());
 
         // apply_hwaccel_encoder tests for other accelerators

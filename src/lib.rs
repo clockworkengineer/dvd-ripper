@@ -45,6 +45,8 @@
 //! let _ = use_case.execute(&request, None, None);
 //! ```
 
+#![allow(clippy::field_reassign_with_default)]
+
 pub mod api;
 pub mod application;
 pub mod cli;
