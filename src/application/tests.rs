@@ -478,7 +478,13 @@ mod tests {
 
         let probe_count = Arc::new(AtomicUsize::new(0));
         let mock_drive = MockOpticalDrive {
-            path: PathBuf::from("D:\\"),
+            path: PathBuf::from(format!(
+                "Z:\\Unique_Probe_Drive_{}",
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos()
+            )),
             label: Some("JOHN_WICK_3".to_string()),
             titles,
             probe_count: probe_count.clone(),
@@ -516,7 +522,13 @@ mod tests {
 
         let probe_count = Arc::new(AtomicUsize::new(0));
         let mock_drive = MockOpticalDrive {
-            path: PathBuf::from("D:\\"),
+            path: PathBuf::from(format!(
+                "Z:\\Unique_Session_Cache_Drive_{}",
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos()
+            )),
             label: Some("CACHED_DISC".to_string()),
             titles,
             probe_count: probe_count.clone(),

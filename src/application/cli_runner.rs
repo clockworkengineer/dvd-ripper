@@ -24,30 +24,9 @@ impl<'a> CliMetadataResolver<'a> {
         volume_label: Option<&str>,
     ) -> (Option<String>, Option<u32>, Option<f64>, Option<Vec<u8>>) {
         let dvd_path = std::path::Path::new(&args.input);
-        // 0. Disc Fingerprint Cache Auto-Match
         let fp_hash = self.container.disc_inspector.compute_fingerprint(dvd_path);
-        if let Some(cached_meta) = crate::imdb::lookup_fingerprint_cache(&fp_hash) {
-            let clean_name = crate::utils::sanitize_filename(&cached_meta.title);
-            let runtime_desc = cached_meta
-                .runtime_secs
-                .map(|r| format!(", {:.0} mins", r / 60.0))
-                .unwrap_or_default();
-            println!(
-                "[Fingerprint Auto-Match] Found cached disc ID '{}': {} ({:?}{})",
-                fp_hash, clean_name, cached_meta.year, runtime_desc
-            );
-            if cached_meta.is_series {
-                args.tv = true;
-            }
-            return (
-                Some(clean_name),
-                cached_meta.year,
-                cached_meta.runtime_secs,
-                cached_meta.poster_bytes,
-            );
-        }
 
-        // 1. Direct IMDb ID selection
+        // 1. Direct explicit IMDb ID selection takes highest precedence
         if let Some(ref imdb_id) = args.imdb_id {
             println!("Looking up exact IMDb ID: {}", imdb_id);
             if let Some(meta) = crate::imdb::lookup_omdb_by_id(imdb_id) {
@@ -76,6 +55,28 @@ impl<'a> CliMetadataResolver<'a> {
                     imdb_id
                 );
             }
+        }
+
+        // 2. Disc Fingerprint Cache Auto-Match
+        if let Some(cached_meta) = crate::imdb::lookup_fingerprint_cache(&fp_hash) {
+            let clean_name = crate::utils::sanitize_filename(&cached_meta.title);
+            let runtime_desc = cached_meta
+                .runtime_secs
+                .map(|r| format!(", {:.0} mins", r / 60.0))
+                .unwrap_or_default();
+            println!(
+                "[Fingerprint Auto-Match] Found cached disc ID '{}': {} ({:?}{})",
+                fp_hash, clean_name, cached_meta.year, runtime_desc
+            );
+            if cached_meta.is_series {
+                args.tv = true;
+            }
+            return (
+                Some(clean_name),
+                cached_meta.year,
+                cached_meta.runtime_secs,
+                cached_meta.poster_bytes,
+            );
         }
 
         // 2. Search query or volume label detection
@@ -577,6 +578,13 @@ mod tests {
         let resolver = CliMetadataResolver::new(&container);
 
         let mut args = Args::default();
+        args.input = format!(
+            "Z:\\Unique_Test_Imdb_{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        );
         args.imdb_id = Some("tt0090605".to_string()); // Aliens (1986)
 
         let (title, year, _runtime, _bytes) = resolver.resolve_metadata(&mut args, None);
@@ -587,6 +595,13 @@ mod tests {
 
         // Nonexistent IMDb ID
         let mut args2 = Args::default();
+        args2.input = format!(
+            "Z:\\Unique_Test_Imdb_Nonexistent_{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        );
         args2.imdb_id = Some("tt00000000000".to_string());
         let (title2, _, _, _) = resolver.resolve_metadata(&mut args2, None);
         assert!(title2.is_none());
