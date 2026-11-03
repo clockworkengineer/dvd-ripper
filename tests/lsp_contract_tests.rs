@@ -11,12 +11,17 @@ use std::sync::{Arc, Mutex};
 use dvd_ripper::AppContainer;
 use dvd_ripper::domain::entities::error::DvdError;
 use dvd_ripper::domain::entities::job::RipRecord;
+use dvd_ripper::domain::entities::media::{FilmMetadata, SearchCandidate, TvEpisodeMetadata};
+use dvd_ripper::domain::ports::metadata::{MetadataProvider, TvSeriesMetadataProvider};
 use dvd_ripper::domain::ports::optical_drive::TrayController;
 use dvd_ripper::domain::ports::post_processor::{PostProcessContext, PostProcessor};
 use dvd_ripper::domain::ports::storage::{DiskSpaceGuard, HistoryRepository};
 use dvd_ripper::domain::ports::transcoder::{ProgressObserver, TranscodeJob, Transcoder};
 use dvd_ripper::infrastructure::optical::SystemTrayController;
-use dvd_ripper::infrastructure::post_processors::PostProcessingPipeline;
+use dvd_ripper::infrastructure::post_processors::{
+    ArtworkPostProcessor, ChecksumPostProcessor, NfoPostProcessor, PostProcessingPipeline,
+    TrayEjectPostProcessor,
+};
 use dvd_ripper::infrastructure::storage::{JsonHistoryRepository, SystemDiskSpaceGuard};
 
 // -----------------------------------------------------------------------------
@@ -111,6 +116,39 @@ impl Transcoder for MockCancellableTranscoder {
             return Err(anyhow::anyhow!("Operation cancelled"));
         }
         Ok(())
+    }
+}
+
+struct MockMetadataProvider {
+    candidates: Vec<SearchCandidate>,
+    details: Option<FilmMetadata>,
+}
+
+impl MetadataProvider for MockMetadataProvider {
+    fn search(&self, _query: &str) -> Result<Vec<SearchCandidate>> {
+        Ok(self.candidates.clone())
+    }
+
+    fn get_details_by_id(&self, _id: &str) -> Result<Option<FilmMetadata>> {
+        Ok(self.details.clone())
+    }
+
+    fn get_details_by_title_and_year(
+        &self,
+        _title: &str,
+        _year: Option<u32>,
+    ) -> Result<Option<FilmMetadata>> {
+        Ok(self.details.clone())
+    }
+}
+
+struct MockTvSeriesMetadataProvider {
+    episodes: Vec<TvEpisodeMetadata>,
+}
+
+impl TvSeriesMetadataProvider for MockTvSeriesMetadataProvider {
+    fn fetch_episodes(&self, _series_name: &str) -> Result<Vec<TvEpisodeMetadata>> {
+        Ok(self.episodes.clone())
     }
 }
 
@@ -270,4 +308,98 @@ fn test_lsp_app_container_use_case_inversion() {
 
     // Verify use cases instantiate correctly with standard port adapters
     let _ = (single_title_uc, tv_batch_uc, dump_iso_uc, probe_disc_uc);
+}
+
+#[test]
+fn test_lsp_metadata_provider_substitutability() {
+    let mock_provider = MockMetadataProvider {
+        candidates: vec![SearchCandidate {
+            title: "Test Movie".to_string(),
+            year: Some(2024),
+            imdb_id: "tt1234567".to_string(),
+            type_field: "movie".to_string(),
+            poster_url: None,
+        }],
+        details: Some(FilmMetadata {
+            title: "Test Movie".to_string(),
+            year: Some(2024),
+            runtime_secs: Some(7200.0),
+            poster_url: None,
+            plot: Some("A test movie".to_string()),
+            genre: Some("Sci-Fi".to_string()),
+            director: Some("Director".to_string()),
+            actors: Some("Actor".to_string()),
+            rating: Some("PG-13".to_string()),
+            is_series: false,
+            total_seasons: None,
+            poster_bytes: None,
+        }),
+    };
+
+    let search_res = mock_provider.search("Test");
+    assert!(search_res.is_ok());
+    assert_eq!(search_res.unwrap().len(), 1);
+
+    let details_res = mock_provider.get_details_by_id("tt1234567");
+    assert!(details_res.is_ok());
+    assert_eq!(details_res.unwrap().unwrap().title, "Test Movie");
+}
+
+#[test]
+fn test_lsp_tv_series_metadata_provider_substitutability() {
+    let mock_tv = MockTvSeriesMetadataProvider {
+        episodes: vec![
+            TvEpisodeMetadata {
+                season: 1,
+                episode_num: 1,
+                title: "Pilot".to_string(),
+                summary: None,
+                runtime_minutes: None,
+            },
+            TvEpisodeMetadata {
+                season: 1,
+                episode_num: 2,
+                title: "Second Episode".to_string(),
+                summary: None,
+                runtime_minutes: None,
+            },
+        ],
+    };
+
+    let title = mock_tv.find_episode_title("Show", 1, 1).unwrap();
+    assert_eq!(title, Some("Pilot".to_string()));
+
+    let not_found = mock_tv.find_episode_title("Show", 1, 99).unwrap();
+    assert_eq!(not_found, None);
+}
+
+#[test]
+fn test_lsp_individual_post_processors_contract() {
+    let temp_out = std::env::temp_dir().join(format!("lsp_indiv_test_{}.mp4", std::process::id()));
+    let _ = std::fs::write(&temp_out, b"mock video stream content for hashing and nfo");
+
+    let context = PostProcessContext::new(
+        Some(temp_out.clone()),
+        "Individual Processor Test",
+        PathBuf::from("D:\\"),
+    );
+
+    // 1. Artwork post processor
+    let artwork = ArtworkPostProcessor;
+    assert!(artwork.process(&context).is_ok());
+
+    // 2. NFO post processor
+    let nfo = NfoPostProcessor;
+    assert!(nfo.process(&context).is_ok());
+
+    // 3. Checksum post processor
+    let checksum = ChecksumPostProcessor;
+    assert!(checksum.process(&context).is_ok());
+
+    // 4. Tray eject post processor
+    let mock_tray = Arc::new(MockTrayController::default());
+    let tray_eject = TrayEjectPostProcessor::new(Some(mock_tray.clone()));
+    assert!(tray_eject.process(&context).is_ok());
+
+    let _ = std::fs::remove_file(&temp_out);
 }
