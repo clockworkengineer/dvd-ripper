@@ -297,7 +297,26 @@ pub fn dump_disc_to_iso(
         )));
     }
 
-    // 1. Attempt raw block sector reading from optical device
+    // 1. If optical source is an existing directory tree, bypass raw sector reading and package directory directly
+    if is_dir_fallback || raw_dev.is_dir() {
+        let fallback_dir = crate::dvd::normalize_dvd_path(input_drive);
+        if let Some(tx) = progress_tx {
+            let _ = tx.send(ProgressEvent::Log(format!(
+                "Optical source is a directory tree ('{}'); using filesystem image builder...",
+                fallback_dir.display()
+            )));
+        }
+
+        let total = dump_directory_to_iso(&fallback_dir, output_iso_path, volume_label)?;
+
+        if let Some(tx) = progress_tx {
+            let _ = tx.send(ProgressEvent::Success(output_iso_path.to_path_buf()));
+        }
+
+        return Ok(total);
+    }
+
+    // 2. Attempt raw block sector reading from optical device
     let open_result = {
         #[cfg(target_os = "windows")]
         {
@@ -505,6 +524,8 @@ mod tests {
                     err_msg.contains("No ISO generation utility found")
                         || err_msg.contains("ISO creation failed")
                         || err_msg.contains("IMAPI2")
+                        || err_msg.contains("Failed to open optical drive")
+                        || err_msg.contains("directory")
                 );
             }
         }
