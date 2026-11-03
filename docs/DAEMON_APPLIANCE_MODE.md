@@ -15,13 +15,13 @@ To launch in headless daemon mode:
 dvd-ripper --daemon
 
 # Multi-Drive Pool Monitoring (monitors D: and E: concurrently)
-dvd-ripper --daemon --drives "D:\,E:\"
+dvd-ripper --daemon --drive-pool "D:\,E:\"
 
 # Unattended Auto-Rip Mode (automatically detects metadata, rips, and auto-ejects)
 dvd-ripper --daemon --auto-rip
 
 # Multi-Drive Appliance with Auto-Rip and Home Assistant Telemetry
-dvd-ripper --daemon --drives "D:\,E:\" --auto-rip --mqtt-broker mqtt://192.168.1.50:1883 --webhook-url https://discord.com/api/webhooks/... --min-free-gb 20
+dvd-ripper --daemon --drive-pool "D:\,E:\" --auto-rip --mqtt-broker mqtt://192.168.1.50:1883 --webhook-url https://discord.com/api/webhooks/... --min-free-gb 20
 ```
 
 ---
@@ -157,3 +157,20 @@ When daemon mode is active, access the web control panel at **`http://localhost:
    ```bash
    journalctl -u dvd-ripper.service -f
    ```
+
+---
+
+## 8. Prometheus Telemetry & Health Probes
+
+In addition to Home Assistant MQTT and HTTP webhooks, the daemon exposes standard Prometheus metrics at `GET http://localhost:8080/metrics`:
+
+- `dvd_ripper_completed_rips_total`: Counter of successfully completed rips.
+- `dvd_ripper_failed_rips_total`: Counter of failed or corrupt rip attempts.
+- `dvd_ripper_active_jobs`: Gauge of currently active FFmpeg ripping tasks.
+- `dvd_ripper_queued_jobs`: Gauge of pending batch jobs.
+- `dvd_ripper_progress_percent`: Real-time gauge of current job percentage.
+
+For full Prometheus scraper configuration, Grafana dashboards, and Kubernetes health probes (`GET /api/health`), see:  
+👉 **[`docs/PROMETHEUS_AND_MONITORING.md`](PROMETHEUS_AND_MONITORING.md)**  
+For advanced multi-drive hardware topologies and concurrent queueing, see:  
+👉 **[`docs/MULTI_DRIVE_POOL.md`](MULTI_DRIVE_POOL.md)**

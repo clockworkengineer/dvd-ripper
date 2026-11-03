@@ -45,6 +45,8 @@ By default, launching `dvd-ripper` without arguments opens the graphical desktop
 | `--sub-burnin` | `false` | Hard-burn subtitle text overlay directly onto video frames (`-vf subtitles=...`) for maximum compatibility. |
 | `--tonemap <ALGO>` | *None* | Video SDR tonemapping curve selection (`mobius`, `hable`, `reinhard`) for HDR content conversion. |
 | `--mkv` | `false` | Force Matroska (`.mkv`) output container format instead of MP4 (`.mp4`). |
+| `--iso` | `false` | Create a 1:1 sector-by-sector archival ISO image dump directly from optical disc. |
+| `--ignore-errors` | `false` | Enable fault-tolerant demuxing to bypass surface scratches and copy-protection bad sectors. |
 
 ---
 
@@ -66,6 +68,9 @@ By default, launching `dvd-ripper` without arguments opens the graphical desktop
 | `--sub-default` | `false` | Flag extracted subtitle stream as default in media players (`-disposition:s:0 default`). |
 | `--sub-lang <LANG>` | *Auto* | Preferred subtitle language code (e.g. `eng`, `fre`, `spa`). |
 | `--sub-format <FMT>` | `dvdsub` | Subtitle stream format: `dvdsub` (bitmap) or `subrip` (`.srt` text format). |
+| `--ocr` | `false` | Run Tesseract OCR on bitmap subtitles to output clean, direct-play SubRip `.srt` sidecars. |
+| `--ocr-lang <LANG>` | `eng` | Target language code for Tesseract OCR subtitle transcription (e.g. `eng`, `fra`, `spa`). |
+| `--tesseract <PATH>` | `tesseract` | Explicit filesystem path to Tesseract OCR executable binary. |
 | `--fallback-out-dir <DIR>`| *None* | Secondary storage fallback directory path if primary storage lacks free space. |
 | `--no-eject` | `false` | Do not eject optical disc tray upon successful rip completion (ideal for disc autoloaders). |
 | `--eject-autoclose <SECS>`| *None* | Delay in seconds before automatically closing optical disc tray after ejection. |
@@ -104,6 +109,7 @@ By default, launching `dvd-ripper` without arguments opens the graphical desktop
 | `--webhook-url <URL>` | *None* | Webhook URL (Discord, Slack, Ntfy, Telegram) for HTTP status POST alerts. |
 | `--mqtt-broker <ADDR>` | *None* | MQTT broker address (`mqtt://localhost:1883`) for Home Assistant auto-discovery. |
 | `--api-key <KEY>` | *None* | Secret API key required for REST API endpoints. |
+| `--auto-rip` | `false` | Enable unattended automated ripping upon optical disc insertion in daemon mode. |
 | `--post-script <PATH>` | *None* | Executable script path to run upon rip completion. |
 
 ---
@@ -133,6 +139,16 @@ dvd-ripper --input D:\ --benchmark
 ### 5. Headless Appliance Daemon with Home Assistant MQTT
 ```bash
 dvd-ripper --daemon --mqtt-broker mqtt://192.168.1.50:1883 --min-free-gb 20
+```
+
+### 6. 1:1 Bit-Exact Archival ISO Image Dump
+```bash
+dvd-ripper --input D:\ --iso --out-dir "E:\ISO_Backups"
+```
+
+### 7. Video Rip with Tesseract OCR Subtitles (.srt Sidecar)
+```bash
+dvd-ripper --input D:\ --search "The Matrix" --ocr --ocr-lang eng --sub-external-srt
 ```
 
 ---

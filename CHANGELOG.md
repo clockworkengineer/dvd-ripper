@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-11-03
+
+### Added
+- **Multi-Drive Concurrent Watcher Pool**:
+  - Concurrent multi-drive appliance monitoring and simultaneous ripping (`--drive-pool "D:,E:,F:"` or `/dev/sr0,/dev/sr1`).
+  - Thread-safe `DrivePoolState` registry with independent per-drive progress tracking, cancellation tokens, and automated tray ejection.
+  - Dedicated pool management REST endpoints (`GET /api/pool/status`, `GET /api/drives`, `POST /api/trigger`).
+- **Prometheus Telemetry & Health Monitoring**:
+  - Standard Prometheus exposition format endpoint (`GET /metrics`) exposing `dvd_ripper_completed_rips_total`, `dvd_ripper_failed_rips_total`, `dvd_ripper_active_jobs`, `dvd_ripper_queued_jobs`, and `dvd_ripper_progress_percent`.
+  - Lightweight appliance health probe endpoint (`GET /api/health`).
+- **Tesseract OCR Subtitle Extraction**:
+  - Optical character recognition engine converting DVD `dvdsub` bitmap overlays into SubRip (`.srt`) sidecars (`--ocr`, `--ocr-lang`, `--tesseract`).
+  - Prevents server-side video transcoding on Plex, Jellyfin, and Emby by delivering universal text subtitle streams.
+- **REST API & Telemetry Expansion**:
+  - Added REST endpoints: `/api/history` (structured ripping history), `/api/history/clear` (history reset), `/api/disc-cache` (inspect cached disc fingerprints), `/api/queue/batch` (batch queue operations), `/api/thumbnail` (frame preview extraction), and `/api/ws` (WebSocket live progress stream).
+  - Extended `POST /api/rip` with sector ISO formatting options (`format: "iso"`), audio track selection, and custom transcoding profiles.
+- **Enterprise Test Suite & Code Coverage**:
+  - Expanded unit and integration test suite to **321 passing tests (0 failures)**.
+  - Elevated overall workspace line coverage from **49.51% to 83.15%** (15,915 lines covered).
+  - Added fast in-process HTTP mock socket responders, isolated test mutexes, and non-blocking process execution patterns.
+- **Modular GUI Architecture**:
+  - Refactored Desktop GUI into dedicated component and tab modules under `src/gui/` (`controller.rs`, `state.rs`, `theme.rs`, `components/`, `tabs/`).
+
+### Fixed
+- **Optical Drive Fingerprint Null Hash Collision**: Guarded empty/unmounted optical drive hash (`disc_08c643c98b44bb79`) against cache pollution across empty drive lookups.
+- **Windows Process Execution Safety**: Eliminated interactive terminal hangs in background script execution by utilizing explicit batch script terminations.
+- **Non-blocking Device Probing**: Replaced slow OS optical device timeouts on missing media paths with instantaneous mock validation.
+
 ## [0.2.0] - 2026-10-21
 
 ### Added

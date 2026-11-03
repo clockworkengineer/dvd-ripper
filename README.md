@@ -307,8 +307,8 @@ src/
 ├── main.rs         - Composition Root (AppContainer) & CLI orchestration
 ├── cli.rs          - Command-line argument schema & segregated configuration traits
 ├── config.rs       - TOML configuration parser & runtime default merging
-├── gui.rs          - Native desktop GUI (eframe/egui) with cancellation & explorer actions
-├── api.rs          - Embedded HTTP REST API, SSE event streaming, & OpenAPI spec
+├── gui/            - Modular Desktop GUI (eframe/egui) with tabs, dialogs, & controller
+├── api.rs          - Embedded HTTP REST API, SSE streaming, WS, & OpenAPI spec
 ├── daemon.rs       - Multi-drive watcher daemon loop & auto-rip coordination
 │
 ├── domain/         - Pure domain layer (zero external I/O or system libraries)
@@ -328,6 +328,7 @@ src/
 │   ├── metadata/   - OMDb / TMDb HTTP clients & local fingerprint cache
 │   ├── storage/    - Disk space guard & JSON history persistence
 │   ├── notifications/ - MQTT 3.1.1 packet generator & HTTP webhook alerts
+│   ├── post_processors/ - Media server, NFO, checksum, & tray post-processors
 │   └── ocr/        - Tesseract OCR runner for SubRip sidecar generation
 │
 ├── ffmpeg.rs       - Output path resolution, formatters, & backward compatibility facades
@@ -350,6 +351,10 @@ Detailed user guides and technical architecture documents are available in the [
 - 📖 **[CLI User Manual](docs/CLI_GUIDE.md)**: Command-line syntax, modes, filters, and usage examples.
 - 💻 **[Desktop GUI Guide](docs/GUI_GUIDE.md)**: Desktop immediate-mode GUI interface (`eframe`/`egui`), tab controls, search modal, and benchmarks.
 - 🤖 **[Daemon Appliance Guide](docs/DAEMON_APPLIANCE_MODE.md)**: Headless multi-drive watcher, Home Assistant MQTT telemetry, and webhooks.
+- 🖴 **[Multi-Drive Pool Guide](docs/MULTI_DRIVE_POOL.md)**: Multi-drive concurrent optical pooling, hardware topologies, and queue coordination.
+- 📊 **[Prometheus & Health Monitoring](docs/PROMETHEUS_AND_MONITORING.md)**: Prometheus metric dictionary (`/metrics`), scraping config, Grafana dashboards, & health probes.
+- 🔤 **[Subtitle Extraction & OCR Guide](docs/OCR_SUBTITLES.md)**: On-the-fly Tesseract OCR transcription from DVD bitmap overlays to universal `.srt` text sidecars.
+- 🧪 **[Testing & Code Coverage Guide](docs/TESTING_AND_COVERAGE.md)**: 321-test suite architecture, LLVM source code coverage (83.15%), and mock isolation patterns.
 - 📦 **[Installer & Service Guide](docs/INSTALLER_AND_SERVICE_GUIDE.md)**: `dvd-ripper-installer` CLI, systemd service setup, and udev rules.
 - 📜 **[Ripping History & Logging](docs/RIPPING_HISTORY_AND_LOGGING.md)**: JSON backup database schema, audit trails, and history management.
 - 📺 **[TV Series Box Set Guide](docs/TV_BOXSET_GUIDE.md)**: Multi-disc TV show season auto-stitching and cumulative episode tracking.
@@ -366,7 +371,7 @@ Detailed user guides and technical architecture documents are available in the [
 
 ## 🧪 Testing
 
-Run the full test suite (**163 unit and integration tests**):
+Run the full test suite (**321 unit and integration tests**):
 ```bash
 cargo test
 ```

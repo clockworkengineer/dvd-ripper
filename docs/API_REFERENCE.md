@@ -24,10 +24,10 @@ When `--api-key <KEY>` is configured via CLI or `api_key = "..."` in `dvd-ripper
 
 ## 2. API Endpoints
 
-### 2.1 Appliance Status & Dashboard
+### 2.1 Appliance Status, Health & Multi-Drive Pool
 
 #### `GET /api/status`
-Returns the current status of the DVD appliance.
+Returns the current status of the default DVD appliance drive.
 
 **Response `200 OK` (JSON)**:
 ```json
@@ -45,6 +45,54 @@ Returns the current status of the DVD appliance.
 }
 ```
 
+#### `GET /api/pool/status`
+Returns the operational status across all drives configured in a multi-drive pool (`--drive-pool`).
+
+**Response `200 OK` (JSON)**:
+```json
+[
+  {
+    "drive": "D:\\",
+    "status": "Ripping",
+    "disc": "ALIENS_DISC1",
+    "title": "Aliens",
+    "progress": 68.4,
+    "speed": "8.2x",
+    "fps": "52.0"
+  },
+  {
+    "drive": "E:\\",
+    "status": "Idle",
+    "disc": "",
+    "title": "",
+    "progress": 0.0,
+    "speed": "",
+    "fps": ""
+  }
+]
+```
+
+#### `GET /api/drives`
+Lists all detected physical and virtual optical drives attached to the host operating system.
+
+**Response `200 OK` (JSON)**:
+```json
+[
+  "D:\\",
+  "E:\\"
+]
+```
+
+#### `GET /api/health`
+Lightweight health-check probe for Kubernetes, Docker, and systemd monitoring.
+
+**Response `200 OK` (JSON)**:
+```json
+{
+  "status": "ok"
+}
+```
+
 #### `GET /api/events`
 Server-Sent Events (SSE) live progress stream broadcasting progress events every second (`Content-Type: text/event-stream`).
 
@@ -52,6 +100,9 @@ Server-Sent Events (SSE) live progress stream broadcasting progress events every
 ```text
 data: {"status":"Ripping","progress":52.4,"fps":"29.1","speed":"2.5x"}
 ```
+
+#### `GET /api/ws`
+Full-duplex WebSocket connection stream on `ws://localhost:8080/api/ws` broadcasting real-time progress updates, appliance state transitions, and live log entries.
 
 ---
 
@@ -91,7 +142,22 @@ Selects a candidate metadata entry by IMDb ID.
 ### 2.3 Ripping & Appliance Control
 
 #### `POST /api/rip`
-Triggers the DVD ripping process for the currently inserted disc.
+Triggers the DVD extraction process for the currently inserted disc. Accepts optional JSON configuration payload:
+
+**Request Body (Optional JSON)**:
+```json
+{
+  "drive": "D:\\",
+  "format": "mp4",
+  "profile": "standard",
+  "codec": "h264",
+  "title": 1,
+  "audio_track": 1,
+  "subtitles": true,
+  "ocr": true
+}
+```
+*Note: Set `"format": "iso"` to perform a 1:1 sector-by-sector archival ISO disc dump.*
 
 **Response `200 OK` (JSON)**:
 ```json
@@ -102,7 +168,9 @@ Triggers the DVD ripping process for the currently inserted disc.
 ```
 
 #### `POST /api/cancel`
-Cancels an active DVD ripping job.
+Cancels an active DVD ripping job on the specified drive (or default drive).
+
+**Query Parameter (Optional)**: `?drive=D:\`
 
 **Response `200 OK` (JSON)**:
 ```json
@@ -115,6 +183,8 @@ Cancels an active DVD ripping job.
 #### `POST /api/eject`
 Ejects the optical tray.
 
+**Query Parameter (Optional)**: `?drive=D:\`
+
 **Response `200 OK` (JSON)**:
 ```json
 {
@@ -122,6 +192,20 @@ Ejects the optical tray.
   "message": "Optical tray ejected"
 }
 ```
+
+#### `POST /api/trigger?drive={DRIVE}`
+Manually signals a disc insertion event to force watcher evaluation in polling-restricted or containerized environments.
+
+**Response `200 OK` (JSON)**:
+```json
+{
+  "success": true,
+  "message": "Disc detection triggered"
+}
+```
+
+#### `GET /api/thumbnail?drive={DRIVE}&title={N}&time={SECS}`
+Extracts and returns a live JPEG frame snapshot (`Content-Type: image/jpeg`) from the specified DVD title and timestamp.
 
 ---
 
@@ -165,9 +249,80 @@ Removes a queued job by ID.
 }
 ```
 
+#### `POST /api/queue/batch`
+Enqueues multiple jobs simultaneously via a JSON array payload.
+
+**Request Body (JSON)**:
+```json
+[
+  {"title": "Firefly - S01E01", "type": "TV", "drive": "D:\\"},
+  {"title": "Firefly - S01E02", "type": "TV", "drive": "D:\\"}
+]
+```
+
+**Response `200 OK` (JSON)**:
+```json
+{
+  "success": true,
+  "enqueued_count": 2
+}
+```
+
 ---
 
-### 2.5 Multi-Disc Box Set & Drive Diagnostics
+### 2.5 Ripping History & Disc Metadata Cache
+
+#### `GET /api/history`
+Returns persistent ripping history records from `ripping_history.json`.
+
+**Response `200 OK` (JSON)**:
+```json
+[
+  {
+    "id": "rip_20261103_01",
+    "title": "Kill Bill: Vol. 1",
+    "year": 2003,
+    "media_type": "Movie",
+    "output_file": "Films/Kill Bill Vol. 1 (2003)/Kill Bill Vol. 1 (2003).mp4",
+    "file_size_bytes": 4831838208,
+    "duration_secs": 6660.0,
+    "rip_time_secs": 420.5,
+    "status": "Success",
+    "timestamp": "2026-11-03 14:12:00"
+  }
+]
+```
+
+#### `POST /api/history/clear`
+Clears persistent historical rip logs.
+
+**Response `200 OK` (JSON)**:
+```json
+{
+  "success": true,
+  "message": "History cleared"
+}
+```
+
+#### `GET /api/disc-cache`
+Returns cached optical disc volume fingerprint records (`disc_cache.json`).
+
+**Response `200 OK` (JSON)**:
+```json
+[
+  {
+    "fingerprint": "disc_a9b8c7d6e5f4",
+    "volume_label": "KILL_BILL_VOL1",
+    "imdb_id": "tt0266697",
+    "title": "Kill Bill: Vol. 1",
+    "year": 2003
+  }
+]
+```
+
+---
+
+### 2.6 Multi-Disc Box Set & Drive Diagnostics
 
 #### `GET /api/boxset`
 Returns a JSON array of active multi-disc TV show season box set tracking records (`boxsets.json`).
@@ -215,7 +370,7 @@ Executes a 10-second optical sector read speed test and returns throughput metri
 
 ---
 
-### 2.6 OpenAPI v3 Specification & Prometheus Metrics
+### 2.7 OpenAPI v3 Specification & Prometheus Metrics
 
 #### `GET /api/openapi.json`
 Returns the complete OpenAPI 3.0 specification JSON document describing all REST API routes and schemas.

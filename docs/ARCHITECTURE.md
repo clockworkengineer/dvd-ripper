@@ -25,8 +25,8 @@ The codebase is organized into four concentric architectural layers:
 graph TD
     subgraph UI_and_Presentation ["1. Presentation & Driving Layer"]
         CLI["CLI: src/cli.rs & src/main.rs"]
-        GUI["Desktop GUI: src/gui.rs"]
-        API["REST API & SSE: src/api.rs"]
+        GUI["Desktop GUI: src/gui/ (Modular)"]
+        API["REST API, WS & SSE: src/api.rs"]
         Daemon["Watcher Daemon: src/daemon.rs"]
     end
 

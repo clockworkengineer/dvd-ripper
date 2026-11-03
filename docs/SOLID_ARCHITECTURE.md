@@ -16,8 +16,8 @@
 graph TD
     subgraph UI_and_Entrypoints ["Delivery Mechanisms & Adapters (Driving)"]
         CLI["CLI (clap) - src/cli.rs"]
-        GUI["Desktop GUI (egui) - src/gui.rs"]
-        API["Embedded REST API - src/api.rs"]
+        GUI["Desktop GUI (egui) - src/gui/ (Modular)"]
+        API["Embedded REST API & WS - src/api.rs"]
         Daemon["Drive Daemon - src/daemon.rs"]
     end
 

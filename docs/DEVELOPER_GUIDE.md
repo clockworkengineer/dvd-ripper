@@ -15,7 +15,13 @@ dvd-ripper/
 │   ├── main.rs              # Application entry point, CLI orchestration, & AppContainer Composition Root
 │   ├── cli.rs               # Args CLI schema & segregated configuration traits
 │   ├── config.rs            # TOML config parser & default application
-│   ├── gui.rs               # Desktop immediate-mode GUI (eframe/egui)
+│   ├── gui/                 # MODULAR DESKTOP GUI (eframe/egui)
+│   │   ├── mod.rs           # GUI entry point & app frame lifecycle
+│   │   ├── controller.rs    # Event loop & state transition dispatcher
+│   │   ├── state.rs         # Reactive GUI state container
+│   │   ├── theme.rs         # Catppuccin Mocha color palette
+│   │   ├── components/      # Reusable dialogs, disk guard & status banners
+│   │   └── tabs/            # Dedicated workflow tabs (rip, tv, settings, history, benchmark)
 │   ├── api.rs               # Embedded REST API, SSE streaming, & OpenAPI spec
 │   ├── daemon.rs            # Multi-drive monitoring watcher daemon
 │   │
@@ -161,3 +167,20 @@ fn test_rip_single_title_success() {
 3. **Documentation Integrity**:
    - Maintain clickable markdown file links (`[filename](file:///path/to/file)`) in documentation.
    - Use rustdoc comments (`///` for public symbols, `//!` for module roots).
+
+---
+
+## 6. Automated Testing & Code Coverage
+
+The workspace enforces a test suite of **321 passing unit tests** maintaining **>83% line coverage**:
+
+```bash
+# Run unit tests
+cargo test --lib
+
+# Run code coverage analysis
+cargo llvm-cov --summary-only
+```
+
+For complete testing architecture, mocking recipes (in-process TCP responders, non-blocking batch scripts, optical drive safety), consult the dedicated guide:  
+👉 **[`docs/TESTING_AND_COVERAGE.md`](TESTING_AND_COVERAGE.md)**

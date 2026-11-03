@@ -20,56 +20,113 @@ When determining application settings, `dvd-ripper` evaluates parameters in the 
 Save a `dvd-ripper.toml` file in your working directory or in `~/.dvd-ripper/config.toml`:
 
 ```toml
-# Base output directory (movies are placed in /Films and TV series in /TV)
-# Supports sibling resolution (e.g. C:\Media\Films will route TV shows to sibling C:\Media\TV)
-out_dir = "Films"
+# ==============================================================================
+# DVD-RIPPER CONFIGURATION SPECIFICATION (v0.3.0)
+# ==============================================================================
 
+# --- Base Directory & Output Architecture ---
+# Base output directory (movies are routed to /Films and TV series to /TV)
+# Supports sibling auto-resolution (e.g. C:\Media\Films routes TV shows to sibling C:\Media\TV)
+out_dir = "Films"
+# Secondary fallback directory if primary storage drops below min_free_gb
+# fallback_out_dir = "E:\\BackupMedia"
+
+# --- Video Encoding & Containers ---
 # Preferred video codec: "h264", "hevc", "av1", or "copy"
 codec = "h264"
-
 # Transcoding profile preset: "standard", "archival", "plex", or "mobile"
 profile = "standard"
-
 # FFmpeg CPU speed preset: "ultrafast", "superfast", "veryfast", "fast", "medium"
 preset = "veryfast"
+# 1:1 sector-by-sector raw ISO disc copy mode (overrides transcode)
+iso = false
+# Fault-tolerant demuxing for scratched discs & copy protection bad sectors
+ignore_errors = false
+# HDR-to-SDR tonemapping algorithm: "mobius", "hable", "reinhard"
+# tonemap = "mobius"
 
+# --- Video Filters & Deinterlacing ---
+# Motion-adaptive video deinterlacing filter
+deinterlace = true
+# Algorithm: "bwdif" (best quality), "yadif", "w3fdif"
+deinterlace_algo = "bwdif"
+# 3D spatial/temporal denoising (hqdn3d)
+denoise = true
+
+# --- Audio Tracks & Loudness Normalization ---
+# Specific 1-based audio stream index to extract
+# audio_track = 1
+# EBU R128 loudness normalization target LUFS (e.g. -16, -14, -23)
+norm_target = -16
+# Channel downmix mode: "stereo", "dolphylogic", "headphone", "mono"
+# audio_downmix = "stereo"
+
+# --- Subtitle & OCR Configuration ---
+# Hard-burn subtitles directly onto video frames
+sub_burnin = false
+# Extract forced-only subtitle streams (dialogue in foreign languages)
+sub_forced_only = false
+# Save extracted subtitles as an external .srt sidecar file
+sub_external_srt = true
+# Mark subtitle track as default stream in media containers
+sub_default = false
+# On-the-fly Subtitle OCR using Tesseract (converts bitmap dvdsub into text .srt)
+ocr = true
+# Tesseract OCR language code (e.g. "eng", "fra", "deu", "spa")
+ocr_lang = "eng"
+# Custom binary path to Tesseract OCR executable
+tesseract = "tesseract"
+
+# --- Multi-Disc TV Box Sets ---
+# Cumulative episode numbering across multi-disc box sets (~/.dvd-ripper/boxsets.json)
+auto_boxset = true
+
+# --- Multi-Drive Daemon Pool & Automation ---
+# Comma-separated optical drive paths for daemon pooling
+drive_pool = "D:,E:,F:"
+# Unattended auto-ripping upon disc insertion
+auto_rip = false
+
+# --- Hardware & Optical Tray Control ---
+# Minimum required free disk space threshold (GB) before initiating rip
+min_free_gb = 10
+# Suppress optical tray ejection upon job completion
+no_eject = false
+# Auto-close optical tray after ejection delay in seconds
+# eject_autoclose = 15
+# Issue motor spindown signal upon rip completion to reduce noise & wear
+spindown = true
+
+# --- Metadata, Sidecars & Verification ---
+# Generate SHA-256 integrity hash sidecar (.sha256) alongside video
+checksum = true
+# Custom metadata tags to embed in .nfo XML (e.g. "Director Cut,4K Remaster")
+# tags = "Archival,Remaster"
+# Structured JSON-Lines audit log filepath
+# audit_log = "rip_audit.jsonl"
+# Regex replacement pattern for volume labels (PATTERN:REPLACEMENT)
+# label_regex_replace = "_: "
+# Retention threshold in days to clean up old rip records
+auto_cleanup_days = 30
+
+# --- Telemetry, Smart Home & Web Server ---
+# Bearer token API key for HTTP REST endpoints
+api_key = "secret_api_key_123"
 # Smart Home MQTT broker (Home Assistant auto-discovery)
 mqtt_broker = "192.168.1.50:1883"
-
-# Webhook notification URL (Discord, Ntfy, Telegram, Gotify, Slack)
+# Webhook notification URL (Discord, Slack, Ntfy, Telegram, Gotify)
 webhook_url = "https://discord.com/api/webhooks/YOUR_WEBHOOK_ID/YOUR_WEBHOOK_TOKEN"
 
-# REST API Bearer Token Key
-api_key = "secret_api_key_123"
-
-# Direct Media Server Scan Triggers
+# --- Direct Media Server Library Refresh ---
 plex_url = "http://192.168.1.100:32400"
 plex_token = "YOUR_PLEX_TOKEN"
-
 jellyfin_url = "http://192.168.1.100:8096"
 jellyfin_key = "YOUR_JELLYFIN_KEY"
-
 emby_url = "http://192.168.1.100:8096"
 emby_key = "YOUR_EMBY_KEY"
 
 # Post-processing script hook executable path
 post_script = "/usr/local/bin/post_rip_handler.sh"
-
-# Multi-Disc TV Series Box Set Auto-Stitching Mode
-auto_boxset = true
-
-# Video Deinterlacing & Denoising Quality Suite
-deinterlace = true
-deinterlace_algo = "bwdif"
-denoise = true
-
-# Minimum required free disk space threshold (GB) before ripping
-min_free_gb = 10
-
-# On-the-fly Subtitle OCR using Tesseract (converts bitmap dvdsub into text .srt)
-ocr = true
-ocr_lang = "eng"
-tesseract = "tesseract"
 ```
 
 ---
