@@ -13,5 +13,6 @@ pub use ocr::OcrProcessor;
 pub use optical_drive::{DiscInspector, DriveDetector, OpticalDrive, TrayController};
 pub use storage::{DiskSpaceGuard, HistoryRepository};
 pub use transcoder::{
-    DefaultVideoCodecResolver, ProgressObserver, TranscodeJob, Transcoder, VideoCodecResolver,
+    DefaultVideoCodecResolver, ProgressObserver, TranscodeJob, TranscodeOptions, Transcoder,
+    VideoCodecResolver,
 };

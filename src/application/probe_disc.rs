@@ -25,10 +25,25 @@ pub struct ProbeDiscUseCase {
 }
 
 impl ProbeDiscUseCase {
+    /// Creates a new [`ProbeDiscUseCase`] with an optional online metadata provider.
+    ///
+    /// # Panics
+    /// Never panics.
     pub fn new(metadata_provider: Option<Arc<dyn MetadataProvider>>) -> Self {
         Self { metadata_provider }
     }
 
+    /// Probes the specified optical drive device, extracting title hierarchy, copy protection,
+    /// and correlating online film or TV episode metadata.
+    ///
+    /// # Parameters
+    /// - `drive`: Abstract optical drive port representing the physical or virtual drive.
+    ///
+    /// # Errors
+    /// Returns an error if optical drive querying fails.
+    ///
+    /// # Panics
+    /// Never panics.
     pub fn execute(&self, drive: &dyn OpticalDrive) -> Result<DiscProbeResult> {
         let drive_path = drive.get_path();
         let volume_label = drive.read_volume_label();

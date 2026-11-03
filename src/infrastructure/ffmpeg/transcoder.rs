@@ -1,4 +1,6 @@
-use crate::domain::ports::transcoder::{ProgressObserver, TranscodeJob, Transcoder};
+use crate::domain::ports::transcoder::{
+    ProgressObserver, TranscodeJob, TranscodeOptions, Transcoder,
+};
 use anyhow::Result;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
@@ -7,23 +9,63 @@ use std::sync::atomic::AtomicBool;
 #[derive(Debug, Clone)]
 pub struct FfmpegTranscoder {
     pub ffmpeg_path: String,
-    pub default_args: crate::cli::Args,
+    pub options: TranscodeOptions,
 }
 
 impl FfmpegTranscoder {
+    /// Creates a new FfmpegTranscoder with default transcoding options.
+    ///
+    /// # Parameters
+    /// - `ffmpeg_path`: Path or executable name for the FFmpeg binary.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use dvd_ripper::infrastructure::ffmpeg::FfmpegTranscoder;
+    ///
+    /// let transcoder = FfmpegTranscoder::new("ffmpeg");
+    /// assert_eq!(transcoder.ffmpeg_path, "ffmpeg");
+    /// ```
+    ///
+    /// # Panics
+    /// Never panics.
     pub fn new(ffmpeg_path: impl Into<String>) -> Self {
-        use clap::Parser;
-        let default_args = crate::cli::Args::parse_from(["dvd-ripper"]);
         Self {
             ffmpeg_path: ffmpeg_path.into(),
-            default_args,
+            options: TranscodeOptions::default(),
         }
     }
 
+    /// Creates a new FfmpegTranscoder with typed [`TranscodeOptions`].
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use dvd_ripper::infrastructure::ffmpeg::FfmpegTranscoder;
+    /// use dvd_ripper::domain::ports::TranscodeOptions;
+    ///
+    /// let options = TranscodeOptions {
+    ///     codec: "hevc".to_string(),
+    ///     ..Default::default()
+    /// };
+    /// let transcoder = FfmpegTranscoder::with_options("ffmpeg", options);
+    /// assert_eq!(transcoder.options.codec, "hevc");
+    /// ```
+    ///
+    /// # Panics
+    /// Never panics.
+    pub fn with_options(ffmpeg_path: impl Into<String>, options: TranscodeOptions) -> Self {
+        Self {
+            ffmpeg_path: ffmpeg_path.into(),
+            options,
+        }
+    }
+
+    /// Creates an FfmpegTranscoder with legacy CLI Args for backward compatibility.
     pub fn with_args(ffmpeg_path: impl Into<String>, args: crate::cli::Args) -> Self {
         Self {
             ffmpeg_path: ffmpeg_path.into(),
-            default_args: args,
+            options: (&args).into(),
         }
     }
 }
@@ -35,7 +77,8 @@ impl Transcoder for FfmpegTranscoder {
         observer: Option<&dyn ProgressObserver>,
         cancel_flag: Option<Arc<AtomicBool>>,
     ) -> Result<()> {
-        let mut args = self.default_args.clone();
+        let mut args = crate::cli::Args::from(&self.options);
+        args.ffmpeg = self.ffmpeg_path.clone();
         if job.title_number > 0 {
             args.title = job.title_number;
         }
@@ -97,5 +140,26 @@ impl Transcoder for FfmpegTranscoder {
                 false,
             )
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_ffmpeg_transcoder_constructors() {
+        let transcoder_default = FfmpegTranscoder::new("ffmpeg_custom");
+        assert_eq!(transcoder_default.ffmpeg_path, "ffmpeg_custom");
+        assert_eq!(transcoder_default.options.codec, "h264");
+
+        let custom_opts = TranscodeOptions {
+            codec: "hevc".to_string(),
+            preset: "fast".to_string(),
+            ..Default::default()
+        };
+        let transcoder_opts = FfmpegTranscoder::with_options("ffmpeg_custom", custom_opts);
+        assert_eq!(transcoder_opts.options.codec, "hevc");
+        assert_eq!(transcoder_opts.options.preset, "fast");
     }
 }

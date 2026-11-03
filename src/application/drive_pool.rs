@@ -14,6 +14,19 @@ pub struct DrivePool {
 }
 
 impl DrivePool {
+    /// Creates a new, empty [`DrivePool`].
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use dvd_ripper::application::DrivePool;
+    ///
+    /// let pool = DrivePool::new();
+    /// assert_eq!(pool.get_statuses().len(), 0);
+    /// ```
+    ///
+    /// # Panics
+    /// Never panics.
     pub fn new() -> Self {
         Self {
             active_drives: Mutex::new(HashMap::new()),

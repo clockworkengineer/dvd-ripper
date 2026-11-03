@@ -29,6 +29,39 @@ pub struct RipTvBatchRequest {
 }
 
 impl RipTvBatchRequest {
+    /// Creates a new fluent builder for constructing a [`RipTvBatchRequest`].
+    ///
+    /// # Parameters
+    /// - `source_dvd`: Path to optical disc drive or mounted DVD folder.
+    /// - `series_title`: Television show name (e.g. `"Doctor Who"`).
+    /// - `output_dir`: Output directory path where episodes will be organized.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use dvd_ripper::application::RipTvBatchRequest;
+    ///
+    /// let request = RipTvBatchRequest::builder("D:\\", "Doctor Who", "C:\\Videos\\TV")
+    ///     .season(1)
+    ///     .start_episode(1)
+    ///     .min_free_gb(20)
+    ///     .build()
+    ///     .unwrap();
+    ///
+    /// assert_eq!(request.series_title, "Doctor Who");
+    /// assert_eq!(request.season_number, 1);
+    /// ```
+    ///
+    /// # Panics
+    /// Never panics.
+    pub fn builder(
+        source_dvd: impl Into<PathBuf>,
+        series_title: impl Into<String>,
+        output_dir: impl Into<PathBuf>,
+    ) -> RipTvBatchRequestBuilder {
+        RipTvBatchRequestBuilder::new(source_dvd, series_title, output_dir)
+    }
+
     pub fn new(
         source_dvd: PathBuf,
         series_title: String,
@@ -51,6 +84,100 @@ impl RipTvBatchRequest {
             lookup_episode_titles: false,
             track_boxset: false,
         }
+    }
+}
+
+/// Fluent builder for constructing [`RipTvBatchRequest`] instances.
+#[derive(Debug, Clone)]
+pub struct RipTvBatchRequestBuilder {
+    source_dvd: PathBuf,
+    series_title: String,
+    season_number: u32,
+    start_episode: u32,
+    output_dir: PathBuf,
+    episodes: Vec<TvEpisodeInfo>,
+    metadata: Option<FilmMetadata>,
+    min_free_gb: u64,
+    file_extension: Option<String>,
+    lookup_episode_titles: bool,
+    track_boxset: bool,
+}
+
+impl RipTvBatchRequestBuilder {
+    pub fn new(
+        source_dvd: impl Into<PathBuf>,
+        series_title: impl Into<String>,
+        output_dir: impl Into<PathBuf>,
+    ) -> Self {
+        Self {
+            source_dvd: source_dvd.into(),
+            series_title: series_title.into(),
+            season_number: 1,
+            start_episode: 1,
+            output_dir: output_dir.into(),
+            episodes: Vec::new(),
+            metadata: None,
+            min_free_gb: 10,
+            file_extension: None,
+            lookup_episode_titles: false,
+            track_boxset: false,
+        }
+    }
+
+    pub fn season(mut self, season: u32) -> Self {
+        self.season_number = season;
+        self
+    }
+
+    pub fn start_episode(mut self, episode: u32) -> Self {
+        self.start_episode = episode;
+        self
+    }
+
+    pub fn episodes(mut self, episodes: Vec<TvEpisodeInfo>) -> Self {
+        self.episodes = episodes;
+        self
+    }
+
+    pub fn metadata(mut self, meta: FilmMetadata) -> Self {
+        self.metadata = Some(meta);
+        self
+    }
+
+    pub fn min_free_gb(mut self, gb: u64) -> Self {
+        self.min_free_gb = gb;
+        self
+    }
+
+    pub fn file_extension(mut self, ext: impl Into<String>) -> Self {
+        self.file_extension = Some(ext.into());
+        self
+    }
+
+    pub fn lookup_episode_titles(mut self, enable: bool) -> Self {
+        self.lookup_episode_titles = enable;
+        self
+    }
+
+    pub fn track_boxset(mut self, enable: bool) -> Self {
+        self.track_boxset = enable;
+        self
+    }
+
+    pub fn build(self) -> Result<RipTvBatchRequest> {
+        Ok(RipTvBatchRequest {
+            source_dvd: self.source_dvd,
+            series_title: self.series_title,
+            season_number: self.season_number,
+            start_episode: self.start_episode,
+            output_dir: self.output_dir,
+            episodes: self.episodes,
+            metadata: self.metadata,
+            min_free_gb: self.min_free_gb,
+            file_extension: self.file_extension,
+            lookup_episode_titles: self.lookup_episode_titles,
+            track_boxset: self.track_boxset,
+        })
     }
 }
 
@@ -82,6 +209,21 @@ impl RipTvBatchUseCase {
         }
     }
 
+    /// Executes batch ripping of all configured TV series episodes.
+    ///
+    /// # Parameters
+    /// - `request`: Specification for series title, season, episodes, and directory.
+    /// - `observer`: Optional progress observer receiving transcode progress.
+    /// - `cancel_flag`: Optional cooperative cancellation token.
+    ///
+    /// # Returns
+    /// Number of successfully transcoded episodes.
+    ///
+    /// # Errors
+    /// Returns an error if disk space is exhausted or transcoding fails.
+    ///
+    /// # Panics
+    /// Never panics.
     pub fn execute(
         &self,
         request: &RipTvBatchRequest,

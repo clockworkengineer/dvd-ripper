@@ -4,7 +4,8 @@ pub mod job;
 pub mod media;
 
 pub use disc::{
-    Chapter, DiscCopyProtectionReport, DiscInfo, DriveStatusInfo, DvdTitleInfo, TvEpisodeInfo,
+    Chapter, DiscCopyProtectionReport, DiscInfo, DiscOptions, DriveStatusInfo, DvdTitleInfo,
+    TvEpisodeInfo,
 };
 pub use error::DvdError;
 pub use job::{JobStatus, RipProgress, RipRecord};

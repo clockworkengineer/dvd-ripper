@@ -548,4 +548,70 @@ mod tests {
 
         let _ = std::fs::remove_dir_all(&temp_dir);
     }
+
+    #[test]
+    fn test_rip_single_title_builder() {
+        let req = RipSingleTitleRequest::builder("D:\\", 1, "C:\\Out\\Movie.mp4")
+            .display_title("The Matrix")
+            .expected_duration(8160.0)
+            .min_free_gb(15)
+            .build()
+            .unwrap();
+
+        assert_eq!(req.source_dvd, PathBuf::from("D:\\"));
+        assert_eq!(req.title_number, 1);
+        assert_eq!(req.output_path, PathBuf::from("C:\\Out\\Movie.mp4"));
+        assert_eq!(req.display_title, "The Matrix");
+        assert_eq!(req.expected_duration_secs, Some(8160.0));
+        assert_eq!(req.min_free_gb, 15);
+    }
+
+    #[test]
+    fn test_dump_iso_builder() {
+        use crate::application::dump_iso::DumpIsoRequest;
+
+        let req = DumpIsoRequest::builder("D:\\", "C:\\Out\\disc.iso")
+            .volume_label("MATRIX_DISC1")
+            .min_free_gb(20)
+            .build()
+            .unwrap();
+
+        assert_eq!(req.source_dvd, PathBuf::from("D:\\"));
+        assert_eq!(req.output_path, PathBuf::from("C:\\Out\\disc.iso"));
+        assert_eq!(req.volume_label.as_deref(), Some("MATRIX_DISC1"));
+        assert_eq!(req.display_title, "MATRIX_DISC1");
+        assert_eq!(req.min_free_gb, 20);
+    }
+
+    #[test]
+    fn test_rip_tv_batch_builder() {
+        let ep = TvEpisodeInfo {
+            title_num: 2,
+            episode_num: 1,
+            duration_secs: 2700.0,
+            formatted_name: "S01E01 - Pilot".to_string(),
+        };
+
+        let req = RipTvBatchRequest::builder("D:\\", "Doctor Who", "C:\\Out\\TV")
+            .season(2)
+            .start_episode(1)
+            .episodes(vec![ep])
+            .lookup_episode_titles(true)
+            .track_boxset(true)
+            .file_extension("mkv")
+            .min_free_gb(30)
+            .build()
+            .unwrap();
+
+        assert_eq!(req.source_dvd, PathBuf::from("D:\\"));
+        assert_eq!(req.series_title, "Doctor Who");
+        assert_eq!(req.output_dir, PathBuf::from("C:\\Out\\TV"));
+        assert_eq!(req.season_number, 2);
+        assert_eq!(req.start_episode, 1);
+        assert_eq!(req.episodes.len(), 1);
+        assert!(req.lookup_episode_titles);
+        assert!(req.track_boxset);
+        assert_eq!(req.file_extension.as_deref(), Some("mkv"));
+        assert_eq!(req.min_free_gb, 30);
+    }
 }

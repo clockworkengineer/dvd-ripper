@@ -733,6 +733,98 @@ impl From<&Args> for TvModeConfig {
     }
 }
 
+impl From<&Args> for crate::domain::ports::transcoder::TranscodeOptions {
+    fn from(args: &Args) -> Self {
+        Self {
+            transcode: args.transcode,
+            mkv: args.mkv,
+            codec: args.codec.clone(),
+            profile: args.profile.clone(),
+            preset: args.preset.clone(),
+            hwaccel: args.hwaccel.clone(),
+            hwaccel_fallback: args.hwaccel_fallback,
+            deinterlace: args.deinterlace,
+            deinterlace_algo: args.deinterlace_algo.clone(),
+            denoise: args.denoise,
+            all_audio: args.all_audio,
+            normalize_audio: args.normalize_audio,
+            norm_target: args.norm_target,
+            dual_audio: args.dual_audio,
+            audio_track: args.audio_track,
+            audio_lang: args.audio_lang.clone(),
+            auto_audio_pref: args.auto_audio_pref.clone(),
+            audio_title: args.audio_title.clone(),
+            audio_downmix: args.audio_downmix.clone(),
+            subtitles: args.subtitles,
+            sub_lang: args.sub_lang.clone(),
+            sub_format: args.sub_format.clone(),
+            sub_forced_only: args.sub_forced_only,
+            sub_default: args.sub_default,
+            sub_burnin: args.sub_burnin,
+            tonemap: args.tonemap.clone(),
+            ignore_errors: args.ignore_errors,
+        }
+    }
+}
+
+impl From<&crate::domain::ports::transcoder::TranscodeOptions> for Args {
+    fn from(opt: &crate::domain::ports::transcoder::TranscodeOptions) -> Self {
+        Self {
+            transcode: opt.transcode,
+            mkv: opt.mkv,
+            codec: opt.codec.clone(),
+            profile: opt.profile.clone(),
+            preset: opt.preset.clone(),
+            hwaccel: opt.hwaccel.clone(),
+            hwaccel_fallback: opt.hwaccel_fallback,
+            deinterlace: opt.deinterlace,
+            deinterlace_algo: opt.deinterlace_algo.clone(),
+            denoise: opt.denoise,
+            all_audio: opt.all_audio,
+            normalize_audio: opt.normalize_audio,
+            norm_target: opt.norm_target,
+            dual_audio: opt.dual_audio,
+            audio_track: opt.audio_track,
+            audio_lang: opt.audio_lang.clone(),
+            auto_audio_pref: opt.auto_audio_pref.clone(),
+            audio_title: opt.audio_title.clone(),
+            audio_downmix: opt.audio_downmix.clone(),
+            subtitles: opt.subtitles,
+            sub_lang: opt.sub_lang.clone(),
+            sub_format: opt.sub_format.clone(),
+            sub_forced_only: opt.sub_forced_only,
+            sub_default: opt.sub_default,
+            sub_burnin: opt.sub_burnin,
+            tonemap: opt.tonemap.clone(),
+            ignore_errors: opt.ignore_errors,
+            ..Default::default()
+        }
+    }
+}
+
+impl From<&Args> for crate::domain::entities::disc::DiscOptions {
+    fn from(args: &Args) -> Self {
+        Self {
+            min_free_gb: args.min_free_gb,
+            no_eject: args.no_eject,
+            eject_autoclose: args.eject_autoclose,
+            spindown: args.spindown,
+        }
+    }
+}
+
+impl From<&crate::domain::entities::disc::DiscOptions> for Args {
+    fn from(opt: &crate::domain::entities::disc::DiscOptions) -> Self {
+        Self {
+            min_free_gb: opt.min_free_gb,
+            no_eject: opt.no_eject,
+            eject_autoclose: opt.eject_autoclose,
+            spindown: opt.spindown,
+            ..Default::default()
+        }
+    }
+}
+
 #[cfg(test)]
 #[allow(clippy::field_reassign_with_default)]
 mod tests {
@@ -837,5 +929,34 @@ mod tests {
         let tv_cfg: TvModeConfig = (&args).into();
         assert!(tv_cfg.tv);
         assert_eq!(tv_cfg.season, 2);
+    }
+
+    #[test]
+    fn test_transcode_and_disc_options_conversions() {
+        let mut args = Args::default();
+        args.transcode = true;
+        args.codec = "av1".to_string();
+        args.preset = "medium".to_string();
+        args.deinterlace = true;
+        args.min_free_gb = 50;
+        args.no_eject = true;
+        args.spindown = true;
+
+        let transcode_opt: crate::domain::ports::transcoder::TranscodeOptions = (&args).into();
+        assert!(transcode_opt.transcode);
+        assert_eq!(transcode_opt.codec, "av1");
+        assert_eq!(transcode_opt.preset, "medium");
+        assert!(transcode_opt.deinterlace);
+
+        let disc_opt: crate::domain::entities::disc::DiscOptions = (&args).into();
+        assert_eq!(disc_opt.min_free_gb, 50);
+        assert!(disc_opt.no_eject);
+        assert!(disc_opt.spindown);
+
+        // Convert back to Args
+        let back_args = Args::from(&transcode_opt);
+        assert!(back_args.transcode);
+        assert_eq!(back_args.codec, "av1");
+        assert_eq!(back_args.preset, "medium");
     }
 }

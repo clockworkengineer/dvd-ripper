@@ -21,6 +21,90 @@ pub struct DumpIsoRequest {
     pub min_free_gb: u64,
 }
 
+impl DumpIsoRequest {
+    /// Creates a new fluent builder for constructing a [`DumpIsoRequest`].
+    ///
+    /// # Parameters
+    /// - `source_dvd`: Path to optical drive device or disc mount.
+    /// - `output_path`: Target `.iso` file destination.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use dvd_ripper::application::DumpIsoRequest;
+    ///
+    /// let request = DumpIsoRequest::builder("D:\\", "C:\\Backups\\Disc.iso")
+    ///     .volume_label("MY_DISC")
+    ///     .min_free_gb(10)
+    ///     .build()
+    ///     .unwrap();
+    ///
+    /// assert_eq!(request.display_title, "MY_DISC");
+    /// ```
+    ///
+    /// # Panics
+    /// Never panics.
+    pub fn builder(
+        source_dvd: impl Into<PathBuf>,
+        output_path: impl Into<PathBuf>,
+    ) -> DumpIsoRequestBuilder {
+        DumpIsoRequestBuilder::new(source_dvd, output_path)
+    }
+}
+
+/// Fluent builder for constructing [`DumpIsoRequest`] instances.
+#[derive(Debug, Clone)]
+pub struct DumpIsoRequestBuilder {
+    source_dvd: PathBuf,
+    output_path: PathBuf,
+    volume_label: Option<String>,
+    display_title: Option<String>,
+    min_free_gb: u64,
+}
+
+impl DumpIsoRequestBuilder {
+    pub fn new(source_dvd: impl Into<PathBuf>, output_path: impl Into<PathBuf>) -> Self {
+        Self {
+            source_dvd: source_dvd.into(),
+            output_path: output_path.into(),
+            volume_label: None,
+            display_title: None,
+            min_free_gb: 10,
+        }
+    }
+
+    pub fn volume_label(mut self, label: impl Into<String>) -> Self {
+        self.volume_label = Some(label.into());
+        self
+    }
+
+    pub fn display_title(mut self, title: impl Into<String>) -> Self {
+        self.display_title = Some(title.into());
+        self
+    }
+
+    pub fn min_free_gb(mut self, gb: u64) -> Self {
+        self.min_free_gb = gb;
+        self
+    }
+
+    pub fn build(self) -> Result<DumpIsoRequest> {
+        let display_title = self.display_title.unwrap_or_else(|| {
+            self.volume_label
+                .clone()
+                .unwrap_or_else(|| "Archival ISO Dump".to_string())
+        });
+
+        Ok(DumpIsoRequest {
+            source_dvd: self.source_dvd,
+            output_path: self.output_path,
+            volume_label: self.volume_label,
+            display_title,
+            min_free_gb: self.min_free_gb,
+        })
+    }
+}
+
 /// Use case that orchestrates sector-by-sector archival ISO imaging:
 /// 1. Verifies free disk space threshold on target partition.
 /// 2. Dispatches RipStarted notification.
@@ -46,6 +130,20 @@ impl DumpIsoUseCase {
         }
     }
 
+    /// Executes the 1:1 archival sector-by-sector ISO dump.
+    ///
+    /// # Parameters
+    /// - `request`: Specification for source optical device and output ISO path.
+    /// - `observer`: Optional progress observer receiving real-time sector copy percentage.
+    /// - `cancel_flag`: Optional cooperative cancellation token.
+    ///
+    /// # Errors
+    /// Returns [`DvdError::InsufficientDiskSpace`](crate::domain::entities::error::DvdError::InsufficientDiskSpace)
+    /// if the target disk has insufficient space.
+    /// Returns an error if sector copying is cancelled or fails with an I/O error.
+    ///
+    /// # Panics
+    /// Never panics.
     pub fn execute(
         &self,
         request: &DumpIsoRequest,

@@ -1,171 +1,24 @@
 #![windows_subsystem = "windows"]
 
-/**
+/*!
  * @file main.rs
- * @brief DVD Ripper entry point supporting both GUI and CLI modes for Movies & TV Series.
+ * @brief DVD Ripper binary entry point supporting both GUI and CLI modes for Movies & TV Series.
  */
-mod api;
-pub mod application;
-mod cli;
-mod config;
-mod daemon;
-pub mod domain;
-mod dvd;
-mod ffmpeg;
-#[cfg(feature = "gui")]
-mod gui;
-mod history;
-mod imdb;
-pub mod infrastructure;
-pub mod iso;
-mod mqtt;
-mod ocr;
-mod queue;
-mod utils;
 
 use anyhow::{Result, anyhow};
 use clap::Parser;
 use std::path::PathBuf;
-
-use cli::Args;
-use daemon::run_daemon_with_container;
-use dvd::{get_volume_label, normalize_dvd_path};
-use ffmpeg::{detect_tv_episodes, resolve_output_path};
-use imdb::{fetch_search_candidates, lookup_film_details, lookup_omdb_by_id};
-use utils::sanitize_filename;
-
-/// Single Responsibility (SRP/SOLID): Encapsulates application startup and configuration bootstrapping.
-#[derive(Debug, Default)]
-pub struct AppInitializer;
-
-impl AppInitializer {
-    pub fn bootstrap(&self, args: &mut Args) -> config::AppConfig {
-        let app_cfg = config::load_config(args.config.as_deref());
-        config::apply_config_defaults(args, &app_cfg);
-        app_cfg
-    }
-}
-
-use crate::domain::ports::dialogs::FileDialogService;
-use crate::domain::ports::metadata::MetadataProvider;
-use crate::domain::ports::notification::Notifier;
-use crate::domain::ports::optical_drive::DriveDetector;
-use crate::domain::ports::storage::{DiskSpaceGuard, HistoryRepository};
-use crate::domain::ports::transcoder::Transcoder;
 use std::sync::Arc;
 
-/// Dependency Inversion (DIP/SOLID): Composition Root service container encapsulating production dependencies.
-pub struct AppContainer {
-    pub transcoder: Arc<dyn Transcoder>,
-    pub metadata_provider: Arc<dyn MetadataProvider>,
-    pub drive_detector: Arc<dyn DriveDetector>,
-    pub notifier: Arc<dyn Notifier>,
-    pub history_repo: Arc<dyn HistoryRepository>,
-    pub disk_guard: Arc<dyn DiskSpaceGuard>,
-    pub dialog_service: Arc<dyn FileDialogService>,
-}
-
-impl AppContainer {
-    pub fn build_production(ffmpeg_bin: &str) -> Self {
-        let args = Args {
-            ffmpeg: ffmpeg_bin.to_string(),
-            ..Default::default()
-        };
-        Self::build_from_args(&args)
-    }
-
-    pub fn build_from_args(args: &Args) -> Self {
-        let mut notifiers: Vec<Box<dyn crate::domain::ports::notification::Notifier>> = Vec::new();
-
-        if let Some(ref webhook) = args.webhook_url
-            && !webhook.trim().is_empty()
-        {
-            notifiers.push(Box::new(
-                crate::infrastructure::notifications::WebhookNotifier::new(
-                    webhook.trim(),
-                    args.webhook_secret.clone(),
-                ),
-            ));
-        }
-
-        if let Some(ref mqtt) = args.mqtt_broker
-            && !mqtt.trim().is_empty()
-        {
-            notifiers.push(Box::new(
-                crate::infrastructure::notifications::MqttNotifier::new(mqtt.trim(), "dvd-ripper"),
-            ));
-        }
-
-        notifiers.push(Box::new(
-            crate::infrastructure::notifications::MediaServerNotifier::new(),
-        ));
-
-        let notifier =
-            Arc::new(crate::infrastructure::notifications::CompositeNotifier::new(notifiers));
-
-        Self {
-            transcoder: Arc::new(crate::infrastructure::ffmpeg::FfmpegTranscoder::with_args(
-                &args.ffmpeg,
-                args.clone(),
-            )),
-            metadata_provider: Arc::new(
-                crate::infrastructure::metadata::OmdbMetadataProvider::new(None),
-            ),
-            drive_detector: Arc::new(crate::infrastructure::optical::SystemDriveDetector::new()),
-            notifier,
-            history_repo: Arc::new(crate::infrastructure::storage::JsonHistoryRepository::new()),
-            disk_guard: Arc::new(crate::infrastructure::storage::SystemDiskSpaceGuard::new()),
-            dialog_service: Arc::new(crate::infrastructure::system::NativeFileDialogService::new()),
-        }
-    }
-
-    pub fn rip_single_title_use_case(
-        &self,
-    ) -> application::rip_single_title::RipSingleTitleUseCase {
-        application::rip_single_title::RipSingleTitleUseCase::new(
-            self.transcoder.clone(),
-            self.notifier.clone(),
-            self.disk_guard.clone(),
-            self.history_repo.clone(),
-        )
-    }
-
-    pub fn rip_tv_batch_use_case(&self) -> application::rip_tv_batch::RipTvBatchUseCase {
-        application::rip_tv_batch::RipTvBatchUseCase::new(
-            self.transcoder.clone(),
-            self.notifier.clone(),
-            self.disk_guard.clone(),
-            self.history_repo.clone(),
-        )
-    }
-
-    pub fn probe_disc_use_case(&self) -> application::probe_disc::ProbeDiscUseCase {
-        application::probe_disc::ProbeDiscUseCase::new(Some(self.metadata_provider.clone()))
-    }
-
-    pub fn dump_iso_use_case(&self) -> application::dump_iso::DumpIsoUseCase {
-        application::dump_iso::DumpIsoUseCase::new(
-            self.notifier.clone(),
-            self.disk_guard.clone(),
-            self.history_repo.clone(),
-        )
-    }
-}
-
-/// Dependency Inversion (DIP/SOLID): High-level trait abstraction for DVD path normalization.
-#[allow(dead_code)]
-pub trait PathResolver {
-    fn resolve_path(&self, raw_path: &str) -> PathBuf;
-}
-
-#[derive(Debug, Default)]
-pub struct DefaultPathResolver;
-
-impl PathResolver for DefaultPathResolver {
-    fn resolve_path(&self, raw_path: &str) -> PathBuf {
-        normalize_dvd_path(raw_path)
-    }
-}
+use dvd_ripper::cli::Args;
+use dvd_ripper::daemon::run_daemon_with_container;
+use dvd_ripper::dvd::{self, get_volume_label, normalize_dvd_path};
+use dvd_ripper::ffmpeg::{detect_tv_episodes, resolve_output_path};
+#[cfg(feature = "gui")]
+use dvd_ripper::gui;
+use dvd_ripper::imdb::{self, fetch_search_candidates, lookup_film_details, lookup_omdb_by_id};
+use dvd_ripper::utils::{self, sanitize_filename};
+use dvd_ripper::{AppContainer, AppInitializer};
 
 /// Resolves film metadata, release year, running time, and cover poster bytes for CLI mode execution.
 fn resolve_cli_metadata(
@@ -471,7 +324,7 @@ fn main() -> Result<()> {
 
     // Check disk space threshold guard with optional fallback directory
     let fb_dir = args.fallback_out_dir.as_deref().map(std::path::Path::new);
-    let resolved_out_dir = crate::utils::check_disk_space_guard_with_fallback(
+    let resolved_out_dir = dvd_ripper::utils::check_disk_space_guard_with_fallback(
         std::path::Path::new(&args.out_dir),
         fb_dir,
         args.min_free_gb,
@@ -485,17 +338,16 @@ fn main() -> Result<()> {
             "Archival ISO dump will be saved to: {}",
             absolute_output.display()
         );
-        let label = volume_label.clone();
-        let display_title = title_name
-            .clone()
-            .unwrap_or_else(|| "Archival ISO Dump".to_string());
-        let request = crate::application::dump_iso::DumpIsoRequest {
-            source_dvd: dvd_path.clone(),
-            output_path: absolute_output.clone(),
-            volume_label: label,
-            display_title,
-            min_free_gb: args.min_free_gb,
-        };
+        let mut builder =
+            dvd_ripper::application::dump_iso::DumpIsoRequest::builder(&dvd_path, &absolute_output)
+                .min_free_gb(args.min_free_gb);
+        if let Some(ref label) = volume_label {
+            builder = builder.volume_label(label);
+        }
+        if let Some(ref title) = title_name {
+            builder = builder.display_title(title);
+        }
+        let request = builder.build()?;
         container
             .dump_iso_use_case()
             .execute(&request, None, None)?;
@@ -505,7 +357,7 @@ fn main() -> Result<()> {
         let show_name = title_name.as_deref().unwrap_or("TV Show");
 
         if args.auto_boxset && args.start_episode == 1 {
-            let next_ep = crate::queue::get_next_boxset_episode(show_name, args.season);
+            let next_ep = dvd_ripper::queue::get_next_boxset_episode(show_name, args.season);
             if next_ep > 1 {
                 args.start_episode = next_ep;
                 println!(
@@ -541,19 +393,19 @@ fn main() -> Result<()> {
             println!("Found {} episode titles on disc.", episodes.len());
 
             let ext = if args.mkv { "mkv" } else { "mp4" };
-            let request = crate::application::rip_tv_batch::RipTvBatchRequest {
-                source_dvd: dvd_path.clone(),
-                series_title: show_name.to_string(),
-                season_number: args.season,
-                start_episode: args.start_episode,
-                output_dir: PathBuf::from(&args.out_dir),
-                episodes: episodes.clone(),
-                metadata: None,
-                min_free_gb: args.min_free_gb,
-                file_extension: Some(ext.to_string()),
-                lookup_episode_titles: true,
-                track_boxset: args.auto_boxset,
-            };
+            let request = dvd_ripper::application::rip_tv_batch::RipTvBatchRequest::builder(
+                &dvd_path,
+                show_name,
+                &args.out_dir,
+            )
+            .season(args.season)
+            .start_episode(args.start_episode)
+            .episodes(episodes.clone())
+            .min_free_gb(args.min_free_gb)
+            .file_extension(ext)
+            .lookup_episode_titles(true)
+            .track_boxset(args.auto_boxset)
+            .build()?;
 
             let ripped_count = container
                 .rip_tv_batch_use_case()
@@ -564,7 +416,7 @@ fn main() -> Result<()> {
             );
 
             if let Some(first_ep) = episodes.first() {
-                let sample_output = crate::ffmpeg::resolve_tv_output_path_with_title(
+                let sample_output = dvd_ripper::ffmpeg::resolve_tv_output_path_with_title(
                     &args,
                     Some(show_name),
                     title_year,
@@ -581,14 +433,15 @@ fn main() -> Result<()> {
             } else {
                 1
             };
-            let tvmaze_episodes = crate::infrastructure::metadata::fetch_tvmaze_episodes(show_name)
-                .unwrap_or_default();
-            let ep_title = crate::infrastructure::metadata::find_episode_title(
+            let tvmaze_episodes =
+                dvd_ripper::infrastructure::metadata::fetch_tvmaze_episodes(show_name)
+                    .unwrap_or_default();
+            let ep_title = dvd_ripper::infrastructure::metadata::find_episode_title(
                 &tvmaze_episodes,
                 args.season,
                 ep_num,
             );
-            let ep_output = crate::ffmpeg::resolve_tv_output_path_with_title(
+            let ep_output = dvd_ripper::ffmpeg::resolve_tv_output_path_with_title(
                 &args,
                 Some(show_name),
                 title_year,
@@ -598,25 +451,26 @@ fn main() -> Result<()> {
             )?;
             println!("Output file will be saved to: {}", ep_output.display());
 
-            let ep_name = crate::utils::format_episode_name_with_title(
+            let ep_name = dvd_ripper::utils::format_episode_name_with_title(
                 show_name,
                 args.season,
                 ep_num,
                 ep_title.as_deref(),
             );
-            let req = crate::application::rip_single_title::RipSingleTitleRequest {
-                source_dvd: dvd_path.clone(),
-                title_number: args.title,
-                output_path: ep_output.clone(),
-                display_title: ep_name.clone(),
-                expected_duration_secs: film_runtime,
-                metadata: None,
-                min_free_gb: args.min_free_gb,
-            };
+            let mut req_builder =
+                dvd_ripper::application::rip_single_title::RipSingleTitleRequest::builder(
+                    &dvd_path, args.title, &ep_output,
+                )
+                .display_title(&ep_name)
+                .min_free_gb(args.min_free_gb);
+            if let Some(dur) = film_runtime {
+                req_builder = req_builder.expected_duration(dur);
+            }
+            let req = req_builder.build()?;
             container
                 .rip_single_title_use_case()
                 .execute(&req, None, None)?;
-            let _ = crate::ocr::process_subtitle_ocr_sidecar(&args, &ep_output, &ep_name);
+            let _ = dvd_ripper::ocr::process_subtitle_ocr_sidecar(&args, &ep_output, &ep_name);
             last_output_file = Some(ep_output);
         }
     } else {
@@ -628,19 +482,23 @@ fn main() -> Result<()> {
         );
 
         let display_title = title_name.as_deref().unwrap_or("Unknown DVD Title");
-        let req = crate::application::rip_single_title::RipSingleTitleRequest {
-            source_dvd: dvd_path.clone(),
-            title_number: args.title,
-            output_path: absolute_output.clone(),
-            display_title: display_title.to_string(),
-            expected_duration_secs: film_runtime,
-            metadata: None,
-            min_free_gb: args.min_free_gb,
-        };
+        let mut req_builder =
+            dvd_ripper::application::rip_single_title::RipSingleTitleRequest::builder(
+                &dvd_path,
+                args.title,
+                &absolute_output,
+            )
+            .display_title(display_title)
+            .min_free_gb(args.min_free_gb);
+        if let Some(dur) = film_runtime {
+            req_builder = req_builder.expected_duration(dur);
+        }
+        let req = req_builder.build()?;
         container
             .rip_single_title_use_case()
             .execute(&req, None, None)?;
-        let _ = crate::ocr::process_subtitle_ocr_sidecar(&args, &absolute_output, display_title);
+        let _ =
+            dvd_ripper::ocr::process_subtitle_ocr_sidecar(&args, &absolute_output, display_title);
         last_output_file = Some(absolute_output);
     }
 
@@ -686,7 +544,7 @@ fn main() -> Result<()> {
     }
 
     if let Some(days) = args.auto_cleanup_days {
-        let _ = crate::history::purge_expired_rip_records(days, None);
+        let _ = dvd_ripper::history::purge_expired_rip_records(days, None);
     }
 
     if let (Some(script), Some(out_file)) = (args.post_script.as_deref(), last_output_file.as_ref())

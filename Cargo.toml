@@ -12,6 +12,10 @@ documentation = "https://github.com/clockworkengineer/dvd-ripper#readme"
 keywords = ["dvd", "ripper", "backup", "media", "ffmpeg"]
 categories = ["command-line-utilities", "multimedia::video"]
 
+[lib]
+name = "dvd_ripper"
+path = "src/lib.rs"
+
 [[bin]]
 name = "dvd-ripper"
 path = "src/main.rs"
@@ -21,8 +25,12 @@ name = "dvd-ripper-installer"
 path = "src/bin/installer.rs"
 
 [features]
-default = ["gui"]
+default = ["cli", "gui"]
+core = []
+cli = []
 gui = ["dep:eframe", "dep:image", "dep:rfd"]
+api = []
+full = ["cli", "gui", "api"]
 
 [dependencies]
 clap = { version = "4", features = ["derive"] }
@@ -66,4 +74,3 @@ assets = [
     ["contrib/99-dvd-ripper.rules", "etc/udev/rules.d/", "644"],
     ["README.md", "usr/share/doc/dvd-ripper/README.md", "644"],
 ]
-

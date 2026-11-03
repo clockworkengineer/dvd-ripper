@@ -20,10 +20,12 @@ pub mod rip_single_title;
 pub mod rip_tv_batch;
 
 pub use drive_pool::DrivePool;
-pub use dump_iso::{DumpIsoRequest, DumpIsoUseCase};
+pub use dump_iso::{DumpIsoRequest, DumpIsoRequestBuilder, DumpIsoUseCase};
 pub use probe_disc::{DiscProbeResult, ProbeDiscUseCase};
-pub use rip_single_title::{RipSingleTitleRequest, RipSingleTitleUseCase};
-pub use rip_tv_batch::{RipTvBatchRequest, RipTvBatchUseCase};
+pub use rip_single_title::{
+    RipSingleTitleRequest, RipSingleTitleRequestBuilder, RipSingleTitleUseCase,
+};
+pub use rip_tv_batch::{RipTvBatchRequest, RipTvBatchRequestBuilder, RipTvBatchUseCase};
 
 #[cfg(test)]
 mod tests;

@@ -47,6 +47,16 @@ pub struct DiscInfo {
 }
 
 /// Represents runtime status of an individual optical drive in a multi-drive appliance pool.
+///
+/// # Examples
+///
+/// ```
+/// use dvd_ripper::domain::entities::DriveStatusInfo;
+///
+/// let status = DriveStatusInfo::new("D:\\");
+/// assert_eq!(status.drive, "D:\\");
+/// assert_eq!(status.status, "Idle");
+/// ```
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct DriveStatusInfo {
     pub drive: String,
@@ -74,6 +84,40 @@ impl DriveStatusInfo {
             has_selected_movie: false,
             is_series: false,
             year: None,
+        }
+    }
+}
+
+/// Typed, focused configuration options for disc handling and optical drive behavior.
+///
+/// # Examples
+///
+/// ```
+/// use dvd_ripper::domain::entities::DiscOptions;
+///
+/// let options = DiscOptions {
+///     min_free_gb: 25,
+///     no_eject: true,
+///     ..Default::default()
+/// };
+/// assert_eq!(options.min_free_gb, 25);
+/// assert!(options.no_eject);
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct DiscOptions {
+    pub min_free_gb: u64,
+    pub no_eject: bool,
+    pub eject_autoclose: Option<u64>,
+    pub spindown: bool,
+}
+
+impl Default for DiscOptions {
+    fn default() -> Self {
+        Self {
+            min_free_gb: 10,
+            no_eject: false,
+            eject_autoclose: None,
+            spindown: false,
         }
     }
 }

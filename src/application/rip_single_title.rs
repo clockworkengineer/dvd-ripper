@@ -22,6 +22,109 @@ pub struct RipSingleTitleRequest {
     pub min_free_gb: u64,
 }
 
+impl RipSingleTitleRequest {
+    /// Creates a new fluent builder for constructing a [`RipSingleTitleRequest`].
+    ///
+    /// # Parameters
+    /// - `source_dvd`: Path to optical disc drive or mounted DVD folder.
+    /// - `title_number`: Optical disc title index (1-based).
+    /// - `output_path`: Target file destination (e.g., `Movie.mp4`).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use dvd_ripper::application::RipSingleTitleRequest;
+    ///
+    /// let request = RipSingleTitleRequest::builder("D:\\", 1, "C:\\Videos\\Movie.mp4")
+    ///     .display_title("The Matrix")
+    ///     .min_free_gb(15)
+    ///     .build()
+    ///     .unwrap();
+    ///
+    /// assert_eq!(request.title_number, 1);
+    /// assert_eq!(request.display_title, "The Matrix");
+    /// ```
+    ///
+    /// # Panics
+    /// Never panics.
+    pub fn builder(
+        source_dvd: impl Into<PathBuf>,
+        title_number: u32,
+        output_path: impl Into<PathBuf>,
+    ) -> RipSingleTitleRequestBuilder {
+        RipSingleTitleRequestBuilder::new(source_dvd, title_number, output_path)
+    }
+}
+
+/// Fluent builder for constructing [`RipSingleTitleRequest`] instances.
+#[derive(Debug, Clone)]
+pub struct RipSingleTitleRequestBuilder {
+    source_dvd: PathBuf,
+    title_number: u32,
+    output_path: PathBuf,
+    display_title: Option<String>,
+    expected_duration_secs: Option<f64>,
+    metadata: Option<FilmMetadata>,
+    min_free_gb: u64,
+}
+
+impl RipSingleTitleRequestBuilder {
+    pub fn new(
+        source_dvd: impl Into<PathBuf>,
+        title_number: u32,
+        output_path: impl Into<PathBuf>,
+    ) -> Self {
+        Self {
+            source_dvd: source_dvd.into(),
+            title_number,
+            output_path: output_path.into(),
+            display_title: None,
+            expected_duration_secs: None,
+            metadata: None,
+            min_free_gb: 10,
+        }
+    }
+
+    pub fn display_title(mut self, title: impl Into<String>) -> Self {
+        self.display_title = Some(title.into());
+        self
+    }
+
+    pub fn expected_duration(mut self, secs: f64) -> Self {
+        self.expected_duration_secs = Some(secs);
+        self
+    }
+
+    pub fn metadata(mut self, metadata: FilmMetadata) -> Self {
+        self.metadata = Some(metadata);
+        self
+    }
+
+    pub fn min_free_gb(mut self, gb: u64) -> Self {
+        self.min_free_gb = gb;
+        self
+    }
+
+    pub fn build(self) -> Result<RipSingleTitleRequest> {
+        let display_title = self.display_title.unwrap_or_else(|| {
+            self.output_path
+                .file_stem()
+                .map(|s| s.to_string_lossy().to_string())
+                .unwrap_or_else(|| format!("Title {}", self.title_number))
+        });
+
+        Ok(RipSingleTitleRequest {
+            source_dvd: self.source_dvd,
+            title_number: self.title_number,
+            output_path: self.output_path,
+            display_title,
+            expected_duration_secs: self.expected_duration_secs,
+            metadata: self.metadata,
+            min_free_gb: self.min_free_gb,
+        })
+    }
+}
+
 /// Use case that orchestrates the single-title ripping workflow:
 /// 1. Verifies free disk space threshold.
 /// 2. Dispatches RipStarted notification.
@@ -51,6 +154,20 @@ impl RipSingleTitleUseCase {
         }
     }
 
+    /// Executes the single-title ripping workflow.
+    ///
+    /// # Parameters
+    /// - `request`: Specification for source disc, title, and output path.
+    /// - `observer`: Optional progress and log stream callback handler.
+    /// - `cancel_flag`: Optional cooperative thread cancellation token.
+    ///
+    /// # Errors
+    /// Returns [`DvdError::InsufficientDiskSpace`](crate::domain::entities::error::DvdError::InsufficientDiskSpace)
+    /// if available free space falls below `min_free_gb`.
+    /// Returns an error if the underlying transcoder fails or process execution errors out.
+    ///
+    /// # Panics
+    /// Never panics.
     pub fn execute(
         &self,
         request: &RipSingleTitleRequest,
