@@ -1,0 +1,19 @@
+pub mod artwork;
+pub mod audit_log;
+pub mod checksum;
+pub mod history_purge;
+pub mod media_server;
+pub mod nfo;
+pub mod pipeline;
+pub mod script_hook;
+pub mod tray_eject;
+
+pub use artwork::ArtworkPostProcessor;
+pub use audit_log::AuditLogPostProcessor;
+pub use checksum::ChecksumPostProcessor;
+pub use history_purge::HistoryPurgePostProcessor;
+pub use media_server::MediaServerScanPostProcessor;
+pub use nfo::NfoPostProcessor;
+pub use pipeline::PostProcessingPipeline;
+pub use script_hook::ScriptHookPostProcessor;
+pub use tray_eject::TrayEjectPostProcessor;

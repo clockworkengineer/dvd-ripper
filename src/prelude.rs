@@ -31,11 +31,18 @@ pub use crate::domain::ports::{
         DiscInspector, DriveDetector, DriveIdentity, OpticalDrive, ProtectionInspector,
         TitleProber, TrayController, TrayOperator,
     },
+    post_processor::{PostProcessContext, PostProcessor},
     storage::{DiskSpaceGuard, HistoryRepository},
     transcoder::{
         DefaultVideoCodecResolver, ProgressObserver, TranscodeJob, TranscodeOptions, Transcoder,
         VideoCodecResolver,
     },
+};
+
+// Heuristics Strategies (OCP)
+pub use crate::domain::heuristics::{
+    ClusterTitleRankingStrategy, DurationClusteringTvStrategy, EpisodeDetectionStrategy,
+    LongestTrackStrategy, TitleRankingStrategy, TvDetectionConfig,
 };
 
 // Application Use Cases & DTOs

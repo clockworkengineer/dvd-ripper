@@ -16,5 +16,6 @@ pub mod metadata;
 pub mod notifications;
 pub mod ocr;
 pub mod optical;
+pub mod post_processors;
 pub mod storage;
 pub mod system;

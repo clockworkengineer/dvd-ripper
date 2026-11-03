@@ -5,6 +5,7 @@ pub mod metadata;
 pub mod notification;
 pub mod ocr;
 pub mod optical_drive;
+pub mod post_processor;
 pub mod storage;
 pub mod transcoder;
 
@@ -18,6 +19,7 @@ pub use optical_drive::{
     DiscInspector, DriveDetector, DriveIdentity, OpticalDrive, ProtectionInspector, TitleProber,
     TrayController, TrayOperator,
 };
+pub use post_processor::{PostProcessContext, PostProcessor};
 pub use storage::{DiskSpaceGuard, HistoryRepository};
 pub use transcoder::{
     DefaultVideoCodecResolver, ProgressObserver, TranscodeJob, TranscodeOptions, Transcoder,
