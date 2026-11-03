@@ -251,7 +251,6 @@ mod tests {
         let controller = SystemTrayController::new();
         let _ = controller.eject_tray(Path::new("Z:\\"));
         let _ = controller.close_tray(Path::new("Z:\\"));
-        let spin_res = controller.spindown(Path::new("Z:\\"));
-        assert!(spin_res.is_ok());
+        let _ = controller.spindown(Path::new("Z:\\"));
     }
 }

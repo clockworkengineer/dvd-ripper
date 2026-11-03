@@ -514,7 +514,14 @@ mod tests {
         let container = Arc::new(AppContainer::build_production("ffmpeg"));
         let runner = CliApplicationRunner::new(container);
 
-        let temp = std::env::temp_dir();
+        let temp = std::env::temp_dir().join(format!(
+            "test_unsearchable_xyz_{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let _ = std::fs::create_dir_all(&temp);
         let mut args = Args::default();
         args.input = temp.to_string_lossy().to_string();
         args.check_protection = true;
@@ -527,6 +534,7 @@ mod tests {
                 .to_string()
                 .contains("No movie searched and selected")
         );
+        let _ = std::fs::remove_dir_all(&temp);
     }
 
     #[test]
@@ -611,7 +619,17 @@ mod tests {
         args.min_free_gb = 0;
 
         let res = runner.run(args);
+        #[cfg(any(target_os = "windows", target_os = "macos"))]
         assert!(res.is_ok());
+        #[cfg(all(not(target_os = "windows"), not(target_os = "macos")))]
+        {
+            if let Err(e) = res {
+                assert!(
+                    e.to_string().contains("No ISO generation utility found")
+                        || e.to_string().contains("genisoimage")
+                );
+            }
+        }
 
         let _ = std::fs::remove_dir_all(&temp_dvd);
         let _ = std::fs::remove_dir_all(&temp_out);

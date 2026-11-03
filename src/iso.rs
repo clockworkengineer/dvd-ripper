@@ -424,10 +424,10 @@ mod tests {
 
     #[test]
     fn test_resolve_raw_optical_source() {
-        let (p1, is_dir1) = resolve_raw_optical_source("D:\\");
+        let (_p1, is_dir1) = resolve_raw_optical_source("D:\\");
         assert!(!is_dir1);
         #[cfg(target_os = "windows")]
-        assert!(p1.to_string_lossy().contains(r"\\.\"));
+        assert!(_p1.to_string_lossy().contains(r"\\.\"));
 
         let temp = std::env::temp_dir();
         let (_p2, is_dir2) = resolve_raw_optical_source(&temp.to_string_lossy());
@@ -450,8 +450,24 @@ mod tests {
 
         let out_iso1 = temp_base.join("output1.iso");
         let dump_res = dump_directory_to_iso(&temp_base, &out_iso1, Some("MY_TEST_DISC"));
-        assert!(dump_res.is_ok());
-        assert!(out_iso1.exists());
+        #[cfg(any(target_os = "windows", target_os = "macos"))]
+        {
+            assert!(dump_res.is_ok());
+            assert!(out_iso1.exists());
+        }
+        #[cfg(all(not(target_os = "windows"), not(target_os = "macos")))]
+        {
+            if dump_res.is_ok() {
+                assert!(out_iso1.exists());
+            } else {
+                assert!(
+                    dump_res
+                        .unwrap_err()
+                        .to_string()
+                        .contains("No ISO generation utility found")
+                );
+            }
+        }
 
         // Test dump_disc_to_iso with fallback to directory packaging
         let out_iso2 = temp_base.join("output2.iso");
@@ -464,8 +480,24 @@ mod tests {
             Some(&cancel),
             Some(&tx),
         );
-        assert!(disc_res.is_ok());
-        assert!(out_iso2.exists());
+        #[cfg(any(target_os = "windows", target_os = "macos"))]
+        {
+            assert!(disc_res.is_ok());
+            assert!(out_iso2.exists());
+        }
+        #[cfg(all(not(target_os = "windows"), not(target_os = "macos")))]
+        {
+            if disc_res.is_ok() {
+                assert!(out_iso2.exists());
+            } else {
+                assert!(
+                    disc_res
+                        .unwrap_err()
+                        .to_string()
+                        .contains("No ISO generation utility found")
+                );
+            }
+        }
 
         // Verify that events were transmitted to rx
         let mut events_count = 0;

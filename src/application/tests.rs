@@ -749,7 +749,8 @@ mod tests {
 
     #[test]
     fn test_rip_single_title_builder_defaults() {
-        let req = RipSingleTitleRequest::builder("D:\\", 1, "C:\\Out\\Movie.mp4")
+        let out_path = std::path::Path::new("Out").join("Movie.mp4");
+        let req = RipSingleTitleRequest::builder("D:\\", 1, &out_path)
             .build()
             .unwrap();
 
