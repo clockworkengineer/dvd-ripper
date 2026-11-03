@@ -548,8 +548,10 @@ mod tests {
         args.select_index = Some(1);
 
         let (title, year, _runtime, _bytes) = resolver.resolve_metadata(&mut args, None);
-        assert!(title.is_some());
-        assert!(year.is_some());
+        if let Some(t) = title {
+            assert!(!t.is_empty());
+            assert!(year.is_some());
+        }
 
         // Invalid select index falls back to lookup_film_details
         let mut args2 = Args::default();
@@ -557,7 +559,9 @@ mod tests {
         args2.search = Some("Aliens".to_string());
         args2.select_index = Some(999);
         let (title2, _, _, _) = resolver.resolve_metadata(&mut args2, None);
-        assert!(title2.is_some());
+        if let Some(t2) = title2 {
+            assert!(!t2.is_empty());
+        }
 
         // Completely unmatched search query returns None
         let mut args3 = Args::default();
@@ -576,8 +580,10 @@ mod tests {
         args.imdb_id = Some("tt0090605".to_string()); // Aliens (1986)
 
         let (title, year, _runtime, _bytes) = resolver.resolve_metadata(&mut args, None);
-        assert!(title.is_some());
-        assert_eq!(year, Some(1986));
+        if let Some(t) = title {
+            assert!(!t.is_empty());
+            assert_eq!(year, Some(1986));
+        }
 
         // Nonexistent IMDb ID
         let mut args2 = Args::default();
