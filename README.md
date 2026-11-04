@@ -1,4 +1,4 @@
-# DVD Ripper (`dvd-ripper`)
+# DVD Ripper (`dvd-ripper`) 
 
 [![CI](https://github.com/clockworkengineer/dvd-ripper/actions/workflows/ci.yml/badge.svg)](https://github.com/clockworkengineer/dvd-ripper/actions/workflows/ci.yml)
 [![Release](https://github.com/clockworkengineer/dvd-ripper/actions/workflows/release.yml/badge.svg)](https://github.com/clockworkengineer/dvd-ripper/releases)
