@@ -87,6 +87,64 @@ impl RipTvBatchRequest {
             track_boxset: false,
         }
     }
+
+    /// Resolves the concrete season output directory for this batch request:
+    /// `<TV_ROOT>/<Show Name (Year)>/Season <XX>/`
+    pub fn resolve_destination_dir(&self) -> PathBuf {
+        resolve_tv_batch_destination_dir(
+            &self.output_dir,
+            &self.series_title,
+            self.season_number,
+            self.metadata.as_ref().and_then(|m| m.year),
+        )
+    }
+}
+
+/// Resolves the destination directory for TV series episodes.
+///
+/// Ensures the folder path adheres to the standard Plex/Jellyfin convention:
+/// `<TV_ROOT>/<Show Name (Year)>/Season <XX>/`
+///
+/// - If `output_dir` already terminates in `Season XX`, it is retained as-is to avoid duplicate folders.
+/// - If `output_dir` terminates in the show folder, `Season <XX>` is appended.
+/// - Otherwise, `resolve_tv_root` is used, and `<Show Name (Year)>/Season <XX>/` is constructed.
+pub fn resolve_tv_batch_destination_dir(
+    output_dir: &std::path::Path,
+    series_title: &str,
+    season_number: u32,
+    series_year: Option<u32>,
+) -> PathBuf {
+    let clean_show = crate::utils::sanitize_filename(series_title);
+    let effective_show = if clean_show.is_empty() {
+        "TV Show".to_string()
+    } else {
+        clean_show
+    };
+    let show_folder = crate::utils::format_title_folder_name(&effective_show, series_year);
+    let season_folder = format!("Season {:02}", season_number);
+
+    let trimmed = output_dir.as_os_str().to_string_lossy();
+    let trimmed_str = trimmed.trim_end_matches(['/', '\\']);
+    let path = std::path::Path::new(trimmed_str);
+
+    if let Some(file_name) = path.file_name().and_then(|s| s.to_str()) {
+        if file_name.eq_ignore_ascii_case(&season_folder)
+            || (file_name.to_ascii_lowercase().starts_with("season")
+                && file_name.trim_start_matches(|c: char| !c.is_ascii_digit())
+                    == format!("{}", season_number))
+        {
+            return path.to_path_buf();
+        }
+
+        if file_name.eq_ignore_ascii_case(&show_folder)
+            || file_name.eq_ignore_ascii_case(&effective_show)
+        {
+            return path.join(&season_folder);
+        }
+    }
+
+    let tv_root = crate::ffmpeg::resolve_tv_root(trimmed_str);
+    tv_root.join(show_folder).join(season_folder)
 }
 
 /// Fluent builder for constructing [`RipTvBatchRequest`] instances.
@@ -260,6 +318,8 @@ impl RipTvBatchUseCase {
             request.episodes.iter().collect()
         };
 
+        let destination_dir = request.resolve_destination_dir();
+
         for ep in episodes_to_rip {
             if let Some(ref flag) = cancel_flag
                 && flag.load(Ordering::SeqCst)
@@ -288,7 +348,7 @@ impl RipTvBatchUseCase {
             );
 
             let ep_filename = format!("{}.{}", display_title, ext);
-            let ep_output_path = request.output_dir.join(&ep_filename);
+            let ep_output_path = destination_dir.join(&ep_filename);
 
             let single_req = RipSingleTitleRequest {
                 source_dvd: request.source_dvd.clone(),

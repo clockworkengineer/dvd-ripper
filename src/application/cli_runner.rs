@@ -373,6 +373,15 @@ impl CliApplicationRunner {
                     req_builder = req_builder.end_episode(end_ep);
                 }
 
+                if let Some(year) = title_year {
+                    req_builder = req_builder.metadata(crate::domain::FilmMetadata {
+                        title: show_name.to_string(),
+                        year: Some(year),
+                        is_series: true,
+                        ..Default::default()
+                    });
+                }
+
                 let request = req_builder.build()?;
 
                 let ripped_count = self

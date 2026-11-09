@@ -406,18 +406,28 @@ impl GuiApplicationController {
                     } else {
                         "mp4"
                     };
-                    let req_builder = crate::application::rip_tv_batch::RipTvBatchRequest::builder(
-                        &dvd_path,
-                        show_name,
-                        &spec.out_dir,
-                    )
-                    .season(spec.season)
-                    .start_episode(spec.start_episode)
-                    .episodes(spec.detected_episodes.clone())
-                    .min_free_gb(spec.encoding_options.min_free_gb)
-                    .file_extension(ext)
-                    .lookup_episode_titles(true)
-                    .track_boxset(base_args.auto_boxset);
+                    let mut req_builder =
+                        crate::application::rip_tv_batch::RipTvBatchRequest::builder(
+                            &dvd_path,
+                            show_name,
+                            &spec.out_dir,
+                        )
+                        .season(spec.season)
+                        .start_episode(spec.start_episode)
+                        .episodes(spec.detected_episodes.clone())
+                        .min_free_gb(spec.encoding_options.min_free_gb)
+                        .file_extension(ext)
+                        .lookup_episode_titles(true)
+                        .track_boxset(base_args.auto_boxset);
+
+                    if let Some(year) = spec.film_year {
+                        req_builder = req_builder.metadata(crate::domain::FilmMetadata {
+                            title: show_name.to_string(),
+                            year: Some(year),
+                            is_series: true,
+                            ..Default::default()
+                        });
+                    }
 
                     let request = match req_builder.build() {
                         Ok(r) => r,

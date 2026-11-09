@@ -417,6 +417,16 @@ mod tests {
 
         let recs = history.records.lock().unwrap();
         assert_eq!(recs.len(), 2);
+        assert!(
+            recs[0].output_path.contains("TV")
+                && recs[0].output_path.contains("Firefly")
+                && recs[0].output_path.contains("Season 01")
+        );
+        assert!(
+            recs[1].output_path.contains("TV")
+                && recs[1].output_path.contains("Firefly")
+                && recs[1].output_path.contains("Season 01")
+        );
     }
 
     #[test]
@@ -819,5 +829,58 @@ mod tests {
 
         assert_eq!(req.display_title, "Movie");
         assert_eq!(req.min_free_gb, 10);
+    }
+
+    #[test]
+    fn test_resolve_tv_batch_destination_dir_standards() {
+        use crate::application::rip_tv_batch::resolve_tv_batch_destination_dir;
+
+        // 1. Standard root directory
+        let out = resolve_tv_batch_destination_dir(Path::new("."), "Firefly", 1, None);
+        assert_eq!(out, Path::new("TV").join("Firefly").join("Season 01"));
+
+        // 2. With year metadata
+        let out_year =
+            resolve_tv_batch_destination_dir(Path::new("C:/Videos"), "The Office", 2, Some(2005));
+        assert_eq!(
+            out_year,
+            Path::new("C:/Videos")
+                .join("TV")
+                .join("The Office (2005)")
+                .join("Season 02")
+        );
+
+        // 3. Sibling root: out_dir ends in Films
+        let out_films =
+            resolve_tv_batch_destination_dir(Path::new("C:/Videos/Films"), "Battlestar", 1, None);
+        assert_eq!(
+            out_films,
+            Path::new("C:/Videos")
+                .join("TV")
+                .join("Battlestar")
+                .join("Season 01")
+        );
+
+        // 4. Existing TV root: out_dir ends in TV
+        let out_tv =
+            resolve_tv_batch_destination_dir(Path::new("D:/Media/TV"), "Star Trek", 3, None);
+        assert_eq!(
+            out_tv,
+            Path::new("D:/Media/TV").join("Star Trek").join("Season 03")
+        );
+
+        // 5. Existing show folder: out_dir already points to TV/Firefly
+        let out_show =
+            resolve_tv_batch_destination_dir(Path::new("D:/Media/TV/Firefly"), "Firefly", 1, None);
+        assert_eq!(out_show, Path::new("D:/Media/TV/Firefly").join("Season 01"));
+
+        // 6. Existing season folder: out_dir already points to Season 01
+        let out_season = resolve_tv_batch_destination_dir(
+            Path::new("D:/Media/TV/Firefly/Season 01"),
+            "Firefly",
+            1,
+            None,
+        );
+        assert_eq!(out_season, Path::new("D:/Media/TV/Firefly/Season 01"));
     }
 }
