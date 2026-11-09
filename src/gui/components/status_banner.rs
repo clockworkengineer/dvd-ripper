@@ -57,10 +57,31 @@ pub fn render_telemetry_bar(
     status_message: &str,
     start_time: Option<Instant>,
     eta_seconds: Option<f64>,
+    on_cancel_rip: impl FnOnce(),
 ) {
     ui.group(|ui| {
         ui.horizontal(|ui| {
             ui.label(egui::RichText::new("Progress & Telemetry").strong());
+
+            if is_ripping {
+                ui.add_space(8.0);
+                if ui
+                    .add(
+                        egui::Button::new(
+                            egui::RichText::new("⏹ Cancel Ripping")
+                                .strong()
+                                .color(egui::Color32::WHITE),
+                        )
+                        .fill(super::super::theme::DANGER_COLOR)
+                        .min_size(egui::vec2(130.0, 24.0)),
+                    )
+                    .on_hover_text("Abort the active ripping operation (Esc)")
+                    .clicked()
+                {
+                    on_cancel_rip();
+                }
+            }
+
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if let Some(start) = start_time
                     && is_ripping
@@ -206,6 +227,7 @@ mod tests {
                     "Ripping Title #1...",
                     Some(Instant::now()),
                     Some(120.0),
+                    || {},
                 );
 
                 // Telemetry completed
@@ -218,6 +240,7 @@ mod tests {
                     "Ripping completed successfully.",
                     None,
                     None,
+                    || {},
                 );
 
                 // Telemetry cancelled
@@ -230,6 +253,7 @@ mod tests {
                     "Process cancelled",
                     None,
                     None,
+                    || {},
                 );
 
                 // Telemetry error
@@ -242,6 +266,7 @@ mod tests {
                     "Error: drive failed",
                     None,
                     None,
+                    || {},
                 );
 
                 let mut logs = VecDeque::new();

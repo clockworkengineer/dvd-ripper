@@ -109,10 +109,11 @@ To rip TV show season box sets with custom episode ranges:
 - **Real-Time Progress Bar**: Visual percentage bar (0.0% to 100.0%) updated via thread-safe crossbeam channels.
 - **Performance Indicators**: Live FPS rendering counter and encoding speed multiplier (`2.4x`).
 - **Ring Buffer Log Console**: Live scrollable terminal log window capturing FFmpeg stdout/stderr diagnostics.
-- **Cooperative Cancellation Flow (`⏹ Cancel Rip`)**:
-  - Clicking **⏹ Cancel Rip** sets an atomic `cancel_flag` observed cooperatively by background threads and child processes.
-  - The UI immediately terminates child FFmpeg processes cleanly, aborts remaining batch queue items, and zeroes out the progress bar, FPS meter, and speed gauge.
-  - The status label displays `"Rip cancelled"`, optical drive locks are released, and the cancellation event is recorded to `ripping_history.json` with status `"Cancelled"`.
+- **Cooperative Cancellation Flow (`⏹ Cancel Ripping`)**:
+  - **Ubiquitous Visibility**: Prominent red `⏹ Cancel Ripping` buttons are active across the top header bar, the live Progress & Telemetry bar, the Rip tab, and the TV Series batch rip tab.
+  - **Complete UI Lockdown**: While ripping is in progress, all other UI elements (tab bar navigation, input fields, checkboxes, drag values, and action buttons) are systematically disabled to prevent accidental state modifications or conflicting operations. Only the Cancel button remains active.
+  - **Confirmation Dialog**: Clicking **⏹ Cancel Ripping** or pressing **Escape** brings up a modal confirmation dialog to verify cancellation and prevent unintended aborts.
+  - **Clean Termination**: Confirming cancellation sets an atomic `cancel_flag` observed cooperatively by background threads and child processes. The UI cleanly terminates FFmpeg, removes incomplete files, releases optical drive locks, and records `"Cancelled"` in `ripping_history.json`.
 
 ---
 

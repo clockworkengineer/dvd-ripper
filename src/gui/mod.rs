@@ -29,9 +29,6 @@ impl DvdRipperApp {
 
         // --- Keyboard Shortcuts (Accelerators) - Nielsen Heuristic #7 ---
         ctx.input(|i| {
-            if i.key_pressed(egui::Key::F1) {
-                self.show_help_modal = true;
-            }
             if i.key_pressed(egui::Key::Escape) {
                 if self.show_help_modal {
                     self.show_help_modal = false;
@@ -47,30 +44,35 @@ impl DvdRipperApp {
                     self.show_confirm_cancel = true;
                 }
             }
-            if (i.modifiers.ctrl || i.modifiers.command) && i.key_pressed(egui::Key::O) {
-                let p = Path::new(&self.out_dir);
-                if p.exists() {
-                    crate::utils::open_folder_in_explorer(p);
+            if !self.is_ripping {
+                if i.key_pressed(egui::Key::F1) {
+                    self.show_help_modal = true;
                 }
-            }
-            if (i.modifiers.ctrl || i.modifiers.command) && i.key_pressed(egui::Key::F) {
-                self.trigger_custom_search();
-            }
-            if (i.modifiers.ctrl || i.modifiers.command) && i.key_pressed(egui::Key::B) {
-                self.pick_output_dir();
-            }
-            if ((i.modifiers.ctrl || i.modifiers.command) && i.key_pressed(egui::Key::R))
-                || (i.key_pressed(egui::Key::Enter) && !self.is_ripping && !self.detecting)
-            {
-                let preflight = components::disk_guard::validate_preflight_checks(
-                    &self.input_drive,
-                    self.iso_mode,
-                    self.is_tv_mode,
-                    &self.film_name,
-                    &self.out_dir,
-                );
-                if preflight.is_ok() && !self.is_ripping {
-                    self.start_ripping();
+                if (i.modifiers.ctrl || i.modifiers.command) && i.key_pressed(egui::Key::O) {
+                    let p = Path::new(&self.out_dir);
+                    if p.exists() {
+                        crate::utils::open_folder_in_explorer(p);
+                    }
+                }
+                if (i.modifiers.ctrl || i.modifiers.command) && i.key_pressed(egui::Key::F) {
+                    self.trigger_custom_search();
+                }
+                if (i.modifiers.ctrl || i.modifiers.command) && i.key_pressed(egui::Key::B) {
+                    self.pick_output_dir();
+                }
+                if ((i.modifiers.ctrl || i.modifiers.command) && i.key_pressed(egui::Key::R))
+                    || (i.key_pressed(egui::Key::Enter) && !self.detecting)
+                {
+                    let preflight = components::disk_guard::validate_preflight_checks(
+                        &self.input_drive,
+                        self.iso_mode,
+                        self.is_tv_mode,
+                        &self.film_name,
+                        &self.out_dir,
+                    );
+                    if preflight.is_ok() {
+                        self.start_ripping();
+                    }
                 }
             }
         });
@@ -96,17 +98,38 @@ impl DvdRipperApp {
                 ui.heading("📀 DVD Ripper Desktop Utility");
                 components::status_banner::render_drive_status_pill(ui, drive_state);
 
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if ui.button("ℹ️ About").clicked() {
-                        self.show_about_modal = true;
-                    }
+                if self.is_ripping {
+                    ui.add_space(8.0);
                     if ui
-                        .button("❓ Help (F1)")
-                        .on_hover_text("Open User Guide, Glossary, and Keyboard Shortcuts")
+                        .add(
+                            egui::Button::new(
+                                egui::RichText::new("⏹ Cancel Ripping")
+                                    .strong()
+                                    .color(egui::Color32::WHITE),
+                            )
+                            .fill(theme::DANGER_COLOR)
+                            .min_size(egui::vec2(130.0, 24.0)),
+                        )
+                        .on_hover_text("Abort the active ripping operation (Esc)")
                         .clicked()
                     {
-                        self.show_help_modal = true;
+                        self.show_confirm_cancel = true;
                     }
+                }
+
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    ui.add_enabled_ui(!self.is_ripping, |ui| {
+                        if ui.button("ℹ️ About").clicked() {
+                            self.show_about_modal = true;
+                        }
+                        if ui
+                            .button("❓ Help (F1)")
+                            .on_hover_text("Open User Guide, Glossary, and Keyboard Shortcuts")
+                            .clicked()
+                        {
+                            self.show_help_modal = true;
+                        }
+                    });
                 });
             });
 
@@ -196,6 +219,7 @@ impl DvdRipperApp {
                 ActiveTab::TvSeries => {
                     let mut scan_requested = false;
                     let mut start_batch = false;
+                    let mut cancel_batch = false;
                     let mut thumb_req = None;
                     let mut range_changed = false;
 
@@ -214,6 +238,7 @@ impl DvdRipperApp {
                         || scan_requested = true,
                         |t| thumb_req = Some(t),
                         || start_batch = true,
+                        || cancel_batch = true,
                     );
 
                     if range_changed {
@@ -230,28 +255,35 @@ impl DvdRipperApp {
                         self.is_tv_mode = true;
                         self.start_ripping();
                     }
+                    if cancel_batch {
+                        self.show_confirm_cancel = true;
+                    }
                 }
                 ActiveTab::Benchmark => {
                     let mut bench_requested = false;
-                    tabs::benchmark_tab::render_benchmark_tab(
-                        ui,
-                        &mut self.input_drive,
-                        self.benchmark_report.as_ref(),
-                        is_busy,
-                        || bench_requested = true,
-                    );
+                    ui.add_enabled_ui(!is_busy, |ui| {
+                        tabs::benchmark_tab::render_benchmark_tab(
+                            ui,
+                            &mut self.input_drive,
+                            self.benchmark_report.as_ref(),
+                            is_busy,
+                            || bench_requested = true,
+                        );
+                    });
                     if bench_requested {
                         self.trigger_benchmark();
                     }
                 }
                 ActiveTab::History => {
                     let mut clear_requested = false;
-                    tabs::history_tab::render_history_tab(
-                        ui,
-                        &self.history,
-                        &mut self.history_filter,
-                        || clear_requested = true,
-                    );
+                    ui.add_enabled_ui(!is_busy, |ui| {
+                        tabs::history_tab::render_history_tab(
+                            ui,
+                            &self.history,
+                            &mut self.history_filter,
+                            || clear_requested = true,
+                        );
+                    });
                     if clear_requested {
                         self.show_confirm_clear = true;
                     }
@@ -260,23 +292,25 @@ impl DvdRipperApp {
                     let mut browse_req = false;
                     let mut reset_req = false;
 
-                    tabs::settings_tab::render_settings_tab(
-                        ui,
-                        &mut self.out_dir,
-                        &mut self.codec,
-                        &mut self.profile,
-                        &mut self.preset,
-                        &mut self.normalize_audio,
-                        &mut self.norm_target,
-                        &mut self.hwaccel_fallback,
-                        &mut self.min_free_gb,
-                        &mut self.webhook_url,
-                        &mut self.no_eject,
-                        &mut self.checksum,
-                        &mut self.nfo,
-                        || browse_req = true,
-                        || reset_req = true,
-                    );
+                    ui.add_enabled_ui(!is_busy, |ui| {
+                        tabs::settings_tab::render_settings_tab(
+                            ui,
+                            &mut self.out_dir,
+                            &mut self.codec,
+                            &mut self.profile,
+                            &mut self.preset,
+                            &mut self.normalize_audio,
+                            &mut self.norm_target,
+                            &mut self.hwaccel_fallback,
+                            &mut self.min_free_gb,
+                            &mut self.webhook_url,
+                            &mut self.no_eject,
+                            &mut self.checksum,
+                            &mut self.nfo,
+                            || browse_req = true,
+                            || reset_req = true,
+                        );
+                    });
 
                     if browse_req {
                         self.pick_output_dir();
@@ -289,6 +323,7 @@ impl DvdRipperApp {
 
             ui.add_space(8.0);
 
+            let mut telemetry_cancel = false;
             // Telemetry & Status Bar
             components::status_banner::render_telemetry_bar(
                 ui,
@@ -299,7 +334,11 @@ impl DvdRipperApp {
                 &self.status_message,
                 self.start_time,
                 self.eta_seconds,
+                || telemetry_cancel = true,
             );
+            if telemetry_cancel {
+                self.show_confirm_cancel = true;
+            }
 
             ui.add_space(4.0);
 
@@ -544,5 +583,31 @@ mod tests {
         let _ = ctx.run(Default::default(), |ctx| {
             empty_app.render_ui(ctx);
         });
+    }
+
+    #[test]
+    fn test_render_ui_cancel_button_and_disabled_state_when_ripping() {
+        let ctx = egui::Context::default();
+        let tabs = [
+            ActiveTab::Rip,
+            ActiveTab::TvSeries,
+            ActiveTab::Benchmark,
+            ActiveTab::History,
+            ActiveTab::Settings,
+        ];
+
+        for tab in tabs {
+            let mut app = DvdRipperApp::default();
+            app.active_tab = tab;
+            app.is_ripping = true;
+            app.progress_percent = 0.42;
+            app.film_name = "Firefly".to_string();
+
+            let _ = ctx.run(Default::default(), |ctx| {
+                app.render_ui(ctx);
+            });
+
+            assert!(app.is_ripping);
+        }
     }
 }

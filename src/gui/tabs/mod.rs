@@ -66,10 +66,7 @@ pub fn render_tab_bar(ui: &mut egui::Ui, current_tab: &mut ActiveTab, is_busy: b
             };
 
             let resp = ui
-                .add_enabled(
-                    !is_busy || tab == ActiveTab::History,
-                    egui::Button::new(rich_text),
-                )
+                .add_enabled(!is_busy, egui::Button::new(rich_text))
                 .on_hover_text(tab.tooltip());
             if resp.clicked() {
                 *current_tab = tab;

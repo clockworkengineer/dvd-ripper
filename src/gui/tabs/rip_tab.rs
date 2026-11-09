@@ -53,7 +53,8 @@ pub fn render_rip_tab(
     on_start_rip: impl FnOnce(),
     on_cancel_rip: impl FnOnce(),
 ) {
-    ui.horizontal(|ui| {
+    ui.add_enabled_ui(!is_busy, |ui| {
+        ui.horizontal(|ui| {
         ui.heading("🎬 Disc Extraction");
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             let mode_btn_text = if *simple_mode {
@@ -387,6 +388,7 @@ pub fn render_rip_tab(
 
         ui.add_space(8.0);
     }
+});
 
     // 5. Execution Controls
     ui.horizontal(|ui| {
@@ -428,12 +430,14 @@ pub fn render_rip_tab(
         } else if ui
             .add(
                 egui::Button::new(
-                    egui::RichText::new("⏹ Cancel Rip")
+                    egui::RichText::new("⏹ Cancel Ripping")
                         .strong()
-                        .color(super::super::theme::DANGER_COLOR),
+                        .color(egui::Color32::WHITE),
                 )
-                .min_size(egui::vec2(140.0, 32.0)),
+                .fill(super::super::theme::DANGER_COLOR)
+                .min_size(egui::vec2(160.0, 34.0)),
             )
+            .on_hover_text("Abort the active ripping operation (Esc)")
             .clicked()
         {
             on_cancel_rip();
