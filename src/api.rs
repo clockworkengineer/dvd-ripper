@@ -539,6 +539,7 @@ pub fn execute_rip_for_drive(
                 series_title: title.clone(),
                 season_number: args.season,
                 start_episode: args.start_episode,
+                end_episode: args.end_episode,
                 output_dir: std::path::PathBuf::from(&args.out_dir),
                 episodes,
                 metadata: None,

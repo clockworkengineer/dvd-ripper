@@ -393,6 +393,7 @@ mod tests {
             series_title: "Firefly".to_string(),
             season_number: 1,
             start_episode: 1,
+            end_episode: None,
             output_dir: std::env::temp_dir().join("tv_batch_test"),
             episodes,
             metadata: Some(FilmMetadata {
@@ -419,6 +420,55 @@ mod tests {
     }
 
     #[test]
+    fn test_rip_tv_batch_end_episode_filtering() {
+        let transcoder = Arc::new(MockTranscoder::default());
+        let notifier = Arc::new(MockNotifier::default());
+        let disk_guard = Arc::new(MockDiskSpaceGuard { allow: true });
+        let history = Arc::new(MockHistoryRepository::default());
+
+        let batch_use_case =
+            RipTvBatchUseCase::new(transcoder.clone(), notifier.clone(), disk_guard, history);
+
+        let episodes = vec![
+            TvEpisodeInfo {
+                title_num: 1,
+                episode_num: 1,
+                duration_secs: 1500.0,
+                formatted_name: "Episode 1".to_string(),
+            },
+            TvEpisodeInfo {
+                title_num: 2,
+                episode_num: 2,
+                duration_secs: 1520.0,
+                formatted_name: "Episode 2".to_string(),
+            },
+            TvEpisodeInfo {
+                title_num: 3,
+                episode_num: 3,
+                duration_secs: 1510.0,
+                formatted_name: "Episode 3".to_string(),
+            },
+        ];
+
+        // Restrict to end_episode = 2
+        let req = RipTvBatchRequest::builder("E:\\", "Firefly", "TV/Firefly")
+            .season(1)
+            .start_episode(1)
+            .end_episode(2)
+            .episodes(episodes)
+            .build()
+            .unwrap();
+
+        let res = batch_use_case.execute(&req, None, None);
+        assert_eq!(res.unwrap(), 2);
+
+        let calls = transcoder.calls.lock().unwrap();
+        assert_eq!(calls.len(), 2);
+        assert_eq!(calls[0], "Firefly - S01E01");
+        assert_eq!(calls[1], "Firefly - S01E02");
+    }
+
+    #[test]
     fn test_rip_tv_batch_cooperative_cancellation() {
         let transcoder = Arc::new(MockTranscoder::default());
         let notifier = Arc::new(MockNotifier::default());
@@ -442,6 +492,7 @@ mod tests {
             series_title: "Firefly".to_string(),
             season_number: 1,
             start_episode: 1,
+            end_episode: None,
             output_dir: PathBuf::from("TV/Firefly"),
             episodes,
             metadata: None,

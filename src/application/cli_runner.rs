@@ -356,7 +356,7 @@ impl CliApplicationRunner {
                 println!("Found {} episode titles on disc.", episodes.len());
 
                 let ext = if args.mkv { "mkv" } else { "mp4" };
-                let request = crate::application::rip_tv_batch::RipTvBatchRequest::builder(
+                let mut req_builder = crate::application::rip_tv_batch::RipTvBatchRequest::builder(
                     &dvd_path,
                     show_name,
                     &args.out_dir,
@@ -367,8 +367,13 @@ impl CliApplicationRunner {
                 .min_free_gb(args.min_free_gb)
                 .file_extension(ext)
                 .lookup_episode_titles(true)
-                .track_boxset(args.auto_boxset)
-                .build()?;
+                .track_boxset(args.auto_boxset);
+
+                if let Some(end_ep) = args.end_episode {
+                    req_builder = req_builder.end_episode(end_ep);
+                }
+
+                let request = req_builder.build()?;
 
                 let ripped_count = self
                     .container

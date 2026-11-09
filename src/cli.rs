@@ -84,6 +84,10 @@ pub struct Args {
     #[arg(long = "start-episode", default_value_t = 1)]
     pub start_episode: u32,
 
+    /// Ending episode number to restrict episode extraction range (e.g. --end-episode 4)
+    #[arg(long = "end-episode")]
+    pub end_episode: Option<u32>,
+
     /// Automatically calculate cumulative episode numbering across multi-disc TV season box sets
     #[arg(long = "auto-boxset")]
     pub auto_boxset: bool,
@@ -338,6 +342,7 @@ impl Default for Args {
             tv: false,
             season: 1,
             start_episode: 1,
+            end_episode: None,
             auto_boxset: false,
             all_episodes: false,
             all_audio: false,
@@ -717,6 +722,7 @@ pub struct TvModeConfig {
     pub tv: bool,
     pub season: u32,
     pub start_episode: u32,
+    pub end_episode: Option<u32>,
     pub auto_boxset: bool,
     pub all_episodes: bool,
 }
@@ -727,6 +733,7 @@ impl From<&Args> for TvModeConfig {
             tv: args.tv,
             season: args.season,
             start_episode: args.start_episode,
+            end_episode: args.end_episode,
             auto_boxset: args.auto_boxset,
             all_episodes: args.all_episodes,
         }

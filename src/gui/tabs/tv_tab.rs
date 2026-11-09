@@ -12,11 +12,13 @@ pub fn render_tv_tab(
     show_name: &mut String,
     season_number: &mut u32,
     start_episode: &mut u32,
+    end_episode: &mut Option<u32>,
     auto_boxset: &mut bool,
     all_episodes: &mut bool,
     detected_episodes: &[TvEpisodeInfo],
     title_thumbnails: &HashMap<u32, (Vec<u8>, Option<egui::TextureHandle>)>,
     is_busy: bool,
+    on_episode_range_changed: impl FnOnce(),
     on_scan_disc: impl FnOnce(),
     mut on_preview_thumb: impl FnMut(u32),
     on_start_batch_rip: impl FnOnce(),
@@ -26,17 +28,47 @@ pub fn render_tv_tab(
         ui.label("Automatically discovers episodic titles, strips menu loops, and sequences multi-disc box sets.");
         ui.add_space(8.0);
 
+        let mut range_changed = false;
+
         ui.group(|ui| {
-            ui.label(egui::RichText::new("1. Series Metadata & Season Identification").strong());
+            ui.label(egui::RichText::new("1. Series Metadata & Episode Range").strong());
             ui.horizontal(|ui| {
                 ui.label("Show Title:");
-                ui.add(egui::TextEdit::singleline(show_name).hint_text("e.g. The Office").desired_width(220.0));
+                ui.add(egui::TextEdit::singleline(show_name).hint_text("e.g. The Office").desired_width(180.0));
 
                 ui.label("Season #:");
                 ui.add(egui::DragValue::new(season_number).range(1..=99));
 
-                ui.label("Start Episode #:");
-                ui.add(egui::DragValue::new(start_episode).range(1..=99));
+                ui.label("Start Ep #:");
+                if ui.add(egui::DragValue::new(start_episode).range(1..=99)).on_hover_text("Starting episode number for this disc").changed() {
+                    range_changed = true;
+                }
+
+                ui.label("End Ep #:");
+                let default_end = if !detected_episodes.is_empty() {
+                    *start_episode + detected_episodes.len() as u32 - 1
+                } else {
+                    *start_episode
+                };
+                let mut current_end = end_episode.unwrap_or(default_end);
+                if ui.add(egui::DragValue::new(&mut current_end).range(*start_episode..=99)).on_hover_text("Ending episode number to extract from this disc").changed() {
+                    *end_episode = Some(current_end);
+                    range_changed = true;
+                }
+
+                let effective_end = end_episode.unwrap_or(default_end);
+                let count = if effective_end >= *start_episode {
+                    (effective_end - *start_episode) + 1
+                } else {
+                    1
+                };
+
+                ui.label(
+                    egui::RichText::new(format!("(S{:02}E{:02}..S{:02}E{:02} • {} eps)", season_number, start_episode, season_number, effective_end, count))
+                        .small()
+                        .strong()
+                        .color(super::super::theme::ACCENT_COLOR),
+                );
             });
 
             ui.add_space(4.0);
@@ -60,8 +92,30 @@ pub fn render_tv_tab(
 
         ui.add_space(8.0);
 
+        let effective_end = end_episode.unwrap_or_else(|| {
+            if !detected_episodes.is_empty() {
+                *start_episode + detected_episodes.len() as u32 - 1
+            } else {
+                *start_episode
+            }
+        });
+
+        let included_count = detected_episodes
+            .iter()
+            .filter(|ep| ep.episode_num >= *start_episode && ep.episode_num <= effective_end)
+            .count();
+
         ui.group(|ui| {
-            ui.label(egui::RichText::new(format!("2. Discovered Episode Tracks ({})", detected_episodes.len())).strong());
+            ui.horizontal(|ui| {
+                ui.label(egui::RichText::new(format!("2. Discovered Episode Tracks ({})", detected_episodes.len())).strong());
+                if !detected_episodes.is_empty() {
+                    ui.label(
+                        egui::RichText::new(format!("• Selected to rip: {} / {}", included_count, detected_episodes.len()))
+                            .small()
+                            .color(if included_count > 0 { super::super::theme::ACCENT_COLOR } else { egui::Color32::RED }),
+                    );
+                }
+            });
 
             if detected_episodes.is_empty() {
                 ui.label(
@@ -77,22 +131,39 @@ pub fn render_tv_tab(
                     .max_height(200.0)
                     .show(ui, |ui| {
                         for ep in detected_episodes {
+                            let is_included = ep.episode_num >= *start_episode && ep.episode_num <= effective_end;
+
                             ui.horizontal(|ui| {
+                                if is_included {
+                                    ui.label(egui::RichText::new("✓").color(egui::Color32::from_rgb(0, 200, 100)).strong());
+                                } else {
+                                    ui.label(egui::RichText::new("✗").color(egui::Color32::from_rgb(160, 160, 160)).weak())
+                                        .on_hover_text("Excluded (outside Start-End range)");
+                                }
+
                                 if let Some((_, Some(texture))) = title_thumbnails.get(&ep.title_num) {
                                     ui.add(egui::Image::new(texture).max_height(24.0).rounding(2.0));
                                 } else if ui.small_button("📸").on_hover_text("Capture visual thumbnail preview").clicked() {
                                     requested_thumb = Some(ep.title_num);
                                 }
 
-                                ui.label(
+                                let text_style = if is_included {
                                     egui::RichText::new(format!(
                                         "• {} (Title #{}, {:.0} mins)",
                                         ep.formatted_name,
                                         ep.title_num,
                                         ep.duration_secs / 60.0
-                                    ))
-                                    .small(),
-                                );
+                                    )).small()
+                                } else {
+                                    egui::RichText::new(format!(
+                                        "• {} (Title #{}, {:.0} mins) [Excluded]",
+                                        ep.formatted_name,
+                                        ep.title_num,
+                                        ep.duration_secs / 60.0
+                                    )).small().strikethrough().color(egui::Color32::from_rgb(140, 140, 140))
+                                };
+
+                                ui.label(text_style);
                             });
                         }
                     });
@@ -105,15 +176,21 @@ pub fn render_tv_tab(
 
         ui.add_space(10.0);
 
-        let can_rip = !is_busy && !show_name.trim().is_empty() && !detected_episodes.is_empty();
+        let can_rip = !is_busy && !show_name.trim().is_empty() && included_count > 0;
+        let btn_text = if included_count > 0 && included_count < detected_episodes.len() {
+            format!("▶ Batch Rip Episodes (S{:02}E{:02}..S{:02}E{:02} • {} tracks)", season_number, start_episode, season_number, effective_end, included_count)
+        } else {
+            format!("▶ Batch Rip All Episodes ({} tracks)", detected_episodes.len())
+        };
+
         let mut rip_btn = ui.add_enabled(
             can_rip,
             egui::Button::new(
-                egui::RichText::new("▶ Batch Rip All Episodes")
+                egui::RichText::new(btn_text)
                     .strong()
                     .color(if can_rip { super::super::theme::ACCENT_COLOR } else { super::super::theme::MUTED_TEXT }),
             )
-            .min_size(egui::vec2(200.0, 32.0)),
+            .min_size(egui::vec2(220.0, 32.0)),
         );
 
         if !can_rip {
@@ -121,11 +198,17 @@ pub fn render_tv_tab(
                 rip_btn = rip_btn.on_hover_text("⚠️ Enter a show title before batch ripping");
             } else if detected_episodes.is_empty() {
                 rip_btn = rip_btn.on_hover_text("⚠️ Click 'Scan Disc for Episodes' to discover titles first");
+            } else if included_count == 0 {
+                rip_btn = rip_btn.on_hover_text("⚠️ No episodes within the specified Start-End episode range");
             }
         }
 
         if can_rip && rip_btn.clicked() {
             on_start_batch_rip();
+        }
+
+        if range_changed {
+            on_episode_range_changed();
         }
     });
 }
@@ -142,6 +225,7 @@ mod tests {
                 let mut show_name = "Lost".to_string();
                 let mut season = 1;
                 let mut start_ep = 1;
+                let mut end_ep = Some(4);
                 let mut auto_boxset = true;
                 let mut all_episodes = true;
                 let title_thumbnails = HashMap::new();
@@ -152,11 +236,13 @@ mod tests {
                     &mut show_name,
                     &mut season,
                     &mut start_ep,
+                    &mut end_ep,
                     &mut auto_boxset,
                     &mut all_episodes,
                     &[],
                     &title_thumbnails,
                     false,
+                    || {},
                     || {},
                     |_| {},
                     || {},
@@ -183,11 +269,13 @@ mod tests {
                     &mut show_name,
                     &mut season,
                     &mut start_ep,
+                    &mut end_ep,
                     &mut auto_boxset,
                     &mut all_episodes,
                     &episodes,
                     &title_thumbnails,
                     false,
+                    || {},
                     || {},
                     |_| {},
                     || {},
@@ -200,11 +288,13 @@ mod tests {
                     &mut empty_show,
                     &mut season,
                     &mut start_ep,
+                    &mut end_ep,
                     &mut auto_boxset,
                     &mut all_episodes,
                     &[],
                     &title_thumbnails,
                     true,
+                    || {},
                     || {},
                     |_| {},
                     || {},

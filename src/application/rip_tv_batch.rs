@@ -19,6 +19,7 @@ pub struct RipTvBatchRequest {
     pub series_title: String,
     pub season_number: u32,
     pub start_episode: u32,
+    pub end_episode: Option<u32>,
     pub output_dir: PathBuf,
     pub episodes: Vec<TvEpisodeInfo>,
     pub metadata: Option<FilmMetadata>,
@@ -76,6 +77,7 @@ impl RipTvBatchRequest {
             series_title,
             season_number,
             start_episode,
+            end_episode: None,
             output_dir,
             episodes,
             metadata: None,
@@ -94,6 +96,7 @@ pub struct RipTvBatchRequestBuilder {
     series_title: String,
     season_number: u32,
     start_episode: u32,
+    end_episode: Option<u32>,
     output_dir: PathBuf,
     episodes: Vec<TvEpisodeInfo>,
     metadata: Option<FilmMetadata>,
@@ -114,6 +117,7 @@ impl RipTvBatchRequestBuilder {
             series_title: series_title.into(),
             season_number: 1,
             start_episode: 1,
+            end_episode: None,
             output_dir: output_dir.into(),
             episodes: Vec::new(),
             metadata: None,
@@ -131,6 +135,11 @@ impl RipTvBatchRequestBuilder {
 
     pub fn start_episode(mut self, episode: u32) -> Self {
         self.start_episode = episode;
+        self
+    }
+
+    pub fn end_episode(mut self, episode: u32) -> Self {
+        self.end_episode = Some(episode);
         self
     }
 
@@ -170,6 +179,7 @@ impl RipTvBatchRequestBuilder {
             series_title: self.series_title,
             season_number: self.season_number,
             start_episode: self.start_episode,
+            end_episode: self.end_episode,
             output_dir: self.output_dir,
             episodes: self.episodes,
             metadata: self.metadata,
@@ -240,7 +250,17 @@ impl RipTvBatchUseCase {
             Vec::new()
         };
 
-        for ep in &request.episodes {
+        let episodes_to_rip: Vec<_> = if let Some(end_ep) = request.end_episode {
+            request
+                .episodes
+                .iter()
+                .filter(|ep| ep.episode_num <= end_ep && ep.episode_num >= request.start_episode)
+                .collect()
+        } else {
+            request.episodes.iter().collect()
+        };
+
+        for ep in episodes_to_rip {
             if let Some(ref flag) = cancel_flag
                 && flag.load(Ordering::SeqCst)
             {

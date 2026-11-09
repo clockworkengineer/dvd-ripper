@@ -86,14 +86,21 @@ Clicking the **`ℹ️ About`** button in the top-right header opens the applica
 
 ## 4. TV Series Multi-Episode Batch Ripping
 
-To rip TV show season box sets:
+To rip TV show season box sets with custom episode ranges:
 
-1. Check the **📺 TV Series Mode** checkbox.
+1. Switch to the **📺 TV Box Sets** tab in the navigation bar.
 2. Enter the **Show Title** (e.g. `The Office`) and **Season Number** (e.g. `1`).
-3. Check **📦 Auto BoxSet** mode to enable cumulative episode numbering across multi-disc box sets.
-4. Click **🔍 Scan Disc**: The GUI invokes `detect_tv_episodes()` to probe disc titles, automatically discarding intros, menu loops, and duplicate "Play All" tracks.
-5. Review detected episode list (Title index, duration in minutes, start episode assignment).
-6. Click **▶ Batch Rip All Episodes** to execute automated sequential extraction.
+3. Set your target **Episode Range**:
+   - **`Start Ep #`**: Starting episode number on this DVD (e.g. `1` for Disc 1, `5` for Disc 2).
+   - **`End Ep #`**: Ending episode number to extract (e.g. `4`). When episodes are scanned, the UI automatically calculates the natural ending episode, but you can adjust it to restrict extraction to a specific sub-range.
+   - A live range badge displays the exact span, e.g. `(S01E01..S01E04 • 4 eps)`.
+4. Check **📦 Auto BoxSet** mode to enable automatic episode offset tracking across multi-disc box sets (`boxsets.json`).
+5. Click **🔍 Scan Disc for Episodes**: The heuristics engine automatically discards menu loops, bumpers, and duplicate "Play All" tracks.
+6. Review the discovered episode tracks:
+   - Included episodes within the Start–End range are marked with a green checkmark (`✓`).
+   - Episodes outside the range are struck through and marked `[Excluded]` (`✗`).
+   - Click the camera icon (`📸`) to generate real-time visual thumbnail previews.
+7. Click **▶ Batch Rip Episodes (S01E01..S01E04 • 4 tracks)** to execute automated sequential transcoding.
 
 ---
 

@@ -68,6 +68,7 @@ pub struct DvdRipperApp {
     pub is_tv_mode: bool,
     pub season_number: u32,
     pub start_episode: u32,
+    pub end_episode: Option<u32>,
     pub all_episodes: bool,
     pub detected_episodes: Vec<TvEpisodeInfo>,
 
@@ -176,6 +177,7 @@ impl Default for DvdRipperApp {
             is_tv_mode: false,
             season_number: 1,
             start_episode: 1,
+            end_episode: None,
             all_episodes: false,
             detected_episodes: Vec::new(),
 
@@ -400,6 +402,15 @@ impl DvdRipperApp {
             ep.episode_num = ep_num;
             ep.formatted_name = format_episode_name(&show_name, season, ep_num);
         }
+        if !self.detected_episodes.is_empty() {
+            let max_ep = self.start_episode + self.detected_episodes.len() as u32 - 1;
+            if self
+                .end_episode
+                .is_none_or(|end| end < self.start_episode || end > max_ep)
+            {
+                self.end_episode = Some(max_ep);
+            }
+        }
     }
 
     pub fn trigger_custom_search(&mut self) {
@@ -487,6 +498,16 @@ impl DvdRipperApp {
         self.start_time = Some(Instant::now());
         self.eta_seconds = None;
 
+        let filtered_episodes = if let Some(end_ep) = self.end_episode {
+            self.detected_episodes
+                .iter()
+                .filter(|ep| ep.episode_num <= end_ep && ep.episode_num >= self.start_episode)
+                .cloned()
+                .collect()
+        } else {
+            self.detected_episodes.clone()
+        };
+
         let spec = RipTaskSpecification {
             drive: self.input_drive.clone(),
             out_dir: self.out_dir.clone(),
@@ -501,7 +522,7 @@ impl DvdRipperApp {
             preset: self.preset.clone(),
             ffmpeg_path: self.ffmpeg_path.clone(),
             expected_runtime_secs: self.expected_runtime_secs,
-            detected_episodes: self.detected_episodes.clone(),
+            detected_episodes: filtered_episodes,
             poster_bytes: self.raw_poster_bytes.clone(),
             encoding_options: self.build_encoding_options(),
         };
@@ -619,6 +640,12 @@ impl DvdRipperApp {
                 }
                 ProgressEvent::TvEpisodesDetected(episodes) => {
                     self.detected_episodes = episodes;
+                    if !self.detected_episodes.is_empty() {
+                        let max_ep = self.start_episode + self.detected_episodes.len() as u32 - 1;
+                        self.end_episode = Some(max_ep);
+                    } else {
+                        self.end_episode = None;
+                    }
                     self.detecting = false;
                     self.detect_status = format!(
                         "Found {} TV episode titles on disc.",

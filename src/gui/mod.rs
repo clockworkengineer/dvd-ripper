@@ -197,22 +197,28 @@ impl DvdRipperApp {
                     let mut scan_requested = false;
                     let mut start_batch = false;
                     let mut thumb_req = None;
+                    let mut range_changed = false;
 
                     tabs::tv_tab::render_tv_tab(
                         ui,
                         &mut self.film_name,
                         &mut self.season_number,
                         &mut self.start_episode,
+                        &mut self.end_episode,
                         &mut self.auto_boxset,
                         &mut self.all_episodes,
                         &self.detected_episodes,
                         &self.title_thumbnails,
                         is_busy,
+                        || range_changed = true,
                         || scan_requested = true,
                         |t| thumb_req = Some(t),
                         || start_batch = true,
                     );
 
+                    if range_changed {
+                        self.update_detected_episode_names();
+                    }
                     if scan_requested {
                         self.trigger_tv_scan();
                     }
