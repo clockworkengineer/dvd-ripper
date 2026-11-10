@@ -529,8 +529,11 @@ impl DvdRipperApp {
 
         if self.auto_boxset {
             let show_name = self.effective_show_name();
-            let next_boxset_ep =
-                crate::queue::get_next_boxset_episode(&show_name, self.season_number);
+            let next_boxset_ep = self
+                .controller
+                .container()
+                .boxset_repo
+                .get_next_episode(&show_name, self.season_number);
             if next_boxset_ep > self.start_episode {
                 self.start_episode = next_boxset_ep;
                 self.end_episode = None;
@@ -596,8 +599,12 @@ impl DvdRipperApp {
         }
         let dvd_path = normalize_dvd_path(&self.input_drive);
         if dvd_path.exists() {
-            self.current_disc_fingerprint =
-                Some(crate::dvd::compute_disc_fingerprint(&self.input_drive));
+            self.current_disc_fingerprint = Some(
+                self.controller
+                    .container()
+                    .disc_inspector
+                    .compute_fingerprint(&dvd_path),
+            );
         }
 
         self.detecting = true;
@@ -614,8 +621,12 @@ impl DvdRipperApp {
         self.advance_start_episode_for_next_disc();
         let dvd_path = normalize_dvd_path(&self.input_drive);
         if dvd_path.exists() {
-            self.current_disc_fingerprint =
-                Some(crate::dvd::compute_disc_fingerprint(&self.input_drive));
+            self.current_disc_fingerprint = Some(
+                self.controller
+                    .container()
+                    .disc_inspector
+                    .compute_fingerprint(&dvd_path),
+            );
         }
 
         self.detecting = true;
@@ -676,25 +687,24 @@ impl DvdRipperApp {
         } else {
             "Movie"
         };
-        let _id = crate::queue::add_job(&title, media_type, &self.input_drive);
-        self.queued_jobs = crate::queue::list_jobs();
+        let queue_repo = &self.controller.container().job_queue_repo;
+        let _id = queue_repo.add_job(&title, media_type, &self.input_drive);
+        self.queued_jobs = queue_repo.list_jobs();
         self.status_message = format!("Added '{}' to batch job queue.", title);
     }
 
     pub fn trigger_auto_crf(&mut self) {
         let dvd_path = normalize_dvd_path(&self.input_drive);
-        let probe = crate::ffmpeg::predict_optimal_crf(
-            &self.ffmpeg_path,
-            &dvd_path,
-            self.title_number.max(1),
-            &self.codec,
-            0.98,
-        );
-        self.custom_crf = Some(probe.tested_crf);
+        let (tested_crf, mean_ssim) = self
+            .controller
+            .container()
+            .video_analyzer
+            .predict_optimal_crf(&dvd_path, self.title_number.max(1), &self.codec, 0.98);
+        self.custom_crf = Some(tested_crf);
         self.status_message = format!(
             "Auto-CRF tuned to {} (target SSIM {:.1}%)",
-            probe.tested_crf,
-            probe.mean_ssim * 100.0
+            tested_crf,
+            mean_ssim * 100.0
         );
     }
 
@@ -702,8 +712,9 @@ impl DvdRipperApp {
         if self.is_ripping {
             return;
         }
-        if let Some(job) = crate::queue::next_ready_job() {
-            crate::queue::update_job_status(&job.id, "Encoding...", 0.6);
+        let queue_repo = self.controller.container().job_queue_repo.clone();
+        if let Some(job) = queue_repo.next_ready_job() {
+            queue_repo.update_job_status(&job.id, "Encoding...", 0.6);
             self.film_name = job.title.clone();
             self.is_tv_mode = job.media_type.to_lowercase().contains("tv");
             if let Some(ref spooled) = job.spool_path {
@@ -711,11 +722,11 @@ impl DvdRipperApp {
             } else {
                 self.input_drive = job.drive.clone();
             }
-            self.queued_jobs = crate::queue::list_jobs();
+            self.queued_jobs = queue_repo.list_jobs();
             self.start_ripping();
-            let _ = crate::queue::remove_job(&job.id);
+            let _ = queue_repo.remove_job(&job.id);
             let _ = crate::queue::cleanup_job_spool(&job.id, Path::new(&self.out_dir));
-            self.queued_jobs = crate::queue::list_jobs();
+            self.queued_jobs = queue_repo.list_jobs();
         } else {
             self.status_message = "No queued jobs ready to process.".to_string();
         }
@@ -733,8 +744,12 @@ impl DvdRipperApp {
                 format!("Error: DVD path does not exist ({})", dvd_path.display());
             return;
         }
-        self.current_disc_fingerprint =
-            Some(crate::dvd::compute_disc_fingerprint(&self.input_drive));
+        self.current_disc_fingerprint = Some(
+            self.controller
+                .container()
+                .disc_inspector
+                .compute_fingerprint(&dvd_path),
+        );
 
         self.is_ripping = true;
         self.progress_percent = 0.0;

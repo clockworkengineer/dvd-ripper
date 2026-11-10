@@ -1,18 +1,21 @@
 pub mod benchmark;
 pub mod dialogs;
+pub mod iso_archiver;
 pub mod media_probe;
 pub mod metadata;
 pub mod notification;
 pub mod ocr;
 pub mod optical_drive;
 pub mod post_processor;
+pub mod queue;
 pub mod storage;
 pub mod transcoder;
 
 pub use benchmark::DriveBenchmarkService;
 pub use dialogs::FileDialogService;
-pub use media_probe::{StreamProber, ThumbnailExtractor};
-pub use metadata::{MetadataProvider, TvSeriesMetadataProvider};
+pub use iso_archiver::IsoArchiver;
+pub use media_probe::{StreamProber, ThumbnailExtractor, VideoAnalyzer};
+pub use metadata::{DiscFingerprintRepository, MetadataProvider, TvSeriesMetadataProvider};
 pub use notification::{NotificationEvent, Notifier};
 pub use ocr::OcrProcessor;
 pub use optical_drive::{
@@ -20,6 +23,7 @@ pub use optical_drive::{
     TrayController, TrayOperator,
 };
 pub use post_processor::{PostProcessContext, PostProcessor};
+pub use queue::{BoxSetRepository, JobQueueRepository};
 pub use storage::{DiskSpaceGuard, HistoryRepository};
 pub use transcoder::{
     DefaultVideoCodecResolver, ProgressObserver, TranscodeJob, TranscodeOptions, Transcoder,

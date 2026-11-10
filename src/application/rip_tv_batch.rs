@@ -8,7 +8,10 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use super::rip_single_title::{RipSingleTitleRequest, RipSingleTitleUseCase};
 use crate::domain::entities::disc::TvEpisodeInfo;
 use crate::domain::entities::media::FilmMetadata;
+use crate::domain::ports::media_probe::StreamProber;
+use crate::domain::ports::metadata::TvSeriesMetadataProvider;
 use crate::domain::ports::notification::{NotificationEvent, Notifier};
+use crate::domain::ports::queue::BoxSetRepository;
 use crate::domain::ports::storage::{DiskSpaceGuard, HistoryRepository};
 use crate::domain::ports::transcoder::{ProgressObserver, Transcoder};
 
@@ -257,6 +260,9 @@ impl RipTvBatchRequestBuilder {
 pub struct RipTvBatchUseCase {
     single_title_use_case: RipSingleTitleUseCase,
     notifier: Arc<dyn Notifier>,
+    tv_metadata_provider: Option<Arc<dyn TvSeriesMetadataProvider>>,
+    stream_prober: Option<Arc<dyn StreamProber>>,
+    boxset_repo: Option<Arc<dyn BoxSetRepository>>,
 }
 
 impl RipTvBatchUseCase {
@@ -274,7 +280,23 @@ impl RipTvBatchUseCase {
                 history_repo,
             ),
             notifier,
+            tv_metadata_provider: None,
+            stream_prober: None,
+            boxset_repo: None,
         }
+    }
+
+    /// Injects domain ports for TV episode catalog lookup, chapter stream probing, and box-set tracking (DIP).
+    pub fn with_ports(
+        mut self,
+        tv_metadata_provider: Arc<dyn TvSeriesMetadataProvider>,
+        stream_prober: Arc<dyn StreamProber>,
+        boxset_repo: Arc<dyn BoxSetRepository>,
+    ) -> Self {
+        self.tv_metadata_provider = Some(tv_metadata_provider);
+        self.stream_prober = Some(stream_prober);
+        self.boxset_repo = Some(boxset_repo);
+        self
     }
 
     /// Executes batch ripping of all configured TV series episodes.
@@ -301,8 +323,15 @@ impl RipTvBatchUseCase {
         let mut completed_count = 0;
         let ext = request.file_extension.as_deref().unwrap_or("mp4");
 
-        let tvmaze_episodes = if request.lookup_episode_titles {
-            crate::infrastructure::metadata::fetch_tvmaze_episodes(&request.series_title)
+        let default_tv_provider = crate::infrastructure::metadata::TvmazeMetadataProvider::new();
+        let tv_provider: &dyn TvSeriesMetadataProvider = self
+            .tv_metadata_provider
+            .as_deref()
+            .unwrap_or(&default_tv_provider);
+
+        let catalog_episodes = if request.lookup_episode_titles {
+            tv_provider
+                .fetch_episodes(&request.series_title)
                 .unwrap_or_default()
         } else {
             Vec::new()
@@ -329,11 +358,9 @@ impl RipTvBatchUseCase {
             });
         let play_all_spans = if is_monolithic_play_all {
             let play_all_title = episodes_to_rip[0].title_num.max(1);
-            let details = crate::ffmpeg::probe_title_stream_details(
-                "ffmpeg",
-                &request.source_dvd,
-                play_all_title,
-            );
+            let default_prober = crate::infrastructure::ffmpeg::FfmpegMediaProber::new("ffmpeg");
+            let prober: &dyn StreamProber = self.stream_prober.as_deref().unwrap_or(&default_prober);
+            let details = prober.probe_stream_details(&request.source_dvd, play_all_title);
             crate::domain::heuristics::detect_tv_episodes_from_chapters(
                 play_all_title,
                 &details.chapters,
@@ -360,15 +387,10 @@ impl RipTvBatchUseCase {
                 obs.on_title_start(ep.title_num);
             }
 
-            let ep_title = if !tvmaze_episodes.is_empty() {
-                crate::infrastructure::metadata::find_episode_title(
-                    &tvmaze_episodes,
-                    request.season_number,
-                    ep.episode_num,
-                )
-            } else {
-                None
-            };
+            let ep_title = catalog_episodes
+                .iter()
+                .find(|e| e.season == request.season_number && e.episode_num == ep.episode_num)
+                .map(|e| e.title.clone());
 
             let display_title = crate::utils::format_episode_name_with_title(
                 &request.series_title,
@@ -406,7 +428,10 @@ impl RipTvBatchUseCase {
         }
 
         if request.track_boxset && completed_count > 0 {
-            crate::queue::record_boxset_episodes_ripped(
+            let default_boxset = crate::queue::FileBoxSetEpisodeTracker;
+            let boxset_repo: &dyn BoxSetRepository =
+                self.boxset_repo.as_deref().unwrap_or(&default_boxset);
+            boxset_repo.record_episodes_ripped(
                 &request.series_title,
                 request.season_number,
                 completed_count as u32,

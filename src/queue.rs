@@ -81,14 +81,8 @@ pub fn save_boxsets(records: &[BoxSetRecord], custom_path: Option<&str>) -> anyh
     crate::utils::save_json_file(&p, &records)
 }
 
-/// Trait defining job queue repository contract (ISP/DIP).
-#[allow(dead_code)]
-pub trait JobQueueRepository {
-    fn name(&self) -> &str;
-    fn add_job(&self, title: &str, media_type: &str, drive: &str) -> String;
-    fn list_jobs(&self) -> Vec<JobItem>;
-    fn remove_job(&self, id: &str) -> bool;
-}
+/// Re-export domain queue repository traits (ISP/DIP).
+pub use crate::domain::ports::queue::{BoxSetRepository, JobQueueRepository};
 
 /// Resolves the absolute path to job_queue.json in the user's application data directory.
 fn resolve_queue_path() -> PathBuf {
@@ -111,7 +105,7 @@ pub fn save_job_queue(jobs: &[JobItem]) -> anyhow::Result<()> {
 #[derive(Debug, Default)]
 pub struct FileJobQueueRepository;
 
-impl JobQueueRepository for FileJobQueueRepository {
+impl crate::domain::ports::queue::JobQueueRepository for FileJobQueueRepository {
     fn name(&self) -> &str {
         "File-Persistent Job Queue Repository"
     }
@@ -126,6 +120,26 @@ impl JobQueueRepository for FileJobQueueRepository {
 
     fn remove_job(&self, id: &str) -> bool {
         remove_job(id)
+    }
+
+    fn next_ready_job(&self) -> Option<JobItem> {
+        next_ready_job()
+    }
+
+    fn update_job_status(&self, id: &str, status: &str, progress: f64) -> bool {
+        update_job_status(id, status, progress)
+    }
+
+    fn move_job_up(&self, id: &str) -> bool {
+        move_job_up(id)
+    }
+
+    fn move_job_down(&self, id: &str) -> bool {
+        move_job_down(id)
+    }
+
+    fn clear_queue(&self) {
+        clear_queue();
     }
 }
 
@@ -396,6 +410,24 @@ impl BoxSetEpisodeTracker for FileBoxSetEpisodeTracker {
     }
 }
 
+impl crate::domain::ports::queue::BoxSetRepository for FileBoxSetEpisodeTracker {
+    fn get_next_episode(&self, show_name: &str, season: u32) -> u32 {
+        get_next_boxset_episode(show_name, season)
+    }
+
+    fn record_episodes_ripped(&self, show_name: &str, season: u32, count: u32) -> u32 {
+        record_boxset_episodes_ripped(show_name, season, count)
+    }
+
+    fn reset_tracker(&self, show_name: &str, season: u32) -> bool {
+        reset_boxset_tracker(show_name, season)
+    }
+
+    fn list_boxsets(&self) -> Vec<BoxSetRecord> {
+        list_boxsets()
+    }
+}
+
 /// Liskov Substitution Principle (LSP/SOLID): Trait contract for job queue storage.
 #[allow(dead_code)]
 pub trait JobQueueStore {
@@ -503,7 +535,7 @@ mod tests {
 
         // 3. FileBoxSetEpisodeTracker
         let tracker = FileBoxSetEpisodeTracker;
-        let ep = tracker.get_next_episode("Firefly Special", 1);
+        let ep = BoxSetEpisodeTracker::get_next_episode(&tracker, "Firefly Special", 1);
         assert_eq!(ep, 1);
         let recorded = tracker.record_episodes("Firefly Special", 1, 3);
         assert_eq!(recorded, 3);

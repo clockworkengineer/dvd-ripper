@@ -12,8 +12,10 @@
 
 pub mod entities;
 pub mod heuristics;
+pub mod naming;
 pub mod ports;
 
 pub use entities::*;
 pub use heuristics::*;
+pub use naming::*;
 pub use ports::*;

@@ -4,7 +4,7 @@ use crate::domain::entities::disc::{DiscInfo, TvEpisodeInfo};
 use crate::domain::entities::media::FilmMetadata;
 use crate::domain::heuristics::cluster_detector::rank_best_title_from_slice;
 use crate::domain::heuristics::tv_detector::detect_tv_episodes_from_titles;
-use crate::domain::ports::metadata::MetadataProvider;
+use crate::domain::ports::metadata::{DiscFingerprintRepository, MetadataProvider};
 use crate::domain::ports::optical_drive::OpticalDrive;
 use anyhow::Result;
 use std::collections::HashMap;
@@ -60,6 +60,7 @@ impl SessionDiscCache {
 /// Use case that probes optical disc layout, analyzes copy protection, detects TV episodes, and fetches metadata.
 pub struct ProbeDiscUseCase {
     metadata_provider: Option<Arc<dyn MetadataProvider>>,
+    fingerprint_repo: Option<Arc<dyn DiscFingerprintRepository>>,
     session_cache: SessionDiscCache,
 }
 
@@ -71,6 +72,7 @@ impl ProbeDiscUseCase {
     pub fn new(metadata_provider: Option<Arc<dyn MetadataProvider>>) -> Self {
         Self {
             metadata_provider,
+            fingerprint_repo: None,
             session_cache: SessionDiscCache::new(),
         }
     }
@@ -82,8 +84,18 @@ impl ProbeDiscUseCase {
     ) -> Self {
         Self {
             metadata_provider,
+            fingerprint_repo: None,
             session_cache,
         }
+    }
+
+    /// Injects a [`DiscFingerprintRepository`] port for offline disc recognition.
+    pub fn with_fingerprint_repo(
+        mut self,
+        fingerprint_repo: Arc<dyn DiscFingerprintRepository>,
+    ) -> Self {
+        self.fingerprint_repo = Some(fingerprint_repo);
+        self
     }
 
     /// Probes the specified optical drive device, extracting title hierarchy, copy protection,
@@ -99,7 +111,7 @@ impl ProbeDiscUseCase {
     /// Never panics.
     pub fn execute(&self, drive: &dyn OpticalDrive) -> Result<DiscProbeResult> {
         let drive_path = drive.get_path();
-        let fingerprint = crate::dvd::compute_disc_fingerprint(&drive_path.to_string_lossy());
+        let fingerprint = drive.compute_fingerprint();
 
         // Check in-memory session cache first for fast-path bypass
         if let Some(cached_result) = self.session_cache.get(&fingerprint) {
@@ -110,18 +122,28 @@ impl ProbeDiscUseCase {
         let protection = drive.inspect_protection();
         let titles = drive.probe_titles();
 
-        // 1. Check local persistent fingerprint cache for instant offline match
-        let cached_meta = crate::imdb::lookup_fingerprint_cache(&fingerprint);
+        // 1. Check local persistent fingerprint repository for instant offline match
+        let cached_meta = if let Some(ref fp_repo) = self.fingerprint_repo {
+            fp_repo.lookup_fingerprint(&fingerprint)
+        } else {
+            crate::imdb::lookup_fingerprint_cache(&fingerprint)
+        };
 
         // 2. Fall back to online metadata provider lookup if not in cache
         let metadata = cached_meta.or_else(|| {
             if let Some(ref provider) = self.metadata_provider {
                 if let Some(ref label) = volume_label {
                     let clean_title = crate::utils::normalize_volume_label_title(label);
-                    provider
+                    let fetched = provider
                         .get_details_by_title_and_year(&clean_title, None)
                         .ok()
-                        .flatten()
+                        .flatten();
+                    if let Some(ref meta) = fetched
+                        && let Some(ref fp_repo) = self.fingerprint_repo
+                    {
+                        let _ = fp_repo.save_fingerprint(&fingerprint, meta);
+                    }
+                    fetched
                 } else {
                     None
                 }

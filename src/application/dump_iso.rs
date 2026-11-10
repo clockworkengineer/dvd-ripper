@@ -7,6 +7,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use crate::domain::entities::error::DvdError;
 use crate::domain::entities::job::RipRecord;
+use crate::domain::ports::iso_archiver::IsoArchiver;
 use crate::domain::ports::notification::{NotificationEvent, Notifier};
 use crate::domain::ports::storage::{DiskSpaceGuard, HistoryRepository};
 use crate::domain::ports::transcoder::ProgressObserver;
@@ -112,6 +113,7 @@ impl DumpIsoRequestBuilder {
 /// 4. Handles cooperative cancellation and records "Cancelled" or "Completed" in history.
 /// 5. Dispatches RipSuccess, RipCancelled, or RipFailed notifications.
 pub struct DumpIsoUseCase {
+    iso_archiver: Arc<dyn IsoArchiver>,
     notifier: Arc<dyn Notifier>,
     disk_guard: Arc<dyn DiskSpaceGuard>,
     history_repo: Arc<dyn HistoryRepository>,
@@ -124,6 +126,22 @@ impl DumpIsoUseCase {
         history_repo: Arc<dyn HistoryRepository>,
     ) -> Self {
         Self {
+            iso_archiver: Arc::new(crate::infrastructure::optical::SystemIsoArchiver::new()),
+            notifier,
+            disk_guard,
+            history_repo,
+        }
+    }
+
+    /// Creates a [`DumpIsoUseCase`] with an explicitly injected [`IsoArchiver`] port (DIP/LSP).
+    pub fn with_archiver(
+        iso_archiver: Arc<dyn IsoArchiver>,
+        notifier: Arc<dyn Notifier>,
+        disk_guard: Arc<dyn DiskSpaceGuard>,
+        history_repo: Arc<dyn HistoryRepository>,
+    ) -> Self {
+        Self {
+            iso_archiver,
             notifier,
             disk_guard,
             history_repo,
@@ -165,55 +183,14 @@ impl DumpIsoUseCase {
 
         let start_time = std::time::Instant::now();
 
-        // 3. Setup progress channel if observer provided
-        let (tx, rx) = std::sync::mpsc::channel();
-
-        let dump_res = if let Some(obs) = observer {
-            let src_str = request.source_dvd.to_string_lossy().to_string();
-            let out_path = request.output_path.clone();
-            let label = request.volume_label.clone();
-            let cancel_clone = cancel_flag.clone();
-
-            let worker = std::thread::spawn(move || {
-                crate::iso::dump_disc_to_iso(
-                    &src_str,
-                    &out_path,
-                    label.as_deref(),
-                    cancel_clone.as_ref(),
-                    Some(&tx),
-                )
-            });
-
-            while let Ok(event) = rx.recv() {
-                match event {
-                    crate::ffmpeg::ProgressEvent::Progress {
-                        percent,
-                        fps,
-                        speed,
-                    } => {
-                        obs.on_progress(percent, &fps, &speed);
-                    }
-                    crate::ffmpeg::ProgressEvent::Log(line) => {
-                        obs.on_log(&line);
-                    }
-                    _ => {}
-                }
-            }
-
-            match worker.join() {
-                Ok(res) => res,
-                Err(_) => Err(anyhow::anyhow!("ISO dump worker thread panicked")),
-            }
-        } else {
-            let src_str = request.source_dvd.to_string_lossy();
-            crate::iso::dump_disc_to_iso(
-                &src_str,
-                &request.output_path,
-                request.volume_label.as_deref(),
-                cancel_flag.as_ref(),
-                None,
-            )
-        };
+        // 3. Delegate sector imaging to the injected IsoArchiver port
+        let dump_res = self.iso_archiver.dump_disc_to_iso(
+            &request.source_dvd,
+            &request.output_path,
+            request.volume_label.as_deref(),
+            observer,
+            cancel_flag.clone(),
+        );
 
         let out_str = request.output_path.to_string_lossy();
 

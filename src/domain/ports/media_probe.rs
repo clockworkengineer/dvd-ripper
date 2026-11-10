@@ -1,6 +1,6 @@
 //! Domain ports for media stream inspection and frame capture.
 
-use crate::domain::entities::disc::DvdTitleInfo;
+use crate::domain::entities::disc::{DvdTitleInfo, TitleStreamDetails};
 use anyhow::Result;
 use std::path::{Path, PathBuf};
 
@@ -23,6 +23,37 @@ pub trait ThumbnailExtractor: Send + Sync {
 pub trait StreamProber: Send + Sync {
     /// Probes available title tracks and durations from the specified source disc or file.
     fn probe_titles(&self, dvd_path: &Path) -> Vec<DvdTitleInfo>;
+
+    /// Probes detailed chapter markers, audio streams, subtitle streams, and angles for a specific title.
+    fn probe_stream_details(&self, _dvd_path: &Path, title_num: u32) -> TitleStreamDetails {
+        TitleStreamDetails {
+            title_num,
+            ..Default::default()
+        }
+    }
+}
+
+/// Interface Segregation (ISP/SOLID): Abstraction for active video complexity, crop, and forced-subtitle analysis.
+pub trait VideoAnalyzer: Send + Sync {
+    /// Predicts the optimal Constant Rate Factor (CRF) for a target SSIM perceptual threshold.
+    fn predict_optimal_crf(
+        &self,
+        dvd_path: &Path,
+        title_num: u32,
+        codec: &str,
+        target_ssim: f64,
+    ) -> (u8, f64);
+
+    /// Detects automatic letterbox/pillarbox crop dimensions (`w:h:x:y`) if present.
+    fn detect_auto_crop(&self, dvd_path: &Path, title_num: u32) -> Option<String>;
+
+    /// Scans subtitle tracks to identify a foreign-audio forced subtitle stream index.
+    fn detect_forced_subtitle(
+        &self,
+        dvd_path: &Path,
+        title_num: u32,
+        preferred_lang: &str,
+    ) -> Option<u32>;
 }
 
 #[cfg(test)]

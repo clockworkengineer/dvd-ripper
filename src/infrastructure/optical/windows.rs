@@ -30,6 +30,10 @@ impl DriveIdentity for PhysicalOpticalDrive {
     fn read_volume_label(&self) -> Option<String> {
         <Self as DiscInspector>::read_volume_label(self, &self.drive_path)
     }
+
+    fn compute_fingerprint(&self) -> String {
+        <Self as DiscInspector>::compute_fingerprint(self, &self.drive_path)
+    }
 }
 
 impl TitleProber for PhysicalOpticalDrive {

@@ -372,20 +372,21 @@ impl DvdRipperApp {
                     if enqueue_req {
                         self.enqueue_current_disc();
                     }
+                    let queue_repo = self.controller.container().job_queue_repo.clone();
                     if let Some(id) = move_up_id {
-                        crate::queue::move_job_up(&id);
-                        self.queued_jobs = crate::queue::list_jobs();
+                        queue_repo.move_job_up(&id);
+                        self.queued_jobs = queue_repo.list_jobs();
                     }
                     if let Some(id) = move_down_id {
-                        crate::queue::move_job_down(&id);
-                        self.queued_jobs = crate::queue::list_jobs();
+                        queue_repo.move_job_down(&id);
+                        self.queued_jobs = queue_repo.list_jobs();
                     }
                     if let Some(id) = remove_id {
-                        crate::queue::remove_job(&id);
-                        self.queued_jobs = crate::queue::list_jobs();
+                        queue_repo.remove_job(&id);
+                        self.queued_jobs = queue_repo.list_jobs();
                     }
                     if clear_req {
-                        crate::queue::clear_queue();
+                        queue_repo.clear_queue();
                         self.queued_jobs.clear();
                     }
                 }

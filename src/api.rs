@@ -35,8 +35,7 @@ pub fn get_cancel_tx_handle() -> Arc<Mutex<Option<Sender<()>>>> {
 }
 
 /// Liskov Substitution Principle (LSP/SOLID): Trait contract for telemetry metrics rendering.
-#[allow(dead_code)]
-pub trait MetricsExporter {
+pub trait MetricsExporter: Send + Sync {
     fn render_metrics(&self) -> String;
 }
 
@@ -45,28 +44,80 @@ pub struct PrometheusMetricsExporter;
 
 impl MetricsExporter for PrometheusMetricsExporter {
     fn render_metrics(&self) -> String {
-        let handle = get_appliance_status_handle();
-        let (status, progress) = if let Ok(state) = handle.lock() {
-            (state.status.clone(), state.progress)
-        } else {
-            ("Idle".to_string(), 0.0)
-        };
-        format!(
-            "# HELP dvd_ripper_status Status of the DVD ripper appliance\n# TYPE dvd_ripper_status gauge\ndvd_ripper_status{{status=\"{}\"}} 1\n# HELP dvd_ripper_progress Ripping progress percentage\n# TYPE dvd_ripper_progress gauge\ndvd_ripper_progress {}\n",
-            status, progress
-        )
+        render_prometheus_metrics()
     }
 }
 
-/// Single Responsibility (SRP/SOLID): Encapsulates SSE broadcast subscriber management & event dispatching.
-#[allow(dead_code)]
-#[derive(Debug, Default)]
-pub struct SseBroadcastEngine;
+/// Single Responsibility & Liskov Substitution (SRP/LSP/SOLID): Encapsulates SSE broadcast subscriber management & event dispatching.
+#[derive(Debug, Default, Clone)]
+pub struct SseBroadcastEngine {
+    subscribers: Arc<Mutex<Vec<Sender<String>>>>,
+}
 
 impl SseBroadcastEngine {
-    #[allow(dead_code)]
+    pub fn new() -> Self {
+        Self {
+            subscribers: Arc::new(Mutex::new(Vec::new())),
+        }
+    }
+
+    /// Registers a new SSE subscriber channel and returns its receiver.
+    pub fn subscribe(&self) -> std::sync::mpsc::Receiver<String> {
+        let (tx, rx) = std::sync::mpsc::channel();
+        if let Ok(mut subs) = self.subscribers.lock() {
+            subs.push(tx);
+        }
+        rx
+    }
+
+    /// Broadcasts a JSON event string to all connected subscribers, pruning closed channels.
     pub fn broadcast_json_event(&self, event_json: &str) {
-        let _ = event_json;
+        if let Ok(mut subs) = self.subscribers.lock() {
+            let payload = format!("data: {}\n\n", event_json);
+            subs.retain(|tx| tx.send(payload.clone()).is_ok());
+        }
+    }
+}
+
+/// Open/Closed Principle (OCP/SOLID): Extensible HTTP endpoint handler contract.
+pub trait HttpEndpoint: Send + Sync {
+    fn matches(&self, method: &str, path: &str) -> bool;
+    fn requires_auth(&self) -> bool {
+        true
+    }
+    fn handle(&self, method: &str, path: &str, body: &str) -> (String, String, String);
+}
+
+/// Open/Closed Principle (OCP/SOLID): Pluggable HTTP route registry allowing new endpoints
+/// to be registered without modifying the core server dispatcher.
+#[derive(Default)]
+pub struct HttpRouter {
+    endpoints: Vec<Box<dyn HttpEndpoint>>,
+}
+
+impl HttpRouter {
+    pub fn new() -> Self {
+        Self {
+            endpoints: Vec::new(),
+        }
+    }
+
+    pub fn register(&mut self, endpoint: Box<dyn HttpEndpoint>) {
+        self.endpoints.push(endpoint);
+    }
+
+    pub fn dispatch(
+        &self,
+        method: &str,
+        path: &str,
+        body: &str,
+    ) -> Option<(String, String, String)> {
+        for ep in &self.endpoints {
+            if ep.matches(method, path) {
+                return Some(ep.handle(method, path, body));
+            }
+        }
+        None
     }
 }
 

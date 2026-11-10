@@ -32,6 +32,15 @@ pub trait TvSeriesMetadataProvider: Send + Sync {
     }
 }
 
+/// Dependency Inversion (DIP/SOLID): Abstraction for persistent disc fingerprint metadata caching.
+pub trait DiscFingerprintRepository: Send + Sync {
+    /// Looks up cached film/series metadata for a deterministic disc fingerprint hash.
+    fn lookup_fingerprint(&self, fingerprint: &str) -> Option<FilmMetadata>;
+
+    /// Persists film/series metadata for a deterministic disc fingerprint hash.
+    fn save_fingerprint(&self, fingerprint: &str, metadata: &FilmMetadata) -> Result<()>;
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

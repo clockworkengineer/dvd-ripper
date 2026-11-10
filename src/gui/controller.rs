@@ -123,8 +123,9 @@ impl GuiApplicationController {
                     title_num: best_title,
                     duration_secs: best_dur.unwrap_or(0.0),
                 });
-                let stream_details =
-                    crate::ffmpeg::probe_title_stream_details("ffmpeg", &dvd_path, best_title);
+                let stream_details = container
+                    .stream_prober
+                    .probe_stream_details(&dvd_path, best_title);
                 let _ = tx.send(ProgressEvent::TitleStreamsProbed(stream_details));
 
                 let temp_thumb = crate::infrastructure::storage::TempResource::new(
@@ -147,8 +148,7 @@ impl GuiApplicationController {
             let volume_label = container.disc_inspector.read_volume_label(&dvd_path);
             if query_override.is_none() && volume_label.is_some() {
                 let fp = container.disc_inspector.compute_fingerprint(&dvd_path);
-                let cache = crate::infrastructure::metadata::DiskFingerprintCache::new();
-                if let Some(cached_meta) = cache.lookup(&fp) {
+                if let Some(cached_meta) = container.fingerprint_repo.lookup_fingerprint(&fp) {
                     let _ = tx.send(ProgressEvent::Log(format!(
                         "Instant offline fingerprint match: {}",
                         cached_meta.title
@@ -238,8 +238,9 @@ impl GuiApplicationController {
             // Fallback for monolithic "Play All" TV DVDs where all episodes are authored as chapters inside Title #1
             if episodes.len() <= 1 {
                 let target_title = episodes.first().map(|e| e.title_num).unwrap_or(1);
-                let details =
-                    crate::ffmpeg::probe_title_stream_details("ffmpeg", &dvd_path, target_title);
+                let details = container
+                    .stream_prober
+                    .probe_stream_details(&dvd_path, target_title);
                 if details.chapters.len() >= 2 && details.duration_secs >= 2400.0 {
                     let spans = crate::domain::heuristics::detect_tv_episodes_from_chapters(
                         target_title,

@@ -22,10 +22,14 @@ pub trait TrayController: Send + Sync {
     fn spindown(&self, drive_path: &Path) -> Result<()>;
 }
 
-/// Fine-grained hardware abstraction for querying an optical drive's path identity and volume label.
+/// Fine-grained hardware abstraction for querying an optical drive's path identity, volume label, and disc fingerprint.
 pub trait DriveIdentity: Send + Sync {
     fn get_path(&self) -> &Path;
     fn read_volume_label(&self) -> Option<String>;
+    fn compute_fingerprint(&self) -> String {
+        let p = self.get_path().to_string_lossy();
+        crate::dvd::compute_disc_fingerprint(&p)
+    }
 }
 
 /// Fine-grained hardware abstraction for discovering available title tracks on an optical disc.

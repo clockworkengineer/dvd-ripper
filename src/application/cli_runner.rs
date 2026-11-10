@@ -29,7 +29,7 @@ impl<'a> CliMetadataResolver<'a> {
         // 1. Direct explicit IMDb ID selection takes highest precedence
         if let Some(ref imdb_id) = args.imdb_id {
             println!("Looking up exact IMDb ID: {}", imdb_id);
-            if let Some(meta) = crate::imdb::lookup_omdb_by_id(imdb_id) {
+            if let Ok(Some(meta)) = self.container.metadata_provider.get_details_by_id(imdb_id) {
                 let clean_name = crate::utils::sanitize_filename(&meta.title);
                 let runtime_desc = meta
                     .runtime_secs
@@ -58,7 +58,7 @@ impl<'a> CliMetadataResolver<'a> {
         }
 
         // 2. Disc Fingerprint Cache Auto-Match
-        if let Some(cached_meta) = crate::imdb::lookup_fingerprint_cache(&fp_hash) {
+        if let Some(cached_meta) = self.container.fingerprint_repo.lookup_fingerprint(&fp_hash) {
             let clean_name = crate::utils::sanitize_filename(&cached_meta.title);
             let runtime_desc = cached_meta
                 .runtime_secs
@@ -79,7 +79,7 @@ impl<'a> CliMetadataResolver<'a> {
             );
         }
 
-        // 2. Search query or volume label detection
+        // 3. Search query or volume label detection
         let search_term = if let Some(ref q) = args.search {
             Some(q.clone())
         } else {
@@ -93,7 +93,11 @@ impl<'a> CliMetadataResolver<'a> {
                 println!("Detected DVD Volume Label: {}", query);
             }
 
-            let candidates = crate::imdb::fetch_search_candidates(&query);
+            let candidates = self
+                .container
+                .metadata_provider
+                .search(&query)
+                .unwrap_or_default();
             let mut selected_candidate_id: Option<String> = None;
 
             if !candidates.is_empty() {
@@ -154,7 +158,7 @@ impl<'a> CliMetadataResolver<'a> {
             }
 
             if let Some(imdb_id) = selected_candidate_id
-                && let Some(meta) = crate::imdb::lookup_omdb_by_id(&imdb_id)
+                && let Ok(Some(meta)) = self.container.metadata_provider.get_details_by_id(&imdb_id)
             {
                 let clean_name = crate::utils::sanitize_filename(&meta.title);
                 let runtime_desc = meta
@@ -169,7 +173,10 @@ impl<'a> CliMetadataResolver<'a> {
                     println!("Media identified as TV Series.");
                     args.tv = true;
                 }
-                crate::imdb::save_fingerprint_cache(&fp_hash, &meta);
+                let _ = self
+                    .container
+                    .fingerprint_repo
+                    .save_fingerprint(&fp_hash, &meta);
                 return (
                     Some(clean_name),
                     meta.year,
@@ -178,9 +185,13 @@ impl<'a> CliMetadataResolver<'a> {
                 );
             }
 
-            // Fallback to lookup_film_details if no candidate selected or search returned empty
-            match crate::imdb::lookup_film_details(&query) {
-                Ok(meta) => {
+            // Fallback to get_details_by_title_and_year if no candidate selected or search returned empty
+            match self
+                .container
+                .metadata_provider
+                .get_details_by_title_and_year(&query, None)
+            {
+                Ok(Some(meta)) => {
                     let clean_name = crate::utils::sanitize_filename(&meta.title);
                     let runtime_desc = meta
                         .runtime_secs
@@ -194,12 +205,21 @@ impl<'a> CliMetadataResolver<'a> {
                         println!("Media identified as TV Series.");
                         args.tv = true;
                     }
-                    crate::imdb::save_fingerprint_cache(&fp_hash, &meta);
+                    let _ = self
+                        .container
+                        .fingerprint_repo
+                        .save_fingerprint(&fp_hash, &meta);
                     return (
                         Some(clean_name),
                         meta.year,
                         meta.runtime_secs,
                         meta.poster_bytes,
+                    );
+                }
+                Ok(None) => {
+                    println!(
+                        "Warning: No metadata details found for '{}'.",
+                        query
                     );
                 }
                 Err(e) => {
@@ -320,7 +340,10 @@ impl CliApplicationRunner {
             let show_name = title_name.as_deref().unwrap_or("TV Show");
 
             if args.auto_boxset && args.start_episode == 1 {
-                let next_ep = crate::queue::get_next_boxset_episode(show_name, args.season);
+                let next_ep = self
+                    .container
+                    .boxset_repo
+                    .get_next_episode(show_name, args.season);
                 if next_ep > 1 {
                     args.start_episode = next_ep;
                     println!(

@@ -73,12 +73,16 @@ use std::sync::Arc;
 use crate::cli::Args;
 use crate::domain::ports::benchmark::DriveBenchmarkService;
 use crate::domain::ports::dialogs::FileDialogService;
-use crate::domain::ports::media_probe::ThumbnailExtractor;
-use crate::domain::ports::metadata::{MetadataProvider, TvSeriesMetadataProvider};
+use crate::domain::ports::iso_archiver::IsoArchiver;
+use crate::domain::ports::media_probe::{StreamProber, ThumbnailExtractor, VideoAnalyzer};
+use crate::domain::ports::metadata::{
+    DiscFingerprintRepository, MetadataProvider, TvSeriesMetadataProvider,
+};
 use crate::domain::ports::notification::Notifier;
 use crate::domain::ports::ocr::OcrProcessor;
 use crate::domain::ports::optical_drive::{DiscInspector, DriveDetector, TrayController};
 use crate::domain::ports::post_processor::PostProcessor;
+use crate::domain::ports::queue::{BoxSetRepository, JobQueueRepository};
 use crate::domain::ports::storage::{DiskSpaceGuard, HistoryRepository};
 use crate::domain::ports::transcoder::Transcoder;
 use crate::dvd::normalize_dvd_path;
@@ -129,15 +133,21 @@ pub struct AppContainer {
     pub transcoder: Arc<dyn Transcoder>,
     pub metadata_provider: Arc<dyn MetadataProvider>,
     pub tv_metadata_provider: Arc<dyn TvSeriesMetadataProvider>,
+    pub fingerprint_repo: Arc<dyn DiscFingerprintRepository>,
     pub drive_detector: Arc<dyn DriveDetector>,
     pub disc_inspector: Arc<dyn DiscInspector>,
     pub tray_controller: Arc<dyn TrayController>,
     pub drive_benchmark: Arc<dyn DriveBenchmarkService>,
     pub thumbnail_extractor: Arc<dyn ThumbnailExtractor>,
+    pub stream_prober: Arc<dyn StreamProber>,
+    pub video_analyzer: Arc<dyn VideoAnalyzer>,
+    pub iso_archiver: Arc<dyn IsoArchiver>,
     pub ocr_processor: Arc<dyn OcrProcessor>,
     pub notifier: Arc<dyn Notifier>,
     pub post_processor: Arc<dyn PostProcessor>,
     pub history_repo: Arc<dyn HistoryRepository>,
+    pub job_queue_repo: Arc<dyn JobQueueRepository>,
+    pub boxset_repo: Arc<dyn BoxSetRepository>,
     pub disk_guard: Arc<dyn DiskSpaceGuard>,
     pub dialog_service: Arc<dyn FileDialogService>,
 }
@@ -165,6 +175,9 @@ impl AppContainer {
                 tray_controller.clone(),
             )),
         );
+        let media_prober = Arc::new(crate::infrastructure::ffmpeg::FfmpegMediaProber::new(
+            ffmpeg_bin,
+        ));
 
         Self {
             transcoder: Arc::new(crate::infrastructure::ffmpeg::FfmpegTranscoder::new(
@@ -176,15 +189,19 @@ impl AppContainer {
             tv_metadata_provider: Arc::new(
                 crate::infrastructure::metadata::TvmazeMetadataProvider::new(),
             ),
+            fingerprint_repo: Arc::new(
+                crate::infrastructure::metadata::DiskFingerprintCache::new(),
+            ),
             drive_detector: Arc::new(crate::infrastructure::optical::SystemDriveDetector::new()),
             disc_inspector: Arc::new(crate::infrastructure::optical::SystemDiscInspector::new()),
             tray_controller,
             drive_benchmark: Arc::new(
                 crate::infrastructure::optical::FfmpegDriveBenchmarkService::new(ffmpeg_bin),
             ),
-            thumbnail_extractor: Arc::new(crate::infrastructure::ffmpeg::FfmpegMediaProber::new(
-                ffmpeg_bin,
-            )),
+            thumbnail_extractor: media_prober.clone(),
+            stream_prober: media_prober.clone(),
+            video_analyzer: media_prober,
+            iso_archiver: Arc::new(crate::infrastructure::optical::SystemIsoArchiver::new()),
             ocr_processor: Arc::new(crate::infrastructure::ocr::TesseractOcrService::default()),
             notifier: Arc::new(
                 crate::infrastructure::notifications::CompositeNotifier::new(vec![Box::new(
@@ -193,6 +210,8 @@ impl AppContainer {
             ),
             post_processor,
             history_repo: Arc::new(crate::infrastructure::storage::JsonHistoryRepository::new()),
+            job_queue_repo: Arc::new(crate::queue::FileJobQueueRepository),
+            boxset_repo: Arc::new(crate::queue::FileBoxSetEpisodeTracker),
             disk_guard: Arc::new(crate::infrastructure::storage::SystemDiskSpaceGuard::new()),
             dialog_service: Arc::new(crate::infrastructure::system::NativeFileDialogService::new()),
         }
@@ -241,6 +260,9 @@ impl AppContainer {
 
         let ocr_processor: Arc<dyn OcrProcessor> =
             Arc::new(crate::infrastructure::ocr::TesseractOcrService::default());
+        let media_prober = Arc::new(crate::infrastructure::ffmpeg::FfmpegMediaProber::new(
+            &args.ffmpeg,
+        ));
 
         Self {
             transcoder: Arc::new(
@@ -255,19 +277,25 @@ impl AppContainer {
             tv_metadata_provider: Arc::new(
                 crate::infrastructure::metadata::TvmazeMetadataProvider::new(),
             ),
+            fingerprint_repo: Arc::new(
+                crate::infrastructure::metadata::DiskFingerprintCache::new(),
+            ),
             drive_detector: Arc::new(crate::infrastructure::optical::SystemDriveDetector::new()),
             disc_inspector: Arc::new(crate::infrastructure::optical::SystemDiscInspector::new()),
             tray_controller,
             drive_benchmark: Arc::new(
                 crate::infrastructure::optical::FfmpegDriveBenchmarkService::new(&args.ffmpeg),
             ),
-            thumbnail_extractor: Arc::new(crate::infrastructure::ffmpeg::FfmpegMediaProber::new(
-                &args.ffmpeg,
-            )),
+            thumbnail_extractor: media_prober.clone(),
+            stream_prober: media_prober.clone(),
+            video_analyzer: media_prober,
+            iso_archiver: Arc::new(crate::infrastructure::optical::SystemIsoArchiver::new()),
             ocr_processor,
             notifier,
             post_processor,
             history_repo: Arc::new(crate::infrastructure::storage::JsonHistoryRepository::new()),
+            job_queue_repo: Arc::new(crate::queue::FileJobQueueRepository),
+            boxset_repo: Arc::new(crate::queue::FileBoxSetEpisodeTracker),
             disk_guard: Arc::new(crate::infrastructure::storage::SystemDiskSpaceGuard::new()),
             dialog_service: Arc::new(crate::infrastructure::system::NativeFileDialogService::new()),
         }
@@ -295,18 +323,25 @@ impl AppContainer {
             self.disk_guard.clone(),
             self.history_repo.clone(),
         )
+        .with_ports(
+            self.tv_metadata_provider.clone(),
+            self.stream_prober.clone(),
+            self.boxset_repo.clone(),
+        )
     }
 
     /// Creates a new [`ProbeDiscUseCase`](application::probe_disc::ProbeDiscUseCase)
     /// using the container's registered services.
     pub fn probe_disc_use_case(&self) -> application::probe_disc::ProbeDiscUseCase {
         application::probe_disc::ProbeDiscUseCase::new(Some(self.metadata_provider.clone()))
+            .with_fingerprint_repo(self.fingerprint_repo.clone())
     }
 
     /// Creates a new [`DumpIsoUseCase`](application::dump_iso::DumpIsoUseCase)
     /// using the container's registered services.
     pub fn dump_iso_use_case(&self) -> application::dump_iso::DumpIsoUseCase {
-        application::dump_iso::DumpIsoUseCase::new(
+        application::dump_iso::DumpIsoUseCase::with_archiver(
+            self.iso_archiver.clone(),
             self.notifier.clone(),
             self.disk_guard.clone(),
             self.history_repo.clone(),

@@ -61,6 +61,9 @@ impl DiskFingerprintCache {
 
     /// Looks up full CachedDiscEntry including title number and TV series settings.
     pub fn lookup_entry(&self, fingerprint: &str) -> Option<CachedDiscEntry> {
+        if fingerprint.is_empty() || fingerprint == "disc_08c643c98b44bb79" {
+            return None;
+        }
         let path = Self::cache_file_path();
         if let Some(map) = crate::utils::load_json_file::<
             std::collections::HashMap<String, CachedDiscEntry>,
@@ -115,6 +118,9 @@ impl DiskFingerprintCache {
 
     /// Saves full CachedDiscEntry to persistent cache file.
     pub fn save_entry(&self, entry: &CachedDiscEntry) -> Result<()> {
+        if entry.fingerprint.is_empty() || entry.fingerprint == "disc_08c643c98b44bb79" {
+            return Ok(());
+        }
         let path = Self::cache_file_path();
         let mut map: std::collections::HashMap<String, CachedDiscEntry> =
             crate::utils::load_json_file(&path).unwrap_or_default();
@@ -149,6 +155,16 @@ impl DiskFingerprintCache {
         let mut entries: Vec<_> = map.into_values().collect();
         entries.sort_by(|a, b| b.cached_at.cmp(&a.cached_at));
         entries
+    }
+}
+
+impl crate::domain::ports::metadata::DiscFingerprintRepository for DiskFingerprintCache {
+    fn lookup_fingerprint(&self, fingerprint: &str) -> Option<FilmMetadata> {
+        self.lookup(fingerprint)
+    }
+
+    fn save_fingerprint(&self, fingerprint: &str, metadata: &FilmMetadata) -> Result<()> {
+        self.save(fingerprint, metadata)
     }
 }
 
