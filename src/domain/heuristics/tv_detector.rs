@@ -1,12 +1,23 @@
 //! Domain heuristic for detecting and filtering multi-episode TV series titles on optical discs.
 
-use crate::domain::entities::disc::{DvdTitleInfo, TvEpisodeInfo};
+use crate::domain::entities::disc::{Chapter, DvdTitleInfo, TvEpisodeInfo};
 
 /// Default minimum runtime (in seconds) for a valid TV episode track (10 minutes).
 pub const DEFAULT_MIN_TV_EPISODE_SECS: f64 = 600.0;
 
+/// Default target runtime (in seconds) when clustering chapters into episodes (~23 minutes).
+pub const DEFAULT_CHAPTER_EPISODE_TARGET_SECS: f64 = 1380.0;
+
 /// Default composite "Play All" multiplier threshold relative to median episode runtime.
 pub const PLAY_ALL_THRESHOLD_MULTIPLIER: f64 = 1.6;
+
+/// Represents a virtual TV episode segmented from a chapter range within a monolithic DVD title.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ChapterEpisodeSpan {
+    pub episode: TvEpisodeInfo,
+    pub start_chapter: u32,
+    pub end_chapter: u32,
+}
 
 /// Calculates the median duration from a slice of durations in seconds.
 pub fn calculate_median_duration(durations: &[f64]) -> Option<f64> {
@@ -72,6 +83,91 @@ pub fn detect_tv_episodes_from_titles(
     }
 
     episodes
+}
+
+/// Pure domain heuristic that segments a single monolithic "Play All" title's chapters into individual TV episodes.
+///
+/// Handles both:
+/// 1. 1-chapter-per-episode authoring (where each chapter is already >= 10 minutes).
+/// 2. Multi-chapter-per-episode authoring (e.g. 5-6 chapters per 23-minute episode inside a 2-hour title).
+pub fn detect_tv_episodes_from_chapters(
+    title_num: u32,
+    chapters: &[Chapter],
+    show_name: &str,
+    season: u32,
+    start_ep: u32,
+    target_ep_duration_secs: Option<f64>,
+) -> Vec<ChapterEpisodeSpan> {
+    if chapters.is_empty() {
+        return Vec::new();
+    }
+
+    let target_secs = target_ep_duration_secs.unwrap_or(DEFAULT_CHAPTER_EPISODE_TARGET_SECS);
+    let min_ep_secs = (target_secs * 0.65).max(DEFAULT_MIN_TV_EPISODE_SECS);
+
+    let mut groups: Vec<(u32, u32, f64)> = Vec::new();
+    let mut cur_start = chapters[0].index.max(1);
+    let mut cur_end = cur_start;
+    let mut cur_dur = 0.0;
+
+    for ch in chapters {
+        let ch_idx = ch.index.max(1);
+        let ch_dur = ch.duration_secs();
+        if ch_dur <= 0.0 {
+            continue;
+        }
+
+        if cur_dur == 0.0 {
+            cur_start = ch_idx;
+            cur_end = ch_idx;
+            cur_dur = ch_dur;
+            continue;
+        }
+
+        let diff_without = (cur_dur - target_secs).abs();
+        let diff_with = ((cur_dur + ch_dur) - target_secs).abs();
+
+        if cur_dur >= min_ep_secs && diff_without <= diff_with {
+            groups.push((cur_start, cur_end, cur_dur));
+            cur_start = ch_idx;
+            cur_end = ch_idx;
+            cur_dur = ch_dur;
+        } else {
+            cur_end = ch_idx;
+            cur_dur += ch_dur;
+        }
+    }
+
+    if cur_dur > 0.0 {
+        if cur_dur < min_ep_secs * 0.5 && !groups.is_empty() {
+            // Merge trailing bumper/credits chapter into the last episode
+            if let Some(last) = groups.last_mut() {
+                last.1 = cur_end;
+                last.2 += cur_dur;
+            }
+        } else if cur_dur >= DEFAULT_MIN_TV_EPISODE_SECS * 0.5 {
+            groups.push((cur_start, cur_end, cur_dur));
+        }
+    }
+
+    groups
+        .into_iter()
+        .enumerate()
+        .map(|(idx, (s_ch, e_ch, dur))| {
+            let ep_num = start_ep + idx as u32;
+            let formatted_name = format!("{} - S{:02}E{:02}", show_name, season, ep_num);
+            ChapterEpisodeSpan {
+                episode: TvEpisodeInfo {
+                    title_num,
+                    episode_num: ep_num,
+                    duration_secs: dur,
+                    formatted_name,
+                },
+                start_chapter: s_ch,
+                end_chapter: e_ch,
+            }
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -190,5 +286,42 @@ mod tests {
             calculate_median_duration(&[10.0, 20.0, 30.0, 40.0]),
             Some(30.0)
         );
+    }
+
+    #[test]
+    fn test_detect_tv_episodes_from_chapters_groups_subchapters() {
+        // Simulate a 3-episode Play-All title where each 24-min (1440s) episode has 4 chapters of 360s each,
+        // plus a trailing 45s studio logo chapter at the end (13 chapters total).
+        let mut chapters = Vec::new();
+        let mut t = 0.0;
+        for i in 1..=12 {
+            chapters.push(Chapter {
+                index: i,
+                start_secs: t,
+                end_secs: t + 360.0,
+                title: format!("Chapter {:02}", i),
+            });
+            t += 360.0;
+        }
+        chapters.push(Chapter {
+            index: 13,
+            start_secs: t,
+            end_secs: t + 45.0,
+            title: "End Bumper".to_string(),
+        });
+
+        let spans = detect_tv_episodes_from_chapters(1, &chapters, "Fawlty Towers", 1, 1, None);
+        assert_eq!(spans.len(), 3);
+        assert_eq!(spans[0].start_chapter, 1);
+        assert_eq!(spans[0].end_chapter, 4);
+        assert_eq!(spans[0].episode.formatted_name, "Fawlty Towers - S01E01");
+
+        assert_eq!(spans[1].start_chapter, 5);
+        assert_eq!(spans[1].end_chapter, 8);
+        assert_eq!(spans[1].episode.formatted_name, "Fawlty Towers - S01E02");
+
+        assert_eq!(spans[2].start_chapter, 9);
+        assert_eq!(spans[2].end_chapter, 13);
+        assert_eq!(spans[2].episode.formatted_name, "Fawlty Towers - S01E03");
     }
 }

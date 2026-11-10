@@ -26,6 +26,105 @@ pub struct Chapter {
     pub title: String,
 }
 
+impl Chapter {
+    /// Duration of this chapter in seconds.
+    pub fn duration_secs(&self) -> f64 {
+        (self.end_secs - self.start_secs).max(0.0)
+    }
+}
+
+/// Detailed audio track metadata probed from IFO or FFmpeg stream analysis.
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
+pub struct AudioStreamInfo {
+    pub stream_index: u32,
+    pub codec: String,
+    pub language: String,
+    pub channels: u32,
+    pub channel_layout: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+}
+
+impl AudioStreamInfo {
+    /// Human-readable summary badge for UI display (e.g., "Track #1: eng (AC3 5.1)").
+    pub fn formatted_label(&self) -> String {
+        let lang = if self.language.is_empty() {
+            "und"
+        } else {
+            &self.language
+        };
+        let layout = if !self.channel_layout.is_empty() {
+            self.channel_layout.clone()
+        } else if self.channels == 6 {
+            "5.1".to_string()
+        } else if self.channels == 2 {
+            "2.0 Stereo".to_string()
+        } else if self.channels == 1 {
+            "1.0 Mono".to_string()
+        } else {
+            format!("{}ch", self.channels)
+        };
+        let extra = self
+            .title
+            .as_deref()
+            .map(|t| format!(" - {}", t))
+            .unwrap_or_default();
+        format!(
+            "Track #{}: {} ({} {}){}",
+            self.stream_index + 1,
+            lang.to_uppercase(),
+            self.codec.to_uppercase(),
+            layout,
+            extra
+        )
+    }
+}
+
+/// Detailed subtitle stream metadata probed from IFO or FFmpeg stream analysis.
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
+pub struct SubtitleStreamInfo {
+    pub stream_index: u32,
+    pub language: String,
+    pub format: String,
+    pub forced: bool,
+}
+
+impl SubtitleStreamInfo {
+    /// Human-readable summary badge for UI display (e.g., "Sub #1: ENG (VobSub) [Forced]").
+    pub fn formatted_label(&self) -> String {
+        let lang = if self.language.is_empty() {
+            "und"
+        } else {
+            &self.language
+        };
+        let forced_tag = if self.forced { " [Forced]" } else { "" };
+        format!(
+            "Sub #{}: {} ({}){}",
+            self.stream_index + 1,
+            lang.to_uppercase(),
+            self.format,
+            forced_tag
+        )
+    }
+}
+
+/// Deep stream, chapter, and video signal topology for a single optical disc title.
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
+pub struct TitleStreamDetails {
+    pub title_num: u32,
+    pub duration_secs: f64,
+    pub chapters: Vec<Chapter>,
+    pub audio_streams: Vec<AudioStreamInfo>,
+    pub subtitle_streams: Vec<SubtitleStreamInfo>,
+    pub angles: u8,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resolution: Option<(u32, u32)>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub aspect_ratio: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub frame_rate: Option<String>,
+}
+
 /// Comprehensive copy protection diagnostic report.
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
 pub struct DiscCopyProtectionReport {
@@ -245,5 +344,52 @@ mod tests {
         let json = serde_json::to_string(&custom).unwrap();
         let de: DiscOptions = serde_json::from_str(&json).unwrap();
         assert_eq!(custom, de);
+    }
+
+    #[test]
+    fn test_title_stream_details_and_stream_labels() {
+        let ch = Chapter {
+            index: 1,
+            start_secs: 60.0,
+            end_secs: 360.0,
+            title: "Chapter 01".to_string(),
+        };
+        assert_eq!(ch.duration_secs(), 300.0);
+
+        let audio = AudioStreamInfo {
+            stream_index: 0,
+            codec: "ac3".to_string(),
+            language: "eng".to_string(),
+            channels: 6,
+            channel_layout: String::new(),
+            title: Some("Surround".to_string()),
+        };
+        assert_eq!(
+            audio.formatted_label(),
+            "Track #1: ENG (AC3 5.1) - Surround"
+        );
+
+        let sub = SubtitleStreamInfo {
+            stream_index: 1,
+            language: "spa".to_string(),
+            format: "dvdsub".to_string(),
+            forced: true,
+        };
+        assert_eq!(sub.formatted_label(), "Sub #2: SPA (dvdsub) [Forced]");
+
+        let details = TitleStreamDetails {
+            title_num: 1,
+            duration_secs: 5400.0,
+            chapters: vec![ch],
+            audio_streams: vec![audio],
+            subtitle_streams: vec![sub],
+            angles: 2,
+            resolution: Some((720, 480)),
+            aspect_ratio: Some("16:9".to_string()),
+            frame_rate: Some("29.97".to_string()),
+        };
+        let json = serde_json::to_string(&details).unwrap();
+        let de: TitleStreamDetails = serde_json::from_str(&json).unwrap();
+        assert_eq!(details, de);
     }
 }

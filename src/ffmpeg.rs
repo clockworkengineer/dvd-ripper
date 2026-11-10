@@ -553,13 +553,26 @@ pub fn apply_subtitle_options(cmd: &mut Command, args: &Args) {
     }
 }
 
-/// Constructs a vector of video filter string elements based on resolution scaling, deinterlacing, and denoise flags.
+/// Constructs a vector of video filter string elements based on resolution scaling, deinterlacing, IVTC, auto-crop, and denoise flags.
 pub fn build_video_filter_chain(args: &Args, profile: &str) -> Vec<String> {
+    build_video_filter_chain_with_crop(args, profile, None)
+}
+
+/// Constructs a video filter chain with an optional pre-probed crop geometry (e.g. "crop=720:360:0:60").
+pub fn build_video_filter_chain_with_crop(
+    args: &Args,
+    profile: &str,
+    detected_crop: Option<&str>,
+) -> Vec<String> {
     let mut vf_filters = Vec::new();
     if profile == "mobile" {
         vf_filters.push("scale=-2:720".to_string());
     }
-    if args.deinterlace {
+    if args.detelecine {
+        vf_filters.push(
+            "fieldmatch=order=auto:combmatch=full,yadif=deint=interlaced,decimate".to_string(),
+        );
+    } else if args.deinterlace {
         let algo = match args
             .deinterlace_algo
             .as_deref()
@@ -572,6 +585,11 @@ pub fn build_video_filter_chain(args: &Args, profile: &str) -> Vec<String> {
             _ => "bwdif=mode=send_frame:parity=auto:deint=all",
         };
         vf_filters.push(algo.to_string());
+    }
+    if let Some(crop_str) = detected_crop
+        && !crop_str.is_empty()
+    {
+        vf_filters.push(crop_str.to_string());
     }
     if args.denoise {
         vf_filters.push("hqdn3d=4:3:6:4.5".to_string());
@@ -591,6 +609,79 @@ pub fn build_video_filter_chain(args: &Args, profile: &str) -> Vec<String> {
         ));
     }
     vf_filters
+}
+
+/// Parses FFmpeg `cropdetect` stderr output lines and returns the modal (most frequent) valid crop filter string (e.g. "crop=720:360:0:60").
+pub fn parse_cropdetect_output(stderr: &str) -> Option<String> {
+    let mut counts: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+    for line in stderr.lines() {
+        if let Some(idx) = line.find("crop=") {
+            let token = line[idx..]
+                .split_whitespace()
+                .next()
+                .unwrap_or("")
+                .trim_end_matches([',', '.', ';']);
+            let parts: Vec<&str> = token.trim_start_matches("crop=").split(':').collect();
+            if parts.len() == 4
+                && let (Ok(w), Ok(h), Ok(_x), Ok(_y)) = (
+                    parts[0].parse::<i32>(),
+                    parts[1].parse::<i32>(),
+                    parts[2].parse::<i32>(),
+                    parts[3].parse::<i32>(),
+                )
+                && w > 64
+                && h > 64
+            {
+                *counts.entry(token.to_string()).or_insert(0) += 1;
+            }
+        }
+    }
+    counts
+        .into_iter()
+        .max_by_key(|(_, count)| *count)
+        .map(|(crop, _)| crop)
+}
+
+/// Probes 3 sample points across a DVD title using FFmpeg `cropdetect` to find the optimal black-bar crop geometry.
+pub fn detect_crop_dimensions(
+    ffmpeg_path: &str,
+    dvd_path: &Path,
+    title_num: u32,
+    duration_secs: Option<f64>,
+) -> Option<String> {
+    let dur = duration_secs.unwrap_or(1800.0).max(120.0);
+    let sample_points = [dur * 0.15, dur * 0.50, dur * 0.75];
+    let mut combined_stderr = String::new();
+
+    for ts in sample_points {
+        let seek_str = crate::utils::format_duration_hhmmss(ts);
+        let mut cmd = Command::new(ffmpeg_path);
+        crate::utils::configure_silent_command(&mut cmd);
+        let out = cmd
+            .stdin(std::process::Stdio::null())
+            .arg("-nostdin")
+            .arg("-ss")
+            .arg(&seek_str)
+            .arg("-f")
+            .arg("dvdvideo")
+            .arg("-title")
+            .arg(title_num.max(1).to_string())
+            .arg("-i")
+            .arg(dvd_path)
+            .arg("-vframes")
+            .arg("15")
+            .arg("-vf")
+            .arg("cropdetect=24:16:0")
+            .arg("-f")
+            .arg("null")
+            .arg("-")
+            .output();
+        if let Ok(output) = out {
+            combined_stderr.push_str(&String::from_utf8_lossy(&output.stderr));
+            combined_stderr.push('\n');
+        }
+    }
+    parse_cropdetect_output(&combined_stderr)
 }
 
 /// Trait defining a strategy provider for GPU hardware accelerated video encoding (OCP/SOLID).
@@ -764,6 +855,391 @@ pub fn probe_dvd_titles_ifo(dvd_path: &Path) -> Option<Vec<DvdTitleInfo>> {
         None
     } else {
         Some(titles)
+    }
+}
+
+/// Directly parses binary DVD-Video `VIDEO_TS.IFO` and `VTS_xx_0.IFO` tables to extract deep per-title stream topology:
+/// chapters, audio streams (codec, language, channels), subtitle tracks, video aspect/resolution, and camera angles.
+pub fn probe_title_details_ifo(
+    dvd_path: &Path,
+    title_num: u32,
+) -> Option<crate::domain::entities::disc::TitleStreamDetails> {
+    use crate::domain::entities::disc::{
+        AudioStreamInfo, Chapter, SubtitleStreamInfo, TitleStreamDetails,
+    };
+
+    if title_num == 0 {
+        return None;
+    }
+
+    let candidates = [
+        dvd_path.join("VIDEO_TS").join("VIDEO_TS.IFO"),
+        dvd_path.join("video_ts").join("video_ts.ifo"),
+        dvd_path.join("VIDEO_TS").join("video_ts.ifo"),
+        dvd_path.join("video_ts").join("VIDEO_TS.IFO"),
+        dvd_path.join("VIDEO_TS.IFO"),
+        dvd_path.join("video_ts.ifo"),
+    ];
+
+    let ifo_path = candidates.into_iter().find(|p| p.exists())?;
+    let data = std::fs::read(&ifo_path).ok()?;
+    if data.len() < 0xC8 {
+        return None;
+    }
+
+    let sector_offset = u32::from_be_bytes([data[0xc4], data[0xc5], data[0xc6], data[0xc7]]);
+    let byte_offset = (sector_offset as usize) * 2048;
+    if byte_offset + 8 > data.len() {
+        return None;
+    }
+
+    let nr_titles = u16::from_be_bytes([data[byte_offset], data[byte_offset + 1]]) as usize;
+    let idx = (title_num as usize).checked_sub(1)?;
+    if idx >= nr_titles || byte_offset + 8 + nr_titles * 12 > data.len() {
+        return None;
+    }
+
+    let entry_off = byte_offset + 8 + idx * 12;
+    let angles = data[entry_off + 1].max(1);
+    let num_chapters = u16::from_be_bytes([data[entry_off + 2], data[entry_off + 3]]) as u32;
+    let vtsn = data[entry_off + 6];
+    let vts_ttn = data[entry_off + 7];
+
+    let ifo_dir = ifo_path.parent().unwrap_or(dvd_path);
+    let vts_candidates = [
+        ifo_dir.join(format!("VTS_{:02}_0.IFO", vtsn)),
+        ifo_dir.join(format!("vts_{:02}_0.ifo", vtsn)),
+        ifo_dir.join(format!("VTS_{:02}_0.ifo", vtsn)),
+    ];
+
+    let vts_path = vts_candidates.into_iter().find(|p| p.exists())?;
+    let vts_data = std::fs::read(&vts_path).ok()?;
+    if vts_data.len() < 0x300 {
+        return None;
+    }
+
+    // 1. Video attributes at 0x200..0x202
+    let v_attr0 = vts_data[0x200];
+    let is_pal = ((v_attr0 >> 4) & 0x03) == 1;
+    let aspect_code = (v_attr0 >> 2) & 0x03;
+    let aspect_ratio = Some(if aspect_code == 3 {
+        "16:9".to_string()
+    } else {
+        "4:3".to_string()
+    });
+    let resolution = Some(if is_pal { (720, 576) } else { (720, 480) });
+    let frame_rate = Some(if is_pal {
+        "25.00".to_string()
+    } else {
+        "29.97".to_string()
+    });
+
+    // 2. Audio streams at 0x202..0x204 (count) and 0x204.. (8 bytes per stream, up to 8 streams)
+    let nr_audio = (u16::from_be_bytes([vts_data[0x202], vts_data[0x203]]) as usize).min(8);
+    let mut audio_streams = Vec::with_capacity(nr_audio);
+    for a in 0..nr_audio {
+        let a_off = 0x204 + a * 8;
+        if a_off + 8 > vts_data.len() {
+            break;
+        }
+        let coding_mode = (vts_data[a_off] >> 5) & 0x07;
+        let codec = match coding_mode {
+            0 => "ac3",
+            2 | 3 => "mp2",
+            4 => "pcm",
+            6 => "dts",
+            _ => "ac3",
+        }
+        .to_string();
+        let channels = ((vts_data[a_off + 1] & 0x07) + 1) as u32;
+        let lang_bytes = &vts_data[a_off + 2..a_off + 4];
+        let language = if lang_bytes.iter().all(|b| b.is_ascii_alphabetic()) {
+            String::from_utf8_lossy(lang_bytes).to_lowercase()
+        } else {
+            "und".to_string()
+        };
+        let channel_layout = match channels {
+            6 => "5.1".to_string(),
+            2 => "2.0".to_string(),
+            1 => "1.0".to_string(),
+            c => format!("{}ch", c),
+        };
+        let ext_code = vts_data[a_off + 5];
+        let title = match ext_code {
+            2 => Some("Visually Impaired".to_string()),
+            3 | 4 => Some("Director's Commentary".to_string()),
+            _ => None,
+        };
+        audio_streams.push(AudioStreamInfo {
+            stream_index: a as u32,
+            codec,
+            language,
+            channels,
+            channel_layout,
+            title,
+        });
+    }
+
+    // 3. Subtitle streams at 0x254..0x256 (count) and 0x256.. (6 bytes per stream, up to 32 streams)
+    let nr_subs = (u16::from_be_bytes([vts_data[0x254], vts_data[0x255]]) as usize).min(32);
+    let mut subtitle_streams = Vec::with_capacity(nr_subs);
+    for s in 0..nr_subs {
+        let s_off = 0x256 + s * 6;
+        if s_off + 6 > vts_data.len() {
+            break;
+        }
+        let lang_bytes = &vts_data[s_off + 2..s_off + 4];
+        let language = if lang_bytes.iter().all(|b| b.is_ascii_alphabetic()) {
+            String::from_utf8_lossy(lang_bytes).to_lowercase()
+        } else {
+            "und".to_string()
+        };
+        let ext_code = vts_data[s_off + 5];
+        let forced = ext_code == 9;
+        subtitle_streams.push(SubtitleStreamInfo {
+            stream_index: s as u32,
+            language,
+            format: "dvdsub".to_string(),
+            forced,
+        });
+    }
+
+    // 4. PGC Duration & Chapters
+    let mut duration_secs = 0.0;
+    let mut chapters = Vec::new();
+    let pgciti_sec = u32::from_be_bytes([
+        vts_data[0xCC],
+        vts_data[0xCD],
+        vts_data[0xCE],
+        vts_data[0xCF],
+    ]);
+    let pgciti_off = (pgciti_sec as usize) * 2048;
+    if vts_ttn > 0 && pgciti_off + 8 + (vts_ttn as usize) * 8 <= vts_data.len() {
+        let pgc_entry_off = pgciti_off + 8 + (vts_ttn as usize - 1) * 8;
+        let pgc_start_rel = u32::from_be_bytes([
+            vts_data[pgc_entry_off + 4],
+            vts_data[pgc_entry_off + 5],
+            vts_data[pgc_entry_off + 6],
+            vts_data[pgc_entry_off + 7],
+        ]);
+        let pgc_off = pgciti_off + (pgc_start_rel as usize);
+        if pgc_off + 0xEC <= vts_data.len() {
+            let nr_programs = vts_data[pgc_off + 2] as u32;
+            let nr_cells = vts_data[pgc_off + 3] as usize;
+            let h_bcd = vts_data[pgc_off + 4];
+            let m_bcd = vts_data[pgc_off + 5];
+            let s_bcd = vts_data[pgc_off + 6];
+            let h = (((h_bcd >> 4) * 10) + (h_bcd & 0x0F)) as f64;
+            let m = (((m_bcd >> 4) * 10) + (m_bcd & 0x0F)) as f64;
+            let s = (((s_bcd >> 4) * 10) + (s_bcd & 0x0F)) as f64;
+            duration_secs = h * 3600.0 + m * 60.0 + s;
+
+            let c_pbit_rel =
+                u16::from_be_bytes([vts_data[pgc_off + 0xE8], vts_data[pgc_off + 0xE9]]) as usize;
+            let c_pbit_off = pgc_off + c_pbit_rel;
+            if c_pbit_rel > 0 && nr_cells > 0 && c_pbit_off + nr_cells * 24 <= vts_data.len() {
+                let mut cur_start = 0.0;
+                for c in 0..nr_cells {
+                    let cell_off = c_pbit_off + c * 24;
+                    let ch_bcd = vts_data[cell_off + 4];
+                    let cm_bcd = vts_data[cell_off + 5];
+                    let cs_bcd = vts_data[cell_off + 6];
+                    let ch_h = (((ch_bcd >> 4) * 10) + (ch_bcd & 0x0F)) as f64;
+                    let ch_m = (((cm_bcd >> 4) * 10) + (cm_bcd & 0x0F)) as f64;
+                    let ch_s = (((cs_bcd >> 4) * 10) + (cs_bcd & 0x0F)) as f64;
+                    let cell_dur = ch_h * 3600.0 + ch_m * 60.0 + ch_s;
+                    if cell_dur > 0.0 {
+                        let ch_idx = (chapters.len() + 1) as u32;
+                        chapters.push(Chapter {
+                            index: ch_idx,
+                            start_secs: cur_start,
+                            end_secs: cur_start + cell_dur,
+                            title: format!("Chapter {:02}", ch_idx),
+                        });
+                        cur_start += cell_dur;
+                    }
+                }
+            } else {
+                let count = nr_programs.max(num_chapters).max(1);
+                let step = if duration_secs > 0.0 {
+                    duration_secs / (count as f64)
+                } else {
+                    300.0
+                };
+                for c in 1..=count {
+                    chapters.push(Chapter {
+                        index: c,
+                        start_secs: (c - 1) as f64 * step,
+                        end_secs: c as f64 * step,
+                        title: format!("Chapter {:02}", c),
+                    });
+                }
+            }
+        }
+    }
+
+    Some(TitleStreamDetails {
+        title_num,
+        duration_secs,
+        chapters,
+        audio_streams,
+        subtitle_streams,
+        angles,
+        resolution,
+        aspect_ratio,
+        frame_rate,
+    })
+}
+
+/// Parses FFmpeg stderr probe output into a structured [`TitleStreamDetails`](crate::domain::entities::disc::TitleStreamDetails).
+pub fn parse_ffmpeg_stream_details(
+    stderr: &str,
+    title_num: u32,
+) -> crate::domain::entities::disc::TitleStreamDetails {
+    use crate::domain::entities::disc::{
+        AudioStreamInfo, Chapter, SubtitleStreamInfo, TitleStreamDetails,
+    };
+
+    let mut details = TitleStreamDetails {
+        title_num,
+        angles: 1,
+        ..Default::default()
+    };
+
+    for line in stderr.lines() {
+        let trimmed = line.trim();
+        if let Some(dur_str) = extract_kv_field(trimmed, "Duration: ") {
+            let clean = dur_str.trim_end_matches(',');
+            if let Some(secs) = parse_duration(clean) {
+                details.duration_secs = secs;
+            }
+        } else if trimmed.starts_with("Chapter #") {
+            // e.g. "Chapter #0:0: start 0.000000, end 300.500000"
+            let start = extract_kv_field(trimmed, "start ")
+                .and_then(|s| s.trim_end_matches(',').parse::<f64>().ok())
+                .unwrap_or(0.0);
+            let end = extract_kv_field(trimmed, "end ")
+                .and_then(|s| s.trim_end_matches(',').parse::<f64>().ok())
+                .unwrap_or(start);
+            let idx = (details.chapters.len() + 1) as u32;
+            details.chapters.push(Chapter {
+                index: idx,
+                start_secs: start,
+                end_secs: end,
+                title: format!("Chapter {:02}", idx),
+            });
+        } else if trimmed.starts_with("Stream #") && trimmed.contains("Audio:") {
+            // e.g. "Stream #0:1[0x80](eng): Audio: ac3, 48000 Hz, 5.1(side), fltp, 448 kb/s"
+            let lang = if let Some(l_start) = trimmed.find('(') {
+                if let Some(l_end) = trimmed[l_start + 1..].find(')') {
+                    let candidate = &trimmed[l_start + 1..l_start + 1 + l_end];
+                    if candidate.len() <= 3 && candidate.chars().all(|c| c.is_ascii_alphabetic()) {
+                        candidate.to_lowercase()
+                    } else {
+                        "und".to_string()
+                    }
+                } else {
+                    "und".to_string()
+                }
+            } else {
+                "und".to_string()
+            };
+            let after_audio = trimmed.split("Audio:").nth(1).unwrap_or("").trim();
+            let codec = after_audio
+                .split([',', ' '])
+                .next()
+                .unwrap_or("ac3")
+                .to_string();
+            let (channels, layout) = if after_audio.contains("5.1") {
+                (6, "5.1".to_string())
+            } else if after_audio.contains("stereo") || after_audio.contains("2.0") {
+                (2, "2.0 Stereo".to_string())
+            } else if after_audio.contains("mono") {
+                (1, "1.0 Mono".to_string())
+            } else {
+                (2, "2.0".to_string())
+            };
+            let idx = details.audio_streams.len() as u32;
+            details.audio_streams.push(AudioStreamInfo {
+                stream_index: idx,
+                codec,
+                language: lang,
+                channels,
+                channel_layout: layout,
+                title: None,
+            });
+        } else if trimmed.starts_with("Stream #") && trimmed.contains("Subtitle:") {
+            let lang = if let Some(l_start) = trimmed.find('(') {
+                if let Some(l_end) = trimmed[l_start + 1..].find(')') {
+                    let candidate = &trimmed[l_start + 1..l_start + 1 + l_end];
+                    if candidate.len() <= 3 && candidate.chars().all(|c| c.is_ascii_alphabetic()) {
+                        candidate.to_lowercase()
+                    } else {
+                        "und".to_string()
+                    }
+                } else {
+                    "und".to_string()
+                }
+            } else {
+                "und".to_string()
+            };
+            let after_sub = trimmed.split("Subtitle:").nth(1).unwrap_or("").trim();
+            let format = after_sub
+                .split([',', ' '])
+                .next()
+                .unwrap_or("dvd_subtitle")
+                .to_string();
+            let forced = trimmed.to_lowercase().contains("forced");
+            let idx = details.subtitle_streams.len() as u32;
+            details.subtitle_streams.push(SubtitleStreamInfo {
+                stream_index: idx,
+                language: lang,
+                format,
+                forced,
+            });
+        }
+    }
+
+    details
+}
+
+/// Probes comprehensive stream and chapter details for a DVD title (fast binary IFO parser with FFmpeg fallback).
+pub fn probe_title_stream_details(
+    ffmpeg_path: &str,
+    dvd_path: &Path,
+    title_num: u32,
+) -> crate::domain::entities::disc::TitleStreamDetails {
+    if let Some(ifo_details) = probe_title_details_ifo(dvd_path, title_num) {
+        return ifo_details;
+    }
+
+    let mut cmd = Command::new(ffmpeg_path);
+    crate::utils::configure_silent_command(&mut cmd);
+    if let Ok(output) = cmd
+        .stdin(std::process::Stdio::null())
+        .arg("-nostdin")
+        .arg("-analyzeduration")
+        .arg("1000000")
+        .arg("-probesize")
+        .arg("1000000")
+        .arg("-f")
+        .arg("dvdvideo")
+        .arg("-trim")
+        .arg("0")
+        .arg("-title")
+        .arg(title_num.max(1).to_string())
+        .arg("-i")
+        .arg(dvd_path)
+        .output()
+    {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return parse_ffmpeg_stream_details(&stderr, title_num);
+    }
+
+    crate::domain::entities::disc::TitleStreamDetails {
+        title_num,
+        angles: 1,
+        ..Default::default()
     }
 }
 
@@ -1007,6 +1483,95 @@ pub fn generate_title_thumbnail(
     Ok(output_thumb.to_path_buf())
 }
 
+/// Builds an FFmpeg Command that encodes a live 10-second preview clip with all active filters (crop, IVTC, deinterlace, CRF) applied.
+pub fn build_preview_clip_command(
+    args: &Args,
+    dvd_path: &Path,
+    title_num: u32,
+    start_offset_secs: f64,
+    duration_secs: u32,
+    output_preview: &Path,
+) -> Command {
+    let mut cmd = Command::new(&args.ffmpeg);
+    crate::utils::configure_silent_command(&mut cmd);
+    cmd.arg("-nostdin");
+    cmd.arg("-y");
+
+    let seek_str = crate::utils::format_duration_hhmmss(start_offset_secs.max(30.0));
+    cmd.arg("-ss").arg(&seek_str);
+    cmd.arg("-f").arg("dvdvideo");
+    cmd.arg("-trim").arg("0");
+    if title_num > 0 {
+        cmd.arg("-title").arg(title_num.to_string());
+    }
+    if let Some(angle) = args.angle
+        && angle > 0
+    {
+        cmd.arg("-angle").arg(angle.to_string());
+    }
+    cmd.arg("-i").arg(dvd_path);
+    cmd.arg("-t").arg(duration_secs.max(5).to_string());
+    cmd.arg("-map").arg("0:v:0?");
+    cmd.arg("-map").arg("0:a:0?");
+
+    let profile = args.profile.to_lowercase();
+    let detected_crop = if args.auto_crop {
+        detect_crop_dimensions(&args.ffmpeg, dvd_path, title_num, None)
+    } else {
+        None
+    };
+    let vf_filters = build_video_filter_chain_with_crop(args, &profile, detected_crop.as_deref());
+    if !vf_filters.is_empty() {
+        cmd.arg("-vf").arg(vf_filters.join(","));
+    }
+
+    let codec = resolve_video_codec_name(&args.codec);
+    let crf = args
+        .crf
+        .map(|c| c.min(51).to_string())
+        .unwrap_or_else(|| "22".to_string());
+    cmd.arg("-c:v").arg(codec);
+    cmd.arg("-preset").arg("veryfast");
+    cmd.arg("-crf").arg(crf);
+    cmd.arg("-c:a").arg("aac");
+    cmd.arg("-b:a").arg("128k");
+    cmd.arg(output_preview);
+    cmd
+}
+
+/// Generates a 10-second encoded video preview sample clip for instant visual verification of filters and quality.
+pub fn generate_preview_clip(
+    args: &Args,
+    dvd_path: &Path,
+    title_num: u32,
+    start_offset_secs: f64,
+    output_preview: &Path,
+) -> Result<PathBuf> {
+    if let Some(parent) = output_preview.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+
+    let mut cmd = build_preview_clip_command(
+        args,
+        dvd_path,
+        title_num,
+        start_offset_secs,
+        10,
+        output_preview,
+    );
+    let status = cmd
+        .status()
+        .context("Failed to spawn FFmpeg preview clip command")?;
+    if !status.success() {
+        return Err(anyhow!(
+            "FFmpeg preview clip generation failed with status: {}",
+            status
+        ));
+    }
+
+    Ok(output_preview.to_path_buf())
+}
+
 /// Builds the FFmpeg Command configured with arguments according to CLI options.
 pub fn build_ffmpeg_command(
     args: &Args,
@@ -1029,6 +1594,21 @@ pub fn build_ffmpeg_command(
 
     if resolved_title > 0 {
         cmd.arg("-title").arg(resolved_title.to_string());
+    }
+    if let Some(sc) = args.start_chapter
+        && sc > 0
+    {
+        cmd.arg("-chapter_start").arg(sc.to_string());
+    }
+    if let Some(ec) = args.end_chapter
+        && ec > 0
+    {
+        cmd.arg("-chapter_end").arg(ec.to_string());
+    }
+    if let Some(angle) = args.angle
+        && angle > 0
+    {
+        cmd.arg("-angle").arg(angle.to_string());
     }
 
     cmd.arg("-i").arg(dvd_path);
@@ -1064,7 +1644,14 @@ pub fn build_ffmpeg_command(
             cmd.arg("-f").arg("dvd");
         }
     } else if is_transcode_enabled(args) {
-        let vf_filters = build_video_filter_chain(args, &profile);
+        let detected_crop = if args.auto_crop {
+            detect_crop_dimensions(&args.ffmpeg, dvd_path, resolved_title, None)
+        } else {
+            None
+        };
+        let vf_filters =
+            build_video_filter_chain_with_crop(args, &profile, detected_crop.as_deref());
+        let custom_crf = args.crf.map(|c| c.min(51).to_string());
 
         if profile == "mobile" {
             if !vf_filters.is_empty() {
@@ -1072,7 +1659,7 @@ pub fn build_ffmpeg_command(
             }
             cmd.arg("-c:v").arg("libx264");
             cmd.arg("-preset").arg(&args.preset);
-            cmd.arg("-crf").arg("24");
+            cmd.arg("-crf").arg(custom_crf.as_deref().unwrap_or("24"));
             cmd.arg("-c:a").arg("aac");
             cmd.arg("-b:a").arg("128k");
         } else if profile == "plex" {
@@ -1081,7 +1668,7 @@ pub fn build_ffmpeg_command(
             }
             cmd.arg("-c:v").arg(resolve_video_codec_name(&codec));
             cmd.arg("-preset").arg(&args.preset);
-            cmd.arg("-crf").arg("20");
+            cmd.arg("-crf").arg(custom_crf.as_deref().unwrap_or("20"));
             cmd.arg("-c:a").arg("aac");
             cmd.arg("-b:a").arg("192k");
         } else {
@@ -1146,7 +1733,7 @@ pub fn build_ffmpeg_command(
                     }
                     cmd.arg("-c:v").arg(resolve_video_codec_name(&codec));
                     cmd.arg("-preset").arg(&args.preset);
-                    cmd.arg("-crf").arg("22");
+                    cmd.arg("-crf").arg(custom_crf.as_deref().unwrap_or("22"));
                     cmd.arg("-c:a").arg("aac");
                     cmd.arg("-b:a").arg("128k");
                 }
@@ -1202,6 +1789,8 @@ pub enum ProgressEvent {
         title_num: u32,
         image_bytes: Vec<u8>,
     },
+    TitleStreamsProbed(crate::domain::entities::disc::TitleStreamDetails),
+    PreviewClipReady(PathBuf),
     Progress {
         percent: f64,
         fps: String,
@@ -2601,5 +3190,83 @@ mod tests {
         apply_hwaccel_encoder(&mut cmd_vaapi, "vaapi", "fast");
         let mut cmd_vtb = Command::new("ffmpeg");
         apply_hwaccel_encoder(&mut cmd_vtb, "videotoolbox", "fast");
+    }
+
+    #[test]
+    fn test_cropdetect_ivtc_stream_details_and_preview_commands() {
+        // 1. parse_cropdetect_output
+        let sample_stderr = "\
+[Parsed_cropdetect_0 @ 0x1] x1:0 x2:719 y1:60 y2:419 w:720 h:352 x:0 y:64 pts:100 t:1.0 crop=720:352:0:64
+[Parsed_cropdetect_0 @ 0x1] x1:0 x2:719 y1:58 y2:421 w:720 h:360 x:0 y:60 pts:200 t:2.0 crop=720:360:0:60
+[Parsed_cropdetect_0 @ 0x1] x1:0 x2:719 y1:58 y2:421 w:720 h:360 x:0 y:60 pts:300 t:3.0 crop=720:360:0:60
+";
+        let modal_crop = parse_cropdetect_output(sample_stderr);
+        assert_eq!(modal_crop, Some("crop=720:360:0:60".to_string()));
+
+        // 2. IVTC + Crop filter chain
+        let mut args = Args::default();
+        args.transcode = true;
+        args.detelecine = true;
+        args.denoise = true;
+        args.start_chapter = Some(2);
+        args.end_chapter = Some(6);
+        args.angle = Some(2);
+        args.crf = Some(18);
+
+        let vf = build_video_filter_chain_with_crop(&args, "standard", modal_crop.as_deref());
+        assert_eq!(vf.len(), 3);
+        assert!(vf[0].contains("fieldmatch"));
+        assert_eq!(vf[1], "crop=720:360:0:60");
+        assert!(vf[2].contains("hqdn3d"));
+
+        // 3. build_ffmpeg_command with chapter range, angle, and custom CRF
+        let cmd =
+            build_ffmpeg_command(&args, Path::new("D:\\"), Path::new("C:\\Out\\Movie.mp4"), 1);
+        let cmd_args: Vec<String> = cmd
+            .get_args()
+            .map(|s| s.to_string_lossy().to_string())
+            .collect();
+        assert!(cmd_args.contains(&"-chapter_start".to_string()));
+        assert!(cmd_args.contains(&"2".to_string()));
+        assert!(cmd_args.contains(&"-chapter_end".to_string()));
+        assert!(cmd_args.contains(&"6".to_string()));
+        assert!(cmd_args.contains(&"-angle".to_string()));
+        assert!(cmd_args.contains(&"18".to_string()));
+
+        // 4. build_preview_clip_command
+        let prev_cmd = build_preview_clip_command(
+            &args,
+            Path::new("D:\\"),
+            1,
+            120.0,
+            10,
+            Path::new("C:\\Temp\\preview.mp4"),
+        );
+        let prev_args: Vec<String> = prev_cmd
+            .get_args()
+            .map(|s| s.to_string_lossy().to_string())
+            .collect();
+        assert!(prev_args.contains(&"-t".to_string()));
+        assert!(prev_args.contains(&"10".to_string()));
+
+        // 5. parse_ffmpeg_stream_details
+        let probe_stderr = "\
+  Duration: 01:45:00.00, start: 0.280000, bitrate: 5200 kb/s
+    Chapter #0:0: start 0.000000, end 600.000000
+    Chapter #0:1: start 600.000000, end 1200.000000
+  Stream #0:0[0x1e0]: Video: mpeg2video (Main), yuv420p(tv), 720x480 [SAR 32:27 DAR 16:9], 29.97 fps
+  Stream #0:1[0x80](eng): Audio: ac3, 48000 Hz, 5.1(side), fltp, 448 kb/s
+  Stream #0:2[0x81](fra): Audio: ac3, 48000 Hz, stereo, fltp, 192 kb/s
+  Stream #0:3[0x20](eng): Subtitle: dvd_subtitle
+  Stream #0:4[0x21](spa): Subtitle: dvd_subtitle (forced)
+";
+        let details = parse_ffmpeg_stream_details(probe_stderr, 1);
+        assert_eq!(details.duration_secs, 6300.0);
+        assert_eq!(details.chapters.len(), 2);
+        assert_eq!(details.audio_streams.len(), 2);
+        assert_eq!(details.audio_streams[0].language, "eng");
+        assert_eq!(details.audio_streams[0].channels, 6);
+        assert_eq!(details.subtitle_streams.len(), 2);
+        assert!(details.subtitle_streams[1].forced);
     }
 }

@@ -319,6 +319,42 @@ pub struct Args {
     /// Video SDR tonemapping algorithm curve (mobius, hable, reinhard)
     #[arg(long = "tonemap")]
     pub tonemap: Option<String>,
+
+    /// Starting 1-based chapter index to extract from the selected DVD title (e.g. --start-chapter 2)
+    #[arg(long = "start-chapter")]
+    pub start_chapter: Option<u32>,
+
+    /// Ending 1-based chapter index to extract from the selected DVD title (e.g. --end-chapter 5)
+    #[arg(long = "end-chapter")]
+    pub end_chapter: Option<u32>,
+
+    /// Split chapters into individual output files (or auto-segment monolithic Play-All TV titles by chapter groups)
+    #[arg(long = "split-chapters")]
+    pub split_chapters: bool,
+
+    /// Select specific DVD camera angle (1-based, e.g. --angle 1 for English crawl)
+    #[arg(long = "angle")]
+    pub angle: Option<u32>,
+
+    /// Automatically detect and crop black letterbox/pillarbox borders (-vf cropdetect)
+    #[arg(long = "auto-crop")]
+    pub auto_crop: bool,
+
+    /// Apply Inverse Telecine (IVTC) filter (-vf fieldmatch,yadif,decimate) to restore 29.97fps NTSC telecine to 23.976fps progressive
+    #[arg(long = "detelecine", alias = "ivtc")]
+    pub detelecine: bool,
+
+    /// Custom Constant Rate Factor (CRF 0..51) quality target overriding profile defaults
+    #[arg(long = "crf")]
+    pub crf: Option<u8>,
+
+    /// Fast spool optical disc to local disk first, eject immediately, and transcode in background queue
+    #[arg(long = "spool")]
+    pub spool: bool,
+
+    /// Number of sector-level read retries on damaged/scratched optical sectors during ISO rescue
+    #[arg(long = "sector-retries", default_value_t = 2)]
+    pub sector_retries: u32,
 }
 
 impl Default for Args {
@@ -401,6 +437,15 @@ impl Default for Args {
             auto_rip: false,
             tonemap: None,
             ignore_errors: true,
+            start_chapter: None,
+            end_chapter: None,
+            split_chapters: false,
+            angle: None,
+            auto_crop: false,
+            detelecine: false,
+            crf: None,
+            spool: false,
+            sector_retries: 2,
         }
     }
 }
@@ -770,6 +815,13 @@ impl From<&Args> for crate::domain::ports::transcoder::TranscodeOptions {
             sub_burnin: args.sub_burnin,
             tonemap: args.tonemap.clone(),
             ignore_errors: args.ignore_errors,
+            start_chapter: args.start_chapter,
+            end_chapter: args.end_chapter,
+            split_chapters: args.split_chapters,
+            angle: args.angle,
+            auto_crop: args.auto_crop,
+            detelecine: args.detelecine,
+            crf: args.crf,
         }
     }
 }
@@ -804,6 +856,13 @@ impl From<&crate::domain::ports::transcoder::TranscodeOptions> for Args {
             sub_burnin: opt.sub_burnin,
             tonemap: opt.tonemap.clone(),
             ignore_errors: opt.ignore_errors,
+            start_chapter: opt.start_chapter,
+            end_chapter: opt.end_chapter,
+            split_chapters: opt.split_chapters,
+            angle: opt.angle,
+            auto_crop: opt.auto_crop,
+            detelecine: opt.detelecine,
+            crf: opt.crf,
             ..Default::default()
         }
     }

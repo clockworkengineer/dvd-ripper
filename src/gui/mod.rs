@@ -215,6 +215,122 @@ impl DvdRipperApp {
                     if cancel_requested {
                         self.show_confirm_cancel = true;
                     }
+
+                    if !self.simple_mode && !self.iso_mode {
+                        let mut preview_requested = false;
+                        let mut queue_requested = false;
+                        ui.add_space(4.0);
+                        ui.add_enabled_ui(!is_busy, |ui| {
+                            ui.group(|ui| {
+                                ui.horizontal(|ui| {
+                                    ui.label(
+                                        egui::RichText::new("🔬 Pro Video Pipeline, Chapters & Live Preview")
+                                            .strong(),
+                                    );
+                                    if let Some(ref details) = self.probed_stream_details {
+                                        ui.label(
+                                            egui::RichText::new(format!(
+                                                "• {} Chapters | {} Audio | {} Subtitles | {} Angle(s)",
+                                                details.chapters.len(),
+                                                details.audio_streams.len(),
+                                                details.subtitle_streams.len(),
+                                                details.angles
+                                            ))
+                                            .small()
+                                            .color(theme::ACCENT_COLOR),
+                                        );
+                                    }
+                                });
+                                ui.horizontal(|ui| {
+                                    ui.checkbox(&mut self.auto_crop, "✂ Auto-Crop Black Bars")
+                                        .on_hover_text("Automatically detect and crop letterbox/pillarbox borders (-vf cropdetect)");
+                                    ui.checkbox(&mut self.detelecine, "🎞 Inverse Telecine (IVTC)")
+                                        .on_hover_text("Restore 29.97fps telecined NTSC film to 23.976fps progressive (-vf fieldmatch,yadif,decimate)");
+
+                                    ui.separator();
+                                    let mut ch_start = self.start_chapter.unwrap_or(0);
+                                    ui.label("Ch Start:");
+                                    if ui
+                                        .add(egui::DragValue::new(&mut ch_start).range(0..=99))
+                                        .on_hover_text("0 = Start from Chapter 1")
+                                        .changed()
+                                    {
+                                        self.start_chapter = if ch_start == 0 { None } else { Some(ch_start) };
+                                    }
+                                    let mut ch_end = self.end_chapter.unwrap_or(0);
+                                    ui.label("End:");
+                                    if ui
+                                        .add(egui::DragValue::new(&mut ch_end).range(0..=99))
+                                        .on_hover_text("0 = Rip through final chapter")
+                                        .changed()
+                                    {
+                                        self.end_chapter = if ch_end == 0 { None } else { Some(ch_end) };
+                                    }
+
+                                    ui.separator();
+                                    if ui
+                                        .button("🎬 Preview 10s Sample")
+                                        .on_hover_text("Encode a 10-second sample clip with active filters to verify quality before ripping")
+                                        .clicked()
+                                    {
+                                        preview_requested = true;
+                                    }
+                                    if ui
+                                        .button("➕ Add to Queue")
+                                        .on_hover_text("Add this disc to the batch job queue")
+                                        .clicked()
+                                    {
+                                        queue_requested = true;
+                                    }
+                                });
+                            });
+                        });
+                        if preview_requested {
+                            self.trigger_preview_clip();
+                        }
+                        if queue_requested {
+                            self.enqueue_current_disc();
+                        }
+                    }
+                }
+                ActiveTab::Queue => {
+                    let mut enqueue_req = false;
+                    let mut move_up_id = None;
+                    let mut move_down_id = None;
+                    let mut remove_id = None;
+                    let mut clear_req = false;
+
+                    tabs::queue_tab::render_queue_tab(
+                        ui,
+                        &self.queued_jobs,
+                        &mut self.spool_mode,
+                        is_busy,
+                        || enqueue_req = true,
+                        |id| move_up_id = Some(id.to_string()),
+                        |id| move_down_id = Some(id.to_string()),
+                        |id| remove_id = Some(id.to_string()),
+                        || clear_req = true,
+                    );
+
+                    if enqueue_req {
+                        self.enqueue_current_disc();
+                    }
+                    if let Some(id) = move_up_id {
+                        crate::queue::move_job_up(&id);
+                        self.queued_jobs = crate::queue::list_jobs();
+                    }
+                    if let Some(id) = move_down_id {
+                        crate::queue::move_job_down(&id);
+                        self.queued_jobs = crate::queue::list_jobs();
+                    }
+                    if let Some(id) = remove_id {
+                        crate::queue::remove_job(&id);
+                        self.queued_jobs = crate::queue::list_jobs();
+                    }
+                    if clear_req {
+                        crate::queue::clear_queue();
+                        self.queued_jobs.clear();
+                    }
                 }
                 ActiveTab::TvSeries => {
                     let mut scan_requested = false;

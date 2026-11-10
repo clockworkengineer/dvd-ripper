@@ -123,6 +123,10 @@ impl GuiApplicationController {
                     title_num: best_title,
                     duration_secs: best_dur.unwrap_or(0.0),
                 });
+                let stream_details =
+                    crate::ffmpeg::probe_title_stream_details("ffmpeg", &dvd_path, best_title);
+                let _ = tx.send(ProgressEvent::TitleStreamsProbed(stream_details));
+
                 let temp_thumb = crate::infrastructure::storage::TempResource::new(
                     &format!("dvd_thumb_title_{}", best_title),
                     "jpg",
@@ -231,6 +235,26 @@ impl GuiApplicationController {
             let mut episodes =
                 detect_tv_episodes("ffmpeg", &dvd_path, &show_name, season, start_ep, None);
 
+            // Fallback for monolithic "Play All" TV DVDs where all episodes are authored as chapters inside Title #1
+            if episodes.len() <= 1 {
+                let target_title = episodes.first().map(|e| e.title_num).unwrap_or(1);
+                let details =
+                    crate::ffmpeg::probe_title_stream_details("ffmpeg", &dvd_path, target_title);
+                if details.chapters.len() >= 2 && details.duration_secs >= 2400.0 {
+                    let spans = crate::domain::heuristics::detect_tv_episodes_from_chapters(
+                        target_title,
+                        &details.chapters,
+                        &show_name,
+                        season,
+                        start_ep,
+                        None,
+                    );
+                    if spans.len() > episodes.len() {
+                        episodes = spans.into_iter().map(|s| s.episode).collect();
+                    }
+                }
+            }
+
             if let Ok(tvmaze_eps) = container.tv_metadata_provider.fetch_episodes(&show_name) {
                 for ep in &mut episodes {
                     if let Some(online_ep) = tvmaze_eps
@@ -276,6 +300,39 @@ impl GuiApplicationController {
                     "Thumbnail snapshot extraction failed for Title #{}",
                     title_num
                 )));
+            }
+        });
+    }
+
+    /// Generates a 10-second live encoded video preview clip asynchronously.
+    pub fn start_preview_clip(&self, drive: &str, title_num: u32, args: Args) {
+        let drive = drive.to_string();
+        let tx = self.event_tx.clone();
+
+        thread::spawn(move || {
+            let dvd_path = crate::dvd::normalize_dvd_path(&drive);
+            let out_preview = std::env::temp_dir()
+                .join(format!("dvd_ripper_preview_title_{}.mp4", title_num.max(1)));
+            let _ = tx.send(ProgressEvent::Log(format!(
+                "Generating 10-second live preview sample for Title #{}...",
+                title_num.max(1)
+            )));
+            match crate::ffmpeg::generate_preview_clip(
+                &args,
+                &dvd_path,
+                title_num.max(1),
+                120.0,
+                &out_preview,
+            ) {
+                Ok(path) => {
+                    let _ = tx.send(ProgressEvent::PreviewClipReady(path));
+                }
+                Err(e) => {
+                    let _ = tx.send(ProgressEvent::Log(format!(
+                        "Preview clip generation failed: {}",
+                        e
+                    )));
+                }
             }
         });
     }

@@ -8,7 +8,7 @@ use std::sync::{Arc, Mutex, OnceLock};
 use std::path::PathBuf;
 
 /// Represents a single queued ripping job item.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct JobItem {
     pub id: String,
     pub title: String,
@@ -16,6 +16,14 @@ pub struct JobItem {
     pub drive: String,
     pub status: String,
     pub timestamp: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub spool_path: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub output_path: Option<String>,
+    #[serde(default)]
+    pub progress: f64,
+    #[serde(default)]
+    pub priority: u8,
 }
 
 /// Represents a tracked TV series season box set state across multi-disc insertions.
@@ -131,6 +139,10 @@ pub fn add_job(title: &str, media_type: &str, drive: &str) -> String {
         drive: drive.to_string(),
         status: "Queued".to_string(),
         timestamp: crate::utils::now_timestamp_str(),
+        spool_path: None,
+        output_path: None,
+        progress: 0.0,
+        priority: 1,
     };
     let handle = get_job_queue_handle();
     if let Ok(mut queue) = handle.lock() {
@@ -138,6 +150,75 @@ pub fn add_job(title: &str, media_type: &str, drive: &str) -> String {
         let _ = save_job_queue(&queue);
     }
     id
+}
+
+/// Updates the status and progress percentage (0.0..=1.0) of a queued job.
+pub fn update_job_status(id: &str, status: &str, progress: f64) -> bool {
+    let handle = get_job_queue_handle();
+    if let Ok(mut queue) = handle.lock()
+        && let Some(job) = queue.iter_mut().find(|j| j.id == id)
+    {
+        job.status = status.to_string();
+        job.progress = progress.clamp(0.0, 1.0);
+        let _ = save_job_queue(&queue);
+        return true;
+    }
+    false
+}
+
+/// Moves a queued job one slot higher in priority order.
+pub fn move_job_up(id: &str) -> bool {
+    let handle = get_job_queue_handle();
+    if let Ok(mut queue) = handle.lock()
+        && let Some(idx) = queue.iter().position(|j| j.id == id)
+        && idx > 0
+    {
+        queue.swap(idx, idx - 1);
+        let _ = save_job_queue(&queue);
+        return true;
+    }
+    false
+}
+
+/// Moves a queued job one slot lower in priority order.
+pub fn move_job_down(id: &str) -> bool {
+    let handle = get_job_queue_handle();
+    if let Ok(mut queue) = handle.lock()
+        && let Some(idx) = queue.iter().position(|j| j.id == id)
+        && idx + 1 < queue.len()
+    {
+        queue.swap(idx, idx + 1);
+        let _ = save_job_queue(&queue);
+        return true;
+    }
+    false
+}
+
+/// Spools a disc's `VIDEO_TS` structure (or creates a spooled ISO image) into `<spool_root>/.spool/<job_id>`
+/// so the physical optical drive can be immediately ejected while background CPU/GPU workers encode the spooled media.
+pub fn spool_disc_for_job(
+    job_id: &str,
+    source_drive: &str,
+    spool_root: &std::path::Path,
+) -> anyhow::Result<PathBuf> {
+    let spool_dir = spool_root.join(".spool").join(job_id);
+    std::fs::create_dir_all(&spool_dir)?;
+    let spool_iso = spool_dir.join("spooled_disc.iso");
+
+    update_job_status(job_id, "Spooling Optical Disc...", 0.05);
+    let _ = crate::iso::dump_disc_to_iso(source_drive, &spool_iso, Some(job_id), None, None)?;
+
+    let handle = get_job_queue_handle();
+    if let Ok(mut queue) = handle.lock()
+        && let Some(job) = queue.iter_mut().find(|j| j.id == job_id)
+    {
+        job.spool_path = Some(spool_iso.to_string_lossy().to_string());
+        job.status = "Spooled (Ready to Encode)".to_string();
+        job.progress = 0.5;
+        let _ = save_job_queue(&queue);
+    }
+
+    Ok(spool_iso)
 }
 
 /// Returns a clone of all current job items in the queue.
@@ -412,5 +493,23 @@ mod tests {
         // 5. Handles
         assert!(get_job_queue_handle().lock().is_ok());
         assert!(get_boxset_manager_handle().lock().is_ok());
+
+        // 6. Priority ordering & status update
+        clear_queue();
+        let id_first = add_job("First Disc", "Movie", "D:\\");
+        let id_second = add_job("Second Disc", "TV Series", "E:\\");
+        assert!(update_job_status(
+            &id_second,
+            "Spooled (Ready to Encode)",
+            0.5
+        ));
+        assert!(move_job_up(&id_second));
+        let reordered = list_jobs();
+        assert_eq!(reordered[0].id, id_second);
+        assert_eq!(reordered[0].progress, 0.5);
+        assert!(move_job_down(&id_second));
+        let restored = list_jobs();
+        assert_eq!(restored[0].id, id_first);
+        clear_queue();
     }
 }

@@ -113,6 +113,164 @@ pub fn copy_sectors_with_progress<R: Read, W: Write, F: FnMut(f64, f64, u64)>(
     Ok(total_copied)
 }
 
+/// Persistent sector recovery telemetry and bad-sector map (`ddrescue`-style).
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct RescueMap {
+    pub total_bytes: u64,
+    pub recovered_bytes: u64,
+    /// List of `(start_sector, sector_count)` ranges that remained unreadable after retries and were zero-padded.
+    pub bad_sector_ranges: Vec<(u64, u64)>,
+    pub retries_performed: u32,
+}
+
+impl RescueMap {
+    /// Percentage of total bytes successfully read from the optical disc (0.0..=100.0).
+    pub fn recovery_rate_percent(&self) -> f64 {
+        if self.total_bytes == 0 {
+            100.0
+        } else {
+            ((self.recovered_bytes as f64 / self.total_bytes as f64) * 100.0).clamp(0.0, 100.0)
+        }
+    }
+
+    /// Total number of unreadable 2048-byte optical sectors that were zero-filled.
+    pub fn bad_sector_count(&self) -> u64 {
+        self.bad_sector_ranges.iter().map(|(_, count)| *count).sum()
+    }
+
+    /// Saves the rescue map to a JSON `.map` sidecar file for multi-session or multi-drive recovery.
+    pub fn save_mapfile(&self, path: &Path) -> Result<()> {
+        crate::utils::save_json_file(path, self)
+    }
+
+    /// Loads an existing rescue map from disk.
+    pub fn load_mapfile(path: &Path) -> Option<Self> {
+        crate::utils::load_json_file(path)
+    }
+}
+
+/// `ddrescue`-style optical sector recovery engine.
+///
+/// - **Pass 1 (Fast Bulk Read)**: Reads sectors sequentially; on I/O error (physical scratch or ARccOS bad-sector trap),
+///   zero-pads the damaged 2048-byte sector in the output stream to preserve exact LBA sector alignment and seeks past the fault.
+/// - **Pass 2 (Targeted Sector Scraping)**: Revisits failed sectors up to `max_retries` times at 2048-byte granularity,
+///   patching recovered sectors in-place in `writer`.
+pub fn rescue_sectors_with_progress<R: Read + Seek, W: Write + Seek, F: FnMut(f64, f64, u64)>(
+    mut reader: R,
+    mut writer: W,
+    total_bytes_hint: Option<u64>,
+    max_retries: u32,
+    cancel_flag: Option<&Arc<AtomicBool>>,
+    mut progress_cb: F,
+) -> Result<RescueMap> {
+    let mut sector_buf = [0u8; OPTICAL_SECTOR_SIZE];
+    let zero_sector = [0u8; OPTICAL_SECTOR_SIZE];
+    let mut current_offset = 0u64;
+    let mut recovered_bytes = 0u64;
+    let mut bad_sectors: Vec<u64> = Vec::new();
+    let start_time = Instant::now();
+    let mut last_report = Instant::now();
+
+    // Pass 1: Sequential sector sweep with immediate zero-fill & skip on damaged sectors
+    loop {
+        if let Some(flag) = cancel_flag
+            && flag.load(Ordering::SeqCst)
+        {
+            return Err(anyhow!("ISO rescue process cancelled by user"));
+        }
+
+        if let Some(limit) = total_bytes_hint
+            && current_offset >= limit
+        {
+            break;
+        }
+
+        if reader.seek(SeekFrom::Start(current_offset)).is_err() {
+            break;
+        }
+
+        match reader.read(&mut sector_buf) {
+            Ok(0) => break,
+            Ok(n) => {
+                writer.write_all(&sector_buf[..n])?;
+                current_offset += n as u64;
+                recovered_bytes += n as u64;
+            }
+            Err(_) => {
+                // Scratched or copy-protected bad sector: zero-pad to keep LBA offsets intact
+                let sector_idx = current_offset / (OPTICAL_SECTOR_SIZE as u64);
+                bad_sectors.push(sector_idx);
+                writer.write_all(&zero_sector)?;
+                current_offset += OPTICAL_SECTOR_SIZE as u64;
+            }
+        }
+
+        if last_report.elapsed().as_millis() >= 250 {
+            let elapsed = start_time.elapsed().as_secs_f64().max(0.001);
+            let mbps = (current_offset as f64 / (1024.0 * 1024.0)) / elapsed;
+            let pct = total_bytes_hint
+                .filter(|&h| h > 0)
+                .map(|h| ((current_offset as f64 / h as f64) * 100.0).min(99.9))
+                .unwrap_or(0.0);
+            progress_cb(pct, mbps, current_offset);
+            last_report = Instant::now();
+        }
+    }
+
+    // Pass 2: Targeted sector-level retry scraping on bad sectors
+    let mut retries_performed = 0u32;
+    let mut remaining_bad_sectors = Vec::new();
+
+    for sector_idx in bad_sectors {
+        let byte_off = sector_idx * (OPTICAL_SECTOR_SIZE as u64);
+        let mut salvaged = false;
+
+        for _ in 0..max_retries {
+            if let Some(flag) = cancel_flag
+                && flag.load(Ordering::SeqCst)
+            {
+                return Err(anyhow!("ISO rescue process cancelled by user"));
+            }
+            retries_performed += 1;
+            if reader.seek(SeekFrom::Start(byte_off)).is_ok()
+                && let Ok(n) = reader.read(&mut sector_buf)
+                && n == OPTICAL_SECTOR_SIZE
+                && writer.seek(SeekFrom::Start(byte_off)).is_ok()
+                && writer.write_all(&sector_buf).is_ok()
+            {
+                recovered_bytes += OPTICAL_SECTOR_SIZE as u64;
+                salvaged = true;
+                break;
+            }
+        }
+
+        if !salvaged {
+            remaining_bad_sectors.push(sector_idx);
+        }
+    }
+
+    writer.flush()?;
+
+    // Coalesce contiguous bad sector indices into `(start_sector, count)` ranges
+    let mut bad_sector_ranges: Vec<(u64, u64)> = Vec::new();
+    for sec in remaining_bad_sectors {
+        if let Some(last) = bad_sector_ranges.last_mut()
+            && last.0 + last.1 == sec
+        {
+            last.1 += 1;
+        } else {
+            bad_sector_ranges.push((sec, 1));
+        }
+    }
+
+    Ok(RescueMap {
+        total_bytes: current_offset,
+        recovered_bytes,
+        bad_sector_ranges,
+        retries_performed,
+    })
+}
+
 /// Resolves the raw device path or filesystem directory for the optical drive.
 pub fn resolve_raw_optical_source(input: &str) -> (PathBuf, bool) {
     let trimmed = input.trim();
@@ -538,5 +696,101 @@ mod tests {
         assert!(events_count > 0);
 
         let _ = std::fs::remove_dir_all(&temp_base);
+    }
+
+    struct FaultyOpticalReader {
+        data: Vec<u8>,
+        pos: u64,
+        transient_bad_sector: u64,
+        permanent_bad_sector: u64,
+        attempts_on_transient: u32,
+    }
+
+    impl Read for FaultyOpticalReader {
+        fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+            if self.pos >= self.data.len() as u64 {
+                return Ok(0);
+            }
+            let cur_sector = self.pos / (OPTICAL_SECTOR_SIZE as u64);
+            if cur_sector == self.permanent_bad_sector {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    "CRC optical sector error (permanent scratch)",
+                ));
+            }
+            if cur_sector == self.transient_bad_sector {
+                self.attempts_on_transient += 1;
+                if self.attempts_on_transient == 1 {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::InvalidData,
+                        "Transient read jitter",
+                    ));
+                }
+            }
+            let start = self.pos as usize;
+            let len = buf.len().min(self.data.len() - start);
+            buf[..len].copy_from_slice(&self.data[start..start + len]);
+            self.pos += len as u64;
+            Ok(len)
+        }
+    }
+
+    impl Seek for FaultyOpticalReader {
+        fn seek(&mut self, pos: SeekFrom) -> std::io::Result<u64> {
+            match pos {
+                SeekFrom::Start(p) => {
+                    self.pos = p;
+                    Ok(self.pos)
+                }
+                _ => Err(std::io::Error::new(
+                    std::io::ErrorKind::Unsupported,
+                    "unsupported seek",
+                )),
+            }
+        }
+    }
+
+    #[test]
+    fn test_ddrescue_bad_sector_recovery_and_mapfile() {
+        let total_sectors = 10u64;
+        let total_bytes = (total_sectors as usize) * OPTICAL_SECTOR_SIZE;
+        let data = vec![0xAAu8; total_bytes];
+
+        let faulty_reader = FaultyOpticalReader {
+            data,
+            pos: 0,
+            transient_bad_sector: 3, // Recovers on retry Pass 2!
+            permanent_bad_sector: 7, // Remains zero-padded
+            attempts_on_transient: 0,
+        };
+        let mut out_cursor = Cursor::new(vec![0u8; total_bytes]);
+
+        let map = rescue_sectors_with_progress(
+            faulty_reader,
+            &mut out_cursor,
+            Some(total_bytes as u64),
+            2,
+            None,
+            |_, _, _| {},
+        )
+        .unwrap();
+
+        assert_eq!(map.total_bytes, total_bytes as u64);
+        assert_eq!(map.bad_sector_count(), 1);
+        assert_eq!(map.bad_sector_ranges, vec![(7, 1)]);
+        assert!((map.recovery_rate_percent() - 90.0).abs() < 0.01);
+
+        let written = out_cursor.into_inner();
+        // Sector 3 was salvaged on retry -> 0xAA
+        assert_eq!(written[3 * OPTICAL_SECTOR_SIZE], 0xAA);
+        // Sector 7 was permanently damaged -> zero-filled 0x00
+        assert_eq!(written[7 * OPTICAL_SECTOR_SIZE], 0x00);
+
+        // Verify mapfile persistence
+        let map_path = std::env::temp_dir().join("test_rescue.map.json");
+        map.save_mapfile(&map_path).unwrap();
+        let loaded = RescueMap::load_mapfile(&map_path).unwrap();
+        assert_eq!(map, loaded);
+        let _ = std::fs::remove_file(&map_path);
     }
 }

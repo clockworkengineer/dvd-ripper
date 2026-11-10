@@ -753,6 +753,183 @@ pub fn format_copy_protection_summary(has_css: bool, is_encrypted: bool) -> Stri
     }
 }
 
+/// Classification of the physical or mounted optical media format.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum OpticalDiscFormat {
+    DvdVideo,
+    BluRay,
+    AudioCd,
+    Unknown,
+}
+
+impl OpticalDiscFormat {
+    /// Human-readable badge for UI and logs.
+    pub fn display_name(&self) -> &'static str {
+        match self {
+            Self::DvdVideo => "DVD-Video (VIDEO_TS)",
+            Self::BluRay => "Blu-ray Disc (BDMV)",
+            Self::AudioCd => "Audio CD (CDDA)",
+            Self::Unknown => "Unknown / Data Disc",
+        }
+    }
+}
+
+/// Automatically detects whether a mounted optical disc path is a DVD-Video, Blu-ray (`BDMV`), or Audio CD (`CDDA`).
+pub fn detect_optical_disc_format(drive_path: &std::path::Path) -> OpticalDiscFormat {
+    if drive_path.join("BDMV").join("index.bdmv").exists()
+        || drive_path.join("BDMV").join("INDEX.BDMV").exists()
+        || drive_path.join("bdmv").join("index.bdmv").exists()
+        || drive_path.join("BDMV").is_dir()
+    {
+        return OpticalDiscFormat::BluRay;
+    }
+
+    if drive_path.join("VIDEO_TS").is_dir()
+        || drive_path.join("video_ts").is_dir()
+        || drive_path.join("VIDEO_TS.IFO").exists()
+    {
+        return OpticalDiscFormat::DvdVideo;
+    }
+
+    if let Ok(entries) = std::fs::read_dir(drive_path) {
+        for entry in entries.flatten() {
+            if entry
+                .path()
+                .extension()
+                .is_some_and(|ext| ext.eq_ignore_ascii_case("cda"))
+            {
+                return OpticalDiscFormat::AudioCd;
+            }
+        }
+    }
+
+    OpticalDiscFormat::Unknown
+}
+
+/// Probed Blu-ray playlist (`BDMV/PLAYLIST/xxxxx.mpls`) metadata.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct BluRayPlaylistInfo {
+    pub playlist_id: u32,
+    pub filename: String,
+    pub estimated_duration_secs: f64,
+    pub total_stream_bytes: u64,
+}
+
+/// Inspects a Blu-ray `BDMV` directory structure to discover playlists (`*.mpls`) and estimate feature runtimes.
+pub fn probe_bluray_playlists(disc_path: &std::path::Path) -> Vec<BluRayPlaylistInfo> {
+    let playlist_dirs = [
+        disc_path.join("BDMV").join("PLAYLIST"),
+        disc_path.join("bdmv").join("playlist"),
+    ];
+    let stream_dirs = [
+        disc_path.join("BDMV").join("STREAM"),
+        disc_path.join("bdmv").join("stream"),
+    ];
+
+    let total_stream_bytes: u64 = stream_dirs
+        .iter()
+        .find(|d| d.is_dir())
+        .and_then(|d| std::fs::read_dir(d).ok())
+        .map(|entries| {
+            entries
+                .flatten()
+                .filter_map(|e| e.metadata().ok().map(|m| m.len()))
+                .sum()
+        })
+        .unwrap_or(0);
+
+    let mut playlists = Vec::new();
+    if let Some(pl_dir) = playlist_dirs.into_iter().find(|d| d.is_dir())
+        && let Ok(entries) = std::fs::read_dir(pl_dir)
+    {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path
+                .extension()
+                .is_some_and(|e| e.eq_ignore_ascii_case("mpls"))
+            {
+                let stem = path
+                    .file_stem()
+                    .map(|s| s.to_string_lossy().to_string())
+                    .unwrap_or_default();
+                let playlist_id = stem.parse::<u32>().unwrap_or(0);
+                let mpls_len = entry.metadata().map(|m| m.len()).unwrap_or(0);
+                // Estimate runtime from MPLS complexity or underlying M2TS payload (~3.5 MB/s typical Blu-ray video rate)
+                let est_secs = if total_stream_bytes > 0 {
+                    (total_stream_bytes as f64 / 3_500_000.0).max(60.0)
+                } else {
+                    (mpls_len as f64 * 2.5).max(60.0)
+                };
+                playlists.push(BluRayPlaylistInfo {
+                    playlist_id,
+                    filename: path
+                        .file_name()
+                        .map(|n| n.to_string_lossy().to_string())
+                        .unwrap_or_default(),
+                    estimated_duration_secs: est_secs,
+                    total_stream_bytes,
+                });
+            }
+        }
+    }
+    playlists.sort_by_key(|p| p.playlist_id);
+    playlists
+}
+
+/// Probed Audio CD track entry.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct AudioCdTrackInfo {
+    pub track_number: u32,
+    pub filename: String,
+    pub output_flac_name: String,
+}
+
+/// Inspects an Audio CD directory for `.cda` tracks and prepares lossless FLAC output naming.
+pub fn probe_audio_cd_tracks(
+    disc_path: &std::path::Path,
+    album_artist: &str,
+    album_title: &str,
+) -> Vec<AudioCdTrackInfo> {
+    let mut tracks = Vec::new();
+    let clean_artist = crate::utils::sanitize_filename(if album_artist.trim().is_empty() {
+        "Unknown Artist"
+    } else {
+        album_artist.trim()
+    });
+    let clean_album = crate::utils::sanitize_filename(if album_title.trim().is_empty() {
+        "Audio CD"
+    } else {
+        album_title.trim()
+    });
+
+    if let Ok(entries) = std::fs::read_dir(disc_path) {
+        let mut cda_files: Vec<PathBuf> = entries
+            .flatten()
+            .map(|e| e.path())
+            .filter(|p| p.extension().is_some_and(|e| e.eq_ignore_ascii_case("cda")))
+            .collect();
+        cda_files.sort();
+
+        for (idx, path) in cda_files.into_iter().enumerate() {
+            let track_num = (idx + 1) as u32;
+            let filename = path
+                .file_name()
+                .map(|n| n.to_string_lossy().to_string())
+                .unwrap_or_else(|| format!("Track{:02}.cda", track_num));
+            let output_flac_name = format!(
+                "{} - {} - {:02} - Track {:02}.flac",
+                clean_artist, clean_album, track_num, track_num
+            );
+            tracks.push(AudioCdTrackInfo {
+                track_number: track_num,
+                filename,
+                output_flac_name,
+            });
+        }
+    }
+    tracks
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -913,5 +1090,58 @@ mod tests {
             std::path::Path::new("Z:\\NonExistent"),
             1,
         );
+    }
+
+    #[test]
+    fn test_detect_optical_disc_formats_bluray_and_audiocd() {
+        let base = std::env::temp_dir().join(format!(
+            "optical_fmt_test_{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+
+        // 1. Blu-ray BDMV detection & playlist probing
+        let bd_root = base.join("bd_disc");
+        let pl_dir = bd_root.join("BDMV").join("PLAYLIST");
+        let st_dir = bd_root.join("BDMV").join("STREAM");
+        std::fs::create_dir_all(&pl_dir).unwrap();
+        std::fs::create_dir_all(&st_dir).unwrap();
+        std::fs::write(bd_root.join("BDMV").join("index.bdmv"), b"INDX0200").unwrap();
+        std::fs::write(pl_dir.join("00800.mpls"), vec![0u8; 512]).unwrap();
+        std::fs::write(st_dir.join("00001.m2ts"), vec![0u8; 3_500_000]).unwrap();
+
+        assert_eq!(
+            detect_optical_disc_format(&bd_root),
+            OpticalDiscFormat::BluRay
+        );
+        assert_eq!(
+            OpticalDiscFormat::BluRay.display_name(),
+            "Blu-ray Disc (BDMV)"
+        );
+        let playlists = probe_bluray_playlists(&bd_root);
+        assert_eq!(playlists.len(), 1);
+        assert_eq!(playlists[0].playlist_id, 800);
+        assert_eq!(playlists[0].total_stream_bytes, 3_500_000);
+
+        // 2. Audio CD (.cda) detection & FLAC track probing
+        let cd_root = base.join("audio_cd");
+        std::fs::create_dir_all(&cd_root).unwrap();
+        std::fs::write(cd_root.join("Track01.cda"), b"RIFF....CDDA").unwrap();
+        std::fs::write(cd_root.join("Track02.cda"), b"RIFF....CDDA").unwrap();
+
+        assert_eq!(
+            detect_optical_disc_format(&cd_root),
+            OpticalDiscFormat::AudioCd
+        );
+        let cd_tracks = probe_audio_cd_tracks(&cd_root, "Pink Floyd", "Dark Side");
+        assert_eq!(cd_tracks.len(), 2);
+        assert_eq!(
+            cd_tracks[0].output_flac_name,
+            "Pink Floyd - Dark Side - 01 - Track 01.flac"
+        );
+
+        let _ = std::fs::remove_dir_all(&base);
     }
 }

@@ -3,6 +3,7 @@
 
 pub mod benchmark_tab;
 pub mod history_tab;
+pub mod queue_tab;
 pub mod rip_tab;
 pub mod settings_tab;
 pub mod tv_tab;
@@ -15,6 +16,7 @@ pub enum ActiveTab {
     #[default]
     Rip,
     TvSeries,
+    Queue,
     Benchmark,
     History,
     Settings,
@@ -26,6 +28,7 @@ impl ActiveTab {
         match self {
             Self::Rip => "🎬 Rip Disc",
             Self::TvSeries => "📺 TV Box Sets",
+            Self::Queue => "📋 Job Queue",
             Self::Benchmark => "⚡ Benchmark",
             Self::History => "📜 History",
             Self::Settings => "⚙️ Settings",
@@ -37,6 +40,7 @@ impl ActiveTab {
         match self {
             Self::Rip => "Single movie and 1:1 ISO dump extraction",
             Self::TvSeries => "Multi-episode TV series season box set batch ripper",
+            Self::Queue => "Decoupled batch job queue and fast optical spooling",
             Self::Benchmark => "Optical drive read throughput and speed diagnostic",
             Self::History => "Persistent ripping activity log and recorded files",
             Self::Settings => "Global configuration, hardware acceleration, and defaults",
@@ -50,6 +54,7 @@ pub fn render_tab_bar(ui: &mut egui::Ui, current_tab: &mut ActiveTab, is_busy: b
         let tabs = [
             ActiveTab::Rip,
             ActiveTab::TvSeries,
+            ActiveTab::Queue,
             ActiveTab::Benchmark,
             ActiveTab::History,
             ActiveTab::Settings,
@@ -85,6 +90,7 @@ mod tests {
         let all_tabs = [
             ActiveTab::Rip,
             ActiveTab::TvSeries,
+            ActiveTab::Queue,
             ActiveTab::Benchmark,
             ActiveTab::History,
             ActiveTab::Settings,

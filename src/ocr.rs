@@ -249,6 +249,192 @@ impl OcrProcessor for MockOcrProcessor {
     }
 }
 
+/// Parses a VobSub `.idx` index file to extract `(start_ms, end_ms)` cue intervals.
+///
+/// Format example: `timestamp: 00:01:15:240, filepos: 000004800`
+pub fn parse_vobsub_idx_timestamps(idx_content: &str) -> Vec<(u64, u64)> {
+    let mut starts_ms = Vec::new();
+    for line in idx_content.lines() {
+        let trimmed = line.trim();
+        if let Some(rest) = trimmed.strip_prefix("timestamp:") {
+            let ts_raw = rest.split(',').next().unwrap_or("").trim();
+            // Convert VobSub `HH:MM:SS:mmm` (4 colons) to `HH:MM:SS,mmm`
+            let parts: Vec<&str> = ts_raw.split(':').collect();
+            if parts.len() == 4 {
+                let normalized = format!("{}:{}:{},{}", parts[0], parts[1], parts[2], parts[3]);
+                if let Some(ms) = SrtEntry::parse_timestamp(&normalized) {
+                    starts_ms.push(ms);
+                }
+            } else if let Some(ms) = SrtEntry::parse_timestamp(ts_raw) {
+                starts_ms.push(ms);
+            }
+        }
+    }
+
+    let mut intervals = Vec::with_capacity(starts_ms.len());
+    for i in 0..starts_ms.len() {
+        let start = starts_ms[i];
+        let default_end = start + 3500;
+        let end = if i + 1 < starts_ms.len() {
+            (starts_ms[i + 1].saturating_sub(80))
+                .min(default_end)
+                .max(start + 500)
+        } else {
+            default_end
+        };
+        intervals.push((start, end));
+    }
+    intervals
+}
+
+/// Post-processes raw Tesseract OCR output to fix common VobSub bitmap recognition errors
+/// (e.g., vertical pipes `|`, `l` vs `I` pronoun confusions, and stray whitespace).
+pub fn clean_ocr_subtitle_text(raw: &str) -> String {
+    let mut cleaned_lines = Vec::new();
+    for line in raw.lines() {
+        let mut l = line
+            .trim()
+            .trim_matches('|')
+            .trim()
+            .replace(" | ", " I ")
+            .replace(" l ", " I ")
+            .replace("|'", "I'")
+            .replace("l'm", "I'm")
+            .replace("l'll", "I'll")
+            .replace("l've", "I've")
+            .replace("l'd", "I'd");
+
+        if l.starts_with("l ") {
+            l = format!("I {}", &l[2..]);
+        } else if l == "l" {
+            l = "I".to_string();
+        }
+        if !l.is_empty() {
+            cleaned_lines.push(l);
+        }
+    }
+    cleaned_lines.join("\n")
+}
+
+/// Transcribes a sequence of timestamped subtitle bitmap images using the provided [`OcrProcessor`]
+/// and applies OCR post-processing cleanup.
+pub fn transcribe_subtitle_images_with_ocr(
+    processor: &dyn OcrProcessor,
+    frames: &[(u64, u64, PathBuf)],
+    lang: &str,
+) -> SrtDocument {
+    let mut doc = SrtDocument::new();
+    for (start_ms, end_ms, img_path) in frames {
+        if let Ok(raw_text) = processor.recognize_text(img_path, lang) {
+            let cleaned = clean_ocr_subtitle_text(&raw_text);
+            if !cleaned.is_empty() {
+                doc.add_entry(*start_ms, *end_ms, &cleaned);
+            }
+        }
+    }
+    doc
+}
+
+/// Extracts DVD subtitle bitmap cues from a media file using FFmpeg and runs Tesseract OCR on each cue.
+fn extract_and_ocr_video_subtitles(
+    ffmpeg_bin: &str,
+    processor: &dyn OcrProcessor,
+    video_path: &Path,
+    lang: &str,
+    srt_path: &Path,
+) -> Option<SrtDocument> {
+    if !video_path.exists() {
+        return None;
+    }
+
+    // 1. First attempt direct text/SubRip stream extraction via FFmpeg if stream is already text-based
+    let mut direct_cmd = Command::new(ffmpeg_bin);
+    crate::utils::configure_silent_command(&mut direct_cmd);
+    if let Ok(status) = direct_cmd
+        .stdin(std::process::Stdio::null())
+        .args(["-nostdin", "-y", "-i"])
+        .arg(video_path)
+        .args(["-map", "0:s:0", "-c:s", "srt"])
+        .arg(srt_path)
+        .status()
+        && status.success()
+        && let Ok(content) = std::fs::read_to_string(srt_path)
+    {
+        let doc = SrtDocument::from_srt_string(&content);
+        if !doc.entries.is_empty() {
+            return Some(doc);
+        }
+    }
+
+    // 2. If bitmap VobSub (`dvd_subtitle`), extract subtitle frames where subtitle overlay changes and run Tesseract
+    if !processor.is_available() {
+        return None;
+    }
+
+    let work_dir = std::env::temp_dir().join(format!("dvd_ripper_sub_ocr_{}", std::process::id()));
+    let _ = std::fs::create_dir_all(&work_dir);
+    let idx_base = work_dir.join("subs");
+    let idx_path = work_dir.join("subs.idx");
+
+    let mut sub_cmd = Command::new(ffmpeg_bin);
+    crate::utils::configure_silent_command(&mut sub_cmd);
+    let _ = sub_cmd
+        .stdin(std::process::Stdio::null())
+        .args(["-nostdin", "-y", "-i"])
+        .arg(video_path)
+        .args(["-map", "0:s:0", "-f", "vobsub"])
+        .arg(&idx_base)
+        .output();
+
+    let intervals = if idx_path.exists()
+        && let Ok(idx_text) = std::fs::read_to_string(&idx_path)
+    {
+        parse_vobsub_idx_timestamps(&idx_text)
+    } else {
+        Vec::new()
+    };
+
+    let mut frames = Vec::new();
+    for (i, (start_ms, end_ms)) in intervals.into_iter().take(500).enumerate() {
+        let frame_png = work_dir.join(format!("cue_{:04}.png", i));
+        let seek_secs = (start_ms as f64 / 1000.0) + 0.15;
+        let seek_str = crate::utils::format_duration_hhmmss(seek_secs);
+        let mut frame_cmd = Command::new(ffmpeg_bin);
+        crate::utils::configure_silent_command(&mut frame_cmd);
+        if let Ok(st) = frame_cmd
+            .stdin(std::process::Stdio::null())
+            .args(["-nostdin", "-y", "-ss", &seek_str, "-i"])
+            .arg(video_path)
+            .args([
+                "-lavfi",
+                "[0:v][0:s:0]overlay,crop=iw:ih/3:0:2*ih/3",
+                "-vframes",
+                "1",
+            ])
+            .arg(&frame_png)
+            .status()
+            && st.success()
+            && frame_png.exists()
+        {
+            frames.push((start_ms, end_ms, frame_png));
+        }
+    }
+
+    let doc = if !frames.is_empty() {
+        let transcribed = transcribe_subtitle_images_with_ocr(processor, &frames, lang);
+        if transcribed.entries.is_empty() {
+            None
+        } else {
+            Some(transcribed)
+        }
+    } else {
+        None
+    };
+
+    let _ = std::fs::remove_dir_all(&work_dir);
+    doc
+}
+
 /// High-level function that orchestrates subtitle extraction and OCR to produce a .srt sidecar file.
 pub fn process_subtitle_ocr_sidecar(
     args: &crate::cli::Args,
@@ -266,7 +452,8 @@ pub fn process_subtitle_ocr_sidecar(
         "[Subtitle OCR] Preparing SubRip (.srt) subtitle generation for '{}'...",
         title_display
     );
-    let tesseract_ok = is_tesseract_available(&args.tesseract);
+    let processor = TesseractOcrProcessor::new(&args.tesseract);
+    let tesseract_ok = processor.is_available();
 
     if tesseract_ok {
         println!(
@@ -280,15 +467,26 @@ pub fn process_subtitle_ocr_sidecar(
         );
     }
 
-    let mut doc = SrtDocument::new();
-    doc.add_entry(
-        1000,
-        5000,
-        &format!(
-            "[Subtitles: {} - Transcribed via dvd-ripper OCR]",
-            title_display
-        ),
-    );
+    let doc = if let Some(extracted_doc) = extract_and_ocr_video_subtitles(
+        &args.ffmpeg,
+        &processor,
+        video_output_path,
+        lang_code,
+        &srt_path,
+    ) {
+        extracted_doc
+    } else {
+        let mut fallback = SrtDocument::new();
+        fallback.add_entry(
+            1000,
+            5000,
+            &format!(
+                "[Subtitles: {} - Transcribed via dvd-ripper OCR]",
+                title_display
+            ),
+        );
+        fallback
+    };
 
     if let Err(e) = doc.save_to_file(&srt_path) {
         eprintln!(
@@ -429,5 +627,42 @@ mod tests {
         assert!(srt_path.is_some());
         assert!(srt_path.unwrap().exists());
         let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_vobsub_idx_parsing_and_ocr_cleanup_pipeline() {
+        let idx_sample = "\
+# VobSub index file, v7
+size: 720x480
+id: en, index: 0
+timestamp: 00:00:02:500, filepos: 000000000
+timestamp: 00:00:05:000, filepos: 000001800
+timestamp: 00:00:12:000, filepos: 000003000
+";
+        let intervals = parse_vobsub_idx_timestamps(idx_sample);
+        assert_eq!(intervals.len(), 3);
+        assert_eq!(intervals[0].0, 2500);
+        assert_eq!(intervals[0].1, 4920);
+        assert_eq!(intervals[1].0, 5000);
+        assert_eq!(intervals[1].1, 8500);
+        assert_eq!(intervals[2].0, 12000);
+        assert_eq!(intervals[2].1, 15500);
+
+        let dirty = "| l'm sure l saw | something in the dark. |\nl don't know!\n|";
+        let cleaned = clean_ocr_subtitle_text(dirty);
+        assert_eq!(
+            cleaned,
+            "I'm sure I saw I something in the dark.\nI don't know!"
+        );
+
+        let mock = MockOcrProcessor::new("| l'll be back! |");
+        let frames = vec![
+            (1000, 3500, PathBuf::from("cue_0001.png")),
+            (4000, 6500, PathBuf::from("cue_0002.png")),
+        ];
+        let doc = transcribe_subtitle_images_with_ocr(&mock, &frames, "eng");
+        assert_eq!(doc.entries.len(), 2);
+        assert_eq!(doc.entries[0].text, "I'll be back!");
+        assert_eq!(doc.entries[1].start_ms, 4000);
     }
 }

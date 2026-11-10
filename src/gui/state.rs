@@ -126,6 +126,15 @@ pub struct DvdRipperApp {
     pub checksum: bool,
     pub nfo: bool,
     pub norm_target: f64,
+    pub auto_crop: bool,
+    pub detelecine: bool,
+    pub start_chapter: Option<u32>,
+    pub end_chapter: Option<u32>,
+    pub angle: Option<u32>,
+    pub custom_crf: Option<u8>,
+    pub spool_mode: bool,
+    pub probed_stream_details: Option<crate::domain::entities::disc::TitleStreamDetails>,
+    pub queued_jobs: Vec<crate::queue::JobItem>,
     pub container: Option<Arc<crate::AppContainer>>,
 
     // Modals & Detection State
@@ -234,6 +243,15 @@ impl Default for DvdRipperApp {
             checksum: false,
             nfo: false,
             norm_target: -23.0,
+            auto_crop: false,
+            detelecine: false,
+            start_chapter: None,
+            end_chapter: None,
+            angle: None,
+            custom_crf: None,
+            spool_mode: false,
+            probed_stream_details: None,
+            queued_jobs: crate::queue::list_jobs(),
             container: Some(container),
 
             show_search_modal: false,
@@ -544,6 +562,37 @@ impl DvdRipperApp {
         self.controller.start_benchmark(&self.input_drive);
     }
 
+    pub fn trigger_preview_clip(&mut self) {
+        if self.detecting || self.is_ripping {
+            return;
+        }
+        let mut args = crate::cli::Args::default();
+        args.apply_encoding_options(self.build_encoding_options());
+        args.transcode = true;
+        args.preset = "veryfast".to_string();
+        args.auto_crop = self.auto_crop;
+        args.detelecine = self.detelecine;
+        args.angle = self.angle;
+        args.crf = self.custom_crf;
+        self.status_message = "Generating 10s live video preview sample...".to_string();
+        self.controller
+            .start_preview_clip(&self.input_drive, self.title_number.max(1), args);
+    }
+
+    pub fn enqueue_current_disc(&mut self) {
+        let title = self
+            .film_name_opt()
+            .unwrap_or_else(|| "Optical Disc".to_string());
+        let media_type = if self.is_tv_mode {
+            "TV Series"
+        } else {
+            "Movie"
+        };
+        let _id = crate::queue::add_job(&title, media_type, &self.input_drive);
+        self.queued_jobs = crate::queue::list_jobs();
+        self.status_message = format!("Added '{}' to batch job queue.", title);
+    }
+
     pub fn start_ripping(&mut self) {
         if self.is_ripping {
             return;
@@ -771,6 +820,15 @@ impl DvdRipperApp {
                 } => {
                     self.is_fetching_thumb = false;
                     self.title_thumbnails.insert(title_num, (image_bytes, None));
+                }
+                ProgressEvent::TitleStreamsProbed(details) => {
+                    self.probed_stream_details = Some(details);
+                }
+                ProgressEvent::PreviewClipReady(path) => {
+                    self.status_message = format!("Preview sample ready: {}", path.display());
+                    if let Some(parent) = path.parent() {
+                        crate::utils::open_folder_in_explorer(parent);
+                    }
                 }
                 ProgressEvent::Progress {
                     percent,

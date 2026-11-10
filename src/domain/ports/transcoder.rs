@@ -115,6 +115,20 @@ pub struct TranscodeOptions {
     pub sub_burnin: bool,
     pub tonemap: Option<String>,
     pub ignore_errors: bool,
+    #[serde(default)]
+    pub start_chapter: Option<u32>,
+    #[serde(default)]
+    pub end_chapter: Option<u32>,
+    #[serde(default)]
+    pub split_chapters: bool,
+    #[serde(default)]
+    pub angle: Option<u32>,
+    #[serde(default)]
+    pub auto_crop: bool,
+    #[serde(default)]
+    pub detelecine: bool,
+    #[serde(default)]
+    pub crf: Option<u8>,
 }
 
 impl Default for TranscodeOptions {
@@ -147,6 +161,13 @@ impl Default for TranscodeOptions {
             sub_burnin: false,
             tonemap: None,
             ignore_errors: false,
+            start_chapter: None,
+            end_chapter: None,
+            split_chapters: false,
+            angle: None,
+            auto_crop: false,
+            detelecine: false,
+            crf: None,
         }
     }
 }
