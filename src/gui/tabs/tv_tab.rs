@@ -51,13 +51,32 @@ pub fn render_tv_tab(
                 ui.label(egui::RichText::new("1. Series Metadata & Episode Range").strong());
                 ui.horizontal(|ui| {
                     ui.label("Show Title:");
-                    ui.add(egui::TextEdit::singleline(show_name).hint_text("e.g. The Office").desired_width(180.0));
+                    if ui
+                        .add(
+                            egui::TextEdit::singleline(show_name)
+                                .hint_text("e.g. The Office")
+                                .desired_width(180.0),
+                        )
+                        .changed()
+                    {
+                        range_changed = true;
+                    }
 
                     ui.label("Season #:");
-                    ui.add(egui::DragValue::new(season_number).range(1..=99));
+                    if ui
+                        .add(egui::DragValue::new(season_number).range(1..=99))
+                        .changed()
+                    {
+                        range_changed = true;
+                    }
 
                     ui.label("Start Ep #:");
-                    if ui.add(egui::DragValue::new(start_episode).range(1..=99)).on_hover_text("Starting episode number for this disc").changed() {
+                    if ui
+                        .add(egui::DragValue::new(start_episode).range(1..=99))
+                        .on_hover_text("Starting episode number for this disc")
+                        .changed()
+                    {
+                        *end_episode = None;
                         range_changed = true;
                     }
 

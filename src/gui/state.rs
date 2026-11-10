@@ -84,6 +84,8 @@ pub struct DvdRipperApp {
     pub detected_episodes: Vec<TvEpisodeInfo>,
     pub completed_episodes: HashSet<u32>,
     pub current_ripping_title: Option<u32>,
+    pub current_disc_fingerprint: Option<String>,
+    pub last_disc_poll: Option<Instant>,
 
     // Metadata fields
     pub plot: String,
@@ -205,6 +207,8 @@ impl Default for DvdRipperApp {
             detected_episodes: Vec::new(),
             completed_episodes: HashSet::new(),
             current_ripping_title: None,
+            current_disc_fingerprint: None,
+            last_disc_poll: None,
 
             plot: String::new(),
             genre: String::new(),
@@ -468,54 +472,99 @@ impl DvdRipperApp {
         self.refresh_completed_episodes();
     }
 
+    /// Checks whether a specific episode `(show_name, season, episode_num)` has already been ripped
+    /// according to the ripping history or destination directory on disk.
+    pub fn is_episode_ripped_in_history_or_disk(&self, episode_num: u32) -> bool {
+        let show_name = self.film_name.trim();
+        if show_name.is_empty() {
+            return false;
+        }
+        let season = self.season_number;
+        let formatted_name = format_episode_name(show_name, season, episode_num);
+        let se_tag = format!("S{:02}E{:02}", season, episode_num);
+
+        let in_history = self.history.iter().any(|rec| {
+            (rec.status == "Success" || rec.status == "Completed")
+                && (rec.title.contains(&formatted_name)
+                    || (show_name.len() > 2
+                        && rec.title.contains(show_name)
+                        && (rec.title.contains(&se_tag) || rec.output_path.contains(&se_tag))))
+        });
+        if in_history {
+            return true;
+        }
+
+        let yr = self.film_year.trim().parse::<u32>().ok();
+        let dest_dir = crate::application::rip_tv_batch::resolve_tv_batch_destination_dir(
+            std::path::Path::new(&self.out_dir),
+            show_name,
+            season,
+            yr,
+        );
+        for ext in ["mp4", "mkv", "mpg"] {
+            let ep_filename = format!("{}.{}", formatted_name, ext);
+            if dest_dir.join(&ep_filename).exists() {
+                return true;
+            }
+        }
+
+        false
+    }
+
+    /// Advances `start_episode` past any episodes completed on the previous disc and clears
+    /// per-disc completion state (`completed_episodes` and `title_thumbnails`).
+    pub fn advance_start_episode_for_next_disc(&mut self) {
+        if !self.completed_episodes.is_empty()
+            && let Some(max_done_ep) = self
+                .detected_episodes
+                .iter()
+                .filter(|ep| self.completed_episodes.contains(&ep.title_num))
+                .map(|ep| ep.episode_num)
+                .max()
+            && self.start_episode <= max_done_ep
+        {
+            self.start_episode = max_done_ep + 1;
+            self.end_episode = None;
+        }
+
+        if self.auto_boxset {
+            let show_name = self.effective_show_name();
+            let next_boxset_ep =
+                crate::queue::get_next_boxset_episode(&show_name, self.season_number);
+            if next_boxset_ep > self.start_episode {
+                self.start_episode = next_boxset_ep;
+                self.end_episode = None;
+            }
+        }
+
+        while self.is_episode_ripped_in_history_or_disk(self.start_episode)
+            && self.start_episode < 999
+        {
+            self.start_episode += 1;
+            self.end_episode = None;
+        }
+
+        self.completed_episodes.clear();
+        self.current_ripping_title = None;
+        self.title_thumbnails.clear();
+    }
+
     /// Checks local file system and historical rip activity to mark previously ripped episodes as completed.
     pub fn refresh_completed_episodes(&mut self) {
-        if self.detected_episodes.is_empty() {
+        self.completed_episodes.clear();
+        if self.detected_episodes.is_empty() || self.film_name.trim().is_empty() {
             return;
         }
 
-        let show_name = self.film_name.trim();
-        let season = self.season_number;
-        let out_dir = self.out_dir.clone();
+        let completed_titles: Vec<u32> = self
+            .detected_episodes
+            .iter()
+            .filter(|ep| self.is_episode_ripped_in_history_or_disk(ep.episode_num))
+            .map(|ep| ep.title_num)
+            .collect();
 
-        for ep in &self.detected_episodes {
-            if self.completed_episodes.contains(&ep.title_num) {
-                continue;
-            }
-
-            // Check if recorded as success in ripping history
-            let in_history = self.history.iter().any(|rec| {
-                (rec.status == "Success" || rec.status == "Completed")
-                    && (rec.title.contains(&ep.formatted_name)
-                        || (show_name.len() > 2
-                            && rec.title.contains(show_name)
-                            && rec
-                                .output_path
-                                .contains(&format!("S{:02}E{:02}", season, ep.episode_num))))
-            });
-
-            if in_history {
-                self.completed_episodes.insert(ep.title_num);
-                continue;
-            }
-
-            // Check if file exists in destination directory on disk
-            if !show_name.is_empty() {
-                let yr = self.film_year.trim().parse::<u32>().ok();
-                let dest_dir = crate::application::rip_tv_batch::resolve_tv_batch_destination_dir(
-                    std::path::Path::new(&out_dir),
-                    show_name,
-                    season,
-                    yr,
-                );
-                for ext in ["mp4", "mkv", "mpg"] {
-                    let ep_filename = format!("{}.{}", ep.formatted_name, ext);
-                    if dest_dir.join(&ep_filename).exists() {
-                        self.completed_episodes.insert(ep.title_num);
-                        break;
-                    }
-                }
-            }
+        for title_num in completed_titles {
+            self.completed_episodes.insert(title_num);
         }
     }
 
@@ -540,6 +589,17 @@ impl DvdRipperApp {
             return;
         }
 
+        if !self.completed_episodes.is_empty() {
+            self.advance_start_episode_for_next_disc();
+            self.update_detected_episode_names();
+            self.completed_episodes.clear();
+        }
+        let dvd_path = normalize_dvd_path(&self.input_drive);
+        if dvd_path.exists() {
+            self.current_disc_fingerprint =
+                Some(crate::dvd::compute_disc_fingerprint(&self.input_drive));
+        }
+
         self.detecting = true;
         self.detect_status = "Searching metadata...".to_string();
         self.controller
@@ -549,6 +609,13 @@ impl DvdRipperApp {
     pub fn trigger_tv_scan(&mut self) {
         if self.detecting || self.is_ripping {
             return;
+        }
+
+        self.advance_start_episode_for_next_disc();
+        let dvd_path = normalize_dvd_path(&self.input_drive);
+        if dvd_path.exists() {
+            self.current_disc_fingerprint =
+                Some(crate::dvd::compute_disc_fingerprint(&self.input_drive));
         }
 
         self.detecting = true;
@@ -666,6 +733,8 @@ impl DvdRipperApp {
                 format!("Error: DVD path does not exist ({})", dvd_path.display());
             return;
         }
+        self.current_disc_fingerprint =
+            Some(crate::dvd::compute_disc_fingerprint(&self.input_drive));
 
         self.is_ripping = true;
         self.progress_percent = 0.0;
@@ -734,6 +803,37 @@ impl DvdRipperApp {
 
     pub fn poll_events(&mut self, ctx: &egui::Context) {
         self.process_events();
+
+        if !self.is_ripping && !self.detecting && !self.completed_episodes.is_empty() {
+            let should_poll_disc = self
+                .last_disc_poll
+                .is_none_or(|t| t.elapsed() >= std::time::Duration::from_secs(2));
+            if should_poll_disc {
+                self.last_disc_poll = Some(Instant::now());
+                let dvd_path = normalize_dvd_path(&self.input_drive);
+                let media_mounted = dvd_path.join("VIDEO_TS").exists()
+                    || dvd_path.join("video_ts").exists()
+                    || dvd_path.join("BDMV").exists()
+                    || dvd_path.is_file();
+                if media_mounted {
+                    let new_fp = crate::dvd::compute_disc_fingerprint(&self.input_drive);
+                    if self
+                        .current_disc_fingerprint
+                        .as_ref()
+                        .is_some_and(|old_fp| old_fp != &new_fp)
+                    {
+                        self.current_disc_fingerprint = Some(new_fp);
+                        self.advance_start_episode_for_next_disc();
+                        self.update_detected_episode_names();
+                        self.completed_episodes.clear();
+                        self.status_message = format!(
+                            "New disc detected — advanced to Episode #{} and reset completion marks.",
+                            self.start_episode
+                        );
+                    }
+                }
+            }
+        }
 
         if self.poster_texture.is_none()
             && let Some(ref bytes) = self.raw_poster_bytes
@@ -811,20 +911,37 @@ impl DvdRipperApp {
                     self.poster_texture = None;
                     if meta.is_series {
                         self.is_tv_mode = true;
+                        if !self.completed_episodes.is_empty()
+                            || self.is_episode_ripped_in_history_or_disk(self.start_episode)
+                        {
+                            self.advance_start_episode_for_next_disc();
+                        }
                         self.update_detected_episode_names();
+                        self.completed_episodes.clear();
                     }
                     self.detecting = false;
                     self.detect_status = "Detection complete.".to_string();
                 }
                 ProgressEvent::TvEpisodesDetected(episodes) => {
+                    self.advance_start_episode_for_next_disc();
                     self.detected_episodes = episodes;
+                    let show_name = self.effective_show_name();
+                    let season = self.season_number;
+                    for (ep_num, ep) in
+                        (self.start_episode..).zip(self.detected_episodes.iter_mut())
+                    {
+                        if ep.episode_num != ep_num {
+                            ep.episode_num = ep_num;
+                            ep.formatted_name = format_episode_name(&show_name, season, ep_num);
+                        }
+                    }
                     if !self.detected_episodes.is_empty() {
                         let max_ep = self.start_episode + self.detected_episodes.len() as u32 - 1;
                         self.end_episode = Some(max_ep);
                     } else {
                         self.end_episode = None;
                     }
-                    self.refresh_completed_episodes();
+                    self.completed_episodes.clear();
                     self.detecting = false;
                     self.detect_status = format!(
                         "Found {} TV episode titles on disc.",
@@ -1357,5 +1474,79 @@ mod tests {
         ));
         app.refresh_completed_episodes();
         assert!(app.completed_episodes.contains(&2));
+    }
+
+    #[test]
+    fn test_tv_disc_change_clears_completed_and_advances_episodes() {
+        let mut app = DvdRipperApp::default();
+        app.film_name = "The Office".to_string();
+        app.season_number = 1;
+        app.start_episode = 1;
+        app.detected_episodes = vec![
+            crate::domain::entities::disc::TvEpisodeInfo {
+                title_num: 1,
+                episode_num: 1,
+                formatted_name: "The Office - S01E01".to_string(),
+                duration_secs: 1320.0,
+            },
+            crate::domain::entities::disc::TvEpisodeInfo {
+                title_num: 2,
+                episode_num: 2,
+                formatted_name: "The Office - S01E02".to_string(),
+                duration_secs: 1320.0,
+            },
+        ];
+
+        // 1. Complete Disc 1 episodes (Titles #1 and #2)
+        for t in [1, 2] {
+            let _ = app.event_tx.send(ProgressEvent::TvEpisodeCompleted {
+                title_num: t,
+                output_path: PathBuf::from(format!("C:\\Out\\The Office - S01E0{}.mp4", t)),
+            });
+            app.history.push(crate::history::RipRecord::new(
+                &format!("The Office - S01E0{}", t),
+                "TV Series",
+                &format!("C:\\Out\\The Office - S01E0{}.mp4", t),
+                "Success",
+            ));
+        }
+        app.process_events();
+        assert!(app.completed_episodes.contains(&1));
+        assert!(app.completed_episodes.contains(&2));
+
+        // 2. Insert Disc 2 and receive TvEpisodesDetected (authored as Titles #1 and #2 on Disc 2)
+        let _ = app.event_tx.send(ProgressEvent::TvEpisodesDetected(vec![
+            crate::domain::entities::disc::TvEpisodeInfo {
+                title_num: 1,
+                episode_num: 1,
+                formatted_name: "The Office - S01E01".to_string(),
+                duration_secs: 1320.0,
+            },
+            crate::domain::entities::disc::TvEpisodeInfo {
+                title_num: 2,
+                episode_num: 2,
+                formatted_name: "The Office - S01E02".to_string(),
+                duration_secs: 1320.0,
+            },
+        ]));
+        app.process_events();
+
+        // Disc 2 must advance to S01E03..S01E04 and have NO episodes marked as completed
+        assert_eq!(app.start_episode, 3);
+        assert_eq!(app.end_episode, Some(4));
+        assert_eq!(app.detected_episodes[0].episode_num, 3);
+        assert_eq!(app.detected_episodes[0].formatted_name, "The Office - S01E03");
+        assert_eq!(app.detected_episodes[1].episode_num, 4);
+        assert_eq!(app.detected_episodes[1].formatted_name, "The Office - S01E04");
+        assert!(app.completed_episodes.is_empty());
+
+        // 3. Complete Disc 2 episodes, then manually change Start Ep # to 5 for Disc 3
+        app.completed_episodes.insert(1);
+        app.completed_episodes.insert(2);
+        app.start_episode = 5;
+        app.end_episode = None;
+        app.update_detected_episode_names();
+        assert_eq!(app.end_episode, Some(6));
+        assert!(app.completed_episodes.is_empty());
     }
 }
