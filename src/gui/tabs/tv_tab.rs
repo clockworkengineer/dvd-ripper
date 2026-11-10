@@ -3,7 +3,7 @@
 
 use crate::domain::entities::disc::TvEpisodeInfo;
 use eframe::egui;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 /// Renders the TV Series batch extraction tab.
 #[allow(clippy::too_many_arguments)]
@@ -16,6 +16,8 @@ pub fn render_tv_tab(
     auto_boxset: &mut bool,
     all_episodes: &mut bool,
     detected_episodes: &[TvEpisodeInfo],
+    completed_episodes: &HashSet<u32>,
+    current_ripping_title: Option<u32>,
     title_thumbnails: &HashMap<u32, (Vec<u8>, Option<egui::TextureHandle>)>,
     is_busy: bool,
     on_episode_range_changed: impl FnOnce(),
@@ -107,15 +109,28 @@ pub fn render_tv_tab(
 
             ui.add_space(8.0);
 
+            let done_count = detected_episodes
+                .iter()
+                .filter(|ep| completed_episodes.contains(&ep.title_num))
+                .count();
+
             ui.group(|ui| {
                 ui.horizontal(|ui| {
                     ui.label(egui::RichText::new(format!("2. Discovered Episode Tracks ({})", detected_episodes.len())).strong());
                     if !detected_episodes.is_empty() {
                         ui.label(
-                            egui::RichText::new(format!("• Selected to rip: {} / {}", included_count, detected_episodes.len()))
+                            egui::RichText::new(format!("• Selected: {} / {}", included_count, detected_episodes.len()))
                                 .small()
                                 .color(if included_count > 0 { super::super::theme::ACCENT_COLOR } else { egui::Color32::RED }),
                         );
+                        if done_count > 0 {
+                            ui.label(
+                                egui::RichText::new(format!("• Done: {} / {}", done_count, detected_episodes.len()))
+                                    .small()
+                                    .strong()
+                                    .color(egui::Color32::from_rgb(0, 220, 100)),
+                            );
+                        }
                     }
                 });
 
@@ -133,14 +148,39 @@ pub fn render_tv_tab(
                         .max_height(200.0)
                         .show(ui, |ui| {
                             for ep in detected_episodes {
+                                let is_done = completed_episodes.contains(&ep.title_num);
+                                let is_currently_ripping = is_busy && current_ripping_title == Some(ep.title_num);
                                 let is_included = ep.episode_num >= *start_episode && ep.episode_num <= effective_end;
 
                                 ui.horizontal(|ui| {
-                                    if is_included {
-                                        ui.label(egui::RichText::new("✓").color(egui::Color32::from_rgb(0, 200, 100)).strong());
+                                    if is_done {
+                                        ui.label(
+                                            egui::RichText::new("✅ Done")
+                                                .color(egui::Color32::from_rgb(0, 220, 100))
+                                                .strong(),
+                                        )
+                                        .on_hover_text("Episode successfully ripped");
+                                    } else if is_currently_ripping {
+                                        ui.label(
+                                            egui::RichText::new("⏳ Ripping...")
+                                                .color(super::super::theme::ACCENT_COLOR)
+                                                .strong(),
+                                        )
+                                        .on_hover_text("Currently extracting and encoding this episode");
+                                    } else if is_included {
+                                        ui.label(
+                                            egui::RichText::new("✓ Queued")
+                                                .color(egui::Color32::from_rgb(100, 180, 255))
+                                                .strong(),
+                                        )
+                                        .on_hover_text("Queued to rip in this batch");
                                     } else {
-                                        ui.label(egui::RichText::new("✗").color(egui::Color32::from_rgb(160, 160, 160)).weak())
-                                            .on_hover_text("Excluded (outside Start-End range)");
+                                        ui.label(
+                                            egui::RichText::new("✗ Excluded")
+                                                .color(egui::Color32::from_rgb(160, 160, 160))
+                                                .weak(),
+                                        )
+                                        .on_hover_text("Excluded (outside Start-End range)");
                                     }
 
                                     if let Some((_, Some(texture))) = title_thumbnails.get(&ep.title_num) {
@@ -149,20 +189,44 @@ pub fn render_tv_tab(
                                         requested_thumb = Some(ep.title_num);
                                     }
 
-                                    let text_style = if is_included {
+                                    let text_style = if is_done {
+                                        egui::RichText::new(format!(
+                                            "• {} (Title #{}, {:.0} mins) [Done]",
+                                            ep.formatted_name,
+                                            ep.title_num,
+                                            ep.duration_secs / 60.0
+                                        ))
+                                        .small()
+                                        .color(egui::Color32::from_rgb(0, 220, 100))
+                                        .strong()
+                                    } else if is_currently_ripping {
+                                        egui::RichText::new(format!(
+                                            "• {} (Title #{}, {:.0} mins) [Ripping...]",
+                                            ep.formatted_name,
+                                            ep.title_num,
+                                            ep.duration_secs / 60.0
+                                        ))
+                                        .small()
+                                        .color(super::super::theme::ACCENT_COLOR)
+                                        .strong()
+                                    } else if is_included {
                                         egui::RichText::new(format!(
                                             "• {} (Title #{}, {:.0} mins)",
                                             ep.formatted_name,
                                             ep.title_num,
                                             ep.duration_secs / 60.0
-                                        )).small()
+                                        ))
+                                        .small()
                                     } else {
                                         egui::RichText::new(format!(
                                             "• {} (Title #{}, {:.0} mins) [Excluded]",
                                             ep.formatted_name,
                                             ep.title_num,
                                             ep.duration_secs / 60.0
-                                        )).small().strikethrough().color(egui::Color32::from_rgb(140, 140, 140))
+                                        ))
+                                        .small()
+                                        .strikethrough()
+                                        .color(egui::Color32::from_rgb(140, 140, 140))
                                     };
 
                                     ui.label(text_style);
@@ -248,6 +312,8 @@ mod tests {
                 let mut auto_boxset = true;
                 let mut all_episodes = true;
                 let title_thumbnails = HashMap::new();
+                let mut completed = HashSet::new();
+                completed.insert(1);
 
                 // 1. Empty episodes
                 render_tv_tab(
@@ -259,6 +325,8 @@ mod tests {
                     &mut auto_boxset,
                     &mut all_episodes,
                     &[],
+                    &completed,
+                    None,
                     &title_thumbnails,
                     false,
                     || {},
@@ -293,6 +361,8 @@ mod tests {
                     &mut auto_boxset,
                     &mut all_episodes,
                     &episodes,
+                    &completed,
+                    Some(2),
                     &title_thumbnails,
                     false,
                     || {},
@@ -313,6 +383,8 @@ mod tests {
                     &mut auto_boxset,
                     &mut all_episodes,
                     &[],
+                    &completed,
+                    None,
                     &title_thumbnails,
                     true,
                     || {},

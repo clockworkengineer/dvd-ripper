@@ -330,6 +330,10 @@ impl RipTvBatchUseCase {
                 return Err(anyhow!("TV Batch ripping cancelled by user."));
             }
 
+            if let Some(obs) = observer {
+                obs.on_title_start(ep.title_num);
+            }
+
             let ep_title = if !tvmaze_episodes.is_empty() {
                 crate::infrastructure::metadata::find_episode_title(
                     &tvmaze_episodes,

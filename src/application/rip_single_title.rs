@@ -247,6 +247,10 @@ impl RipSingleTitleUseCase {
                     duration_secs,
                 });
 
+                if let Some(obs) = observer {
+                    obs.on_title_complete(request.title_number, &request.output_path);
+                }
+
                 Ok(())
             }
             Err(e) => {

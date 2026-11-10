@@ -2,7 +2,7 @@
 //! Follows Jakob Nielsen's Heuristics #1 (Visibility of System Status) and #6 (Recognition Rather than Recall).
 
 use eframe::egui;
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::Path;
 use std::sync::Arc;
 use std::sync::mpsc::Sender;
@@ -31,6 +31,17 @@ impl crate::domain::ports::transcoder::ProgressObserver for GuiProgressObserver 
 
     fn on_log(&self, line: &str) {
         let _ = self.tx.send(ProgressEvent::Log(line.to_string()));
+    }
+
+    fn on_title_start(&self, title_num: u32) {
+        let _ = self.tx.send(ProgressEvent::TvEpisodeStarted { title_num });
+    }
+
+    fn on_title_complete(&self, title_num: u32, output_path: &Path) {
+        let _ = self.tx.send(ProgressEvent::TvEpisodeCompleted {
+            title_num,
+            output_path: output_path.to_path_buf(),
+        });
     }
 }
 
@@ -71,6 +82,8 @@ pub struct DvdRipperApp {
     pub end_episode: Option<u32>,
     pub all_episodes: bool,
     pub detected_episodes: Vec<TvEpisodeInfo>,
+    pub completed_episodes: HashSet<u32>,
+    pub current_ripping_title: Option<u32>,
 
     // Metadata fields
     pub plot: String,
@@ -180,6 +193,8 @@ impl Default for DvdRipperApp {
             end_episode: None,
             all_episodes: false,
             detected_episodes: Vec::new(),
+            completed_episodes: HashSet::new(),
+            current_ripping_title: None,
 
             plot: String::new(),
             genre: String::new(),
@@ -411,6 +426,58 @@ impl DvdRipperApp {
                 self.end_episode = Some(max_ep);
             }
         }
+        self.refresh_completed_episodes();
+    }
+
+    /// Checks local file system and historical rip activity to mark previously ripped episodes as completed.
+    pub fn refresh_completed_episodes(&mut self) {
+        if self.detected_episodes.is_empty() {
+            return;
+        }
+
+        let show_name = self.film_name.trim();
+        let season = self.season_number;
+        let out_dir = self.out_dir.clone();
+
+        for ep in &self.detected_episodes {
+            if self.completed_episodes.contains(&ep.title_num) {
+                continue;
+            }
+
+            // Check if recorded as success in ripping history
+            let in_history = self.history.iter().any(|rec| {
+                (rec.status == "Success" || rec.status == "Completed")
+                    && (rec.title.contains(&ep.formatted_name)
+                        || (show_name.len() > 2
+                            && rec.title.contains(show_name)
+                            && rec
+                                .output_path
+                                .contains(&format!("S{:02}E{:02}", season, ep.episode_num))))
+            });
+
+            if in_history {
+                self.completed_episodes.insert(ep.title_num);
+                continue;
+            }
+
+            // Check if file exists in destination directory on disk
+            if !show_name.is_empty() {
+                let yr = self.film_year.trim().parse::<u32>().ok();
+                let dest_dir = crate::application::rip_tv_batch::resolve_tv_batch_destination_dir(
+                    std::path::Path::new(&out_dir),
+                    show_name,
+                    season,
+                    yr,
+                );
+                for ext in ["mp4", "mkv", "mpg"] {
+                    let ep_filename = format!("{}.{}", ep.formatted_name, ext);
+                    if dest_dir.join(&ep_filename).exists() {
+                        self.completed_episodes.insert(ep.title_num);
+                        break;
+                    }
+                }
+            }
+        }
     }
 
     pub fn trigger_custom_search(&mut self) {
@@ -534,6 +601,7 @@ impl DvdRipperApp {
         self.controller.cancel();
         self.is_ripping = false;
         self.detecting = false;
+        self.current_ripping_title = None;
         self.progress_percent = 0.0;
         self.fps = "N/A".to_string();
         self.speed = "N/A".to_string();
@@ -646,11 +714,24 @@ impl DvdRipperApp {
                     } else {
                         self.end_episode = None;
                     }
+                    self.refresh_completed_episodes();
                     self.detecting = false;
                     self.detect_status = format!(
                         "Found {} TV episode titles on disc.",
                         self.detected_episodes.len()
                     );
+                }
+                ProgressEvent::TvEpisodeStarted { title_num } => {
+                    self.current_ripping_title = Some(title_num);
+                }
+                ProgressEvent::TvEpisodeCompleted {
+                    title_num,
+                    output_path: _,
+                } => {
+                    self.completed_episodes.insert(title_num);
+                    if self.current_ripping_title == Some(title_num) {
+                        self.current_ripping_title = None;
+                    }
                 }
                 ProgressEvent::BenchmarkFinished(report) => {
                     self.detecting = false;
@@ -732,6 +813,14 @@ impl DvdRipperApp {
                     self.eta_seconds = None;
                     self.progress_percent = 1.0;
                     self.status_message = format!("Success! Saved to {}", path.display());
+
+                    if let Some(active) = self.current_ripping_title {
+                        self.completed_episodes.insert(active);
+                    }
+                    if self.is_tv_mode && self.title_number > 0 {
+                        self.completed_episodes.insert(self.title_number);
+                    }
+                    self.current_ripping_title = None;
 
                     let title = if self.film_name.trim().is_empty() {
                         path.file_stem()
@@ -817,6 +906,7 @@ impl DvdRipperApp {
                 ProgressEvent::Error(msg) => {
                     self.is_ripping = false;
                     self.detecting = false;
+                    self.current_ripping_title = None;
                     self.start_time = None;
                     self.eta_seconds = None;
                     self.progress_percent = 0.0;
@@ -1099,5 +1189,54 @@ mod tests {
 
         let ctx = egui::Context::default();
         app.poll_events(&ctx);
+    }
+
+    #[test]
+    fn test_tv_episode_events_and_refresh_completed() {
+        let mut app = DvdRipperApp::default();
+        app.film_name = "Blackadder".to_string();
+        app.season_number = 2;
+        app.detected_episodes = vec![
+            crate::domain::entities::disc::TvEpisodeInfo {
+                title_num: 1,
+                episode_num: 1,
+                formatted_name: "Blackadder - S02E01".to_string(),
+                duration_secs: 1800.0,
+            },
+            crate::domain::entities::disc::TvEpisodeInfo {
+                title_num: 2,
+                episode_num: 2,
+                formatted_name: "Blackadder - S02E02".to_string(),
+                duration_secs: 1800.0,
+            },
+        ];
+
+        // 1. Episode started
+        let _ = app
+            .event_tx
+            .send(ProgressEvent::TvEpisodeStarted { title_num: 1 });
+        app.process_events();
+        assert_eq!(app.current_ripping_title, Some(1));
+        assert!(!app.completed_episodes.contains(&1));
+
+        // 2. Episode completed
+        let _ = app.event_tx.send(ProgressEvent::TvEpisodeCompleted {
+            title_num: 1,
+            output_path: PathBuf::from("C:\\Out\\Blackadder - S02E01.mp4"),
+        });
+        app.process_events();
+        assert_eq!(app.current_ripping_title, None);
+        assert!(app.completed_episodes.contains(&1));
+        assert!(!app.completed_episodes.contains(&2));
+
+        // 3. Test refresh_completed_episodes with history
+        app.history.push(crate::history::RipRecord::new(
+            "Blackadder - S02E02",
+            "TV",
+            "C:\\Out\\Blackadder - S02E02.mp4",
+            "Success",
+        ));
+        app.refresh_completed_episodes();
+        assert!(app.completed_episodes.contains(&2));
     }
 }

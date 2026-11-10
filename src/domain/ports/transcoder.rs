@@ -16,6 +16,8 @@ pub struct TranscodeJob<'a> {
 pub trait ProgressObserver: Send + Sync {
     fn on_progress(&self, percent: f64, fps: &str, speed: &str);
     fn on_log(&self, line: &str);
+    fn on_title_start(&self, _title_num: u32) {}
+    fn on_title_complete(&self, _title_num: u32, _output_path: &Path) {}
 }
 
 /// Abstraction for media transcoding and stream copying engines.

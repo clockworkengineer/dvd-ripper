@@ -1186,6 +1186,13 @@ pub enum ProgressEvent {
     Metadata(crate::imdb::FilmMetadata),
     SearchResults(Vec<crate::imdb::SearchResultItem>),
     TvEpisodesDetected(Vec<TvEpisodeInfo>),
+    TvEpisodeStarted {
+        title_num: u32,
+    },
+    TvEpisodeCompleted {
+        title_num: u32,
+        output_path: PathBuf,
+    },
     BenchmarkFinished(crate::dvd::DriveBenchmarkReport),
     DetectedTitle {
         title_num: u32,

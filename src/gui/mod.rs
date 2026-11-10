@@ -232,6 +232,8 @@ impl DvdRipperApp {
                         &mut self.auto_boxset,
                         &mut self.all_episodes,
                         &self.detected_episodes,
+                        &self.completed_episodes,
+                        self.current_ripping_title,
                         &self.title_thumbnails,
                         is_busy,
                         || range_changed = true,
