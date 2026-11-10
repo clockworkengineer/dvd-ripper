@@ -320,7 +320,33 @@ impl RipTvBatchUseCase {
 
         let destination_dir = request.resolve_destination_dir();
 
-        for ep in episodes_to_rip {
+        // Detect if all episodes share the same monolithic "Play-All" title number and need chapter-range bounds
+        let is_monolithic_play_all = episodes_to_rip.len() > 1
+            && episodes_to_rip.first().is_some_and(|first| {
+                episodes_to_rip
+                    .iter()
+                    .all(|e| e.title_num == first.title_num)
+            });
+        let play_all_spans = if is_monolithic_play_all {
+            let play_all_title = episodes_to_rip[0].title_num.max(1);
+            let details = crate::ffmpeg::probe_title_stream_details(
+                "ffmpeg",
+                &request.source_dvd,
+                play_all_title,
+            );
+            crate::domain::heuristics::detect_tv_episodes_from_chapters(
+                play_all_title,
+                &details.chapters,
+                &request.series_title,
+                request.season_number,
+                request.start_episode,
+                None,
+            )
+        } else {
+            Vec::new()
+        };
+
+        for (idx, ep) in episodes_to_rip.into_iter().enumerate() {
             if let Some(ref flag) = cancel_flag
                 && flag.load(Ordering::SeqCst)
             {
@@ -364,8 +390,18 @@ impl RipTvBatchUseCase {
                 min_free_gb: request.min_free_gb,
             };
 
-            self.single_title_use_case
-                .execute(&single_req, observer, cancel_flag.clone())?;
+            let chapter_range = play_all_spans
+                .iter()
+                .find(|s| s.episode.episode_num == ep.episode_num)
+                .or_else(|| play_all_spans.get(idx))
+                .map(|s| (s.start_chapter, s.end_chapter));
+
+            self.single_title_use_case.execute_with_chapter_range(
+                &single_req,
+                chapter_range,
+                observer,
+                cancel_flag.clone(),
+            )?;
             completed_count += 1;
         }
 

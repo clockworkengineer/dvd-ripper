@@ -53,6 +53,16 @@ pub struct AppConfig {
     pub tesseract: Option<String>,
     pub ignore_errors: Option<bool>,
     pub iso: Option<bool>,
+    #[serde(default)]
+    pub auto_crop: Option<bool>,
+    #[serde(default)]
+    pub detelecine: Option<bool>,
+    #[serde(default)]
+    pub crf: Option<u8>,
+    #[serde(default)]
+    pub spool: Option<bool>,
+    #[serde(default)]
+    pub sector_retries: Option<u32>,
 }
 
 fn try_load_config_file(path: &Path) -> Option<AppConfig> {
@@ -298,6 +308,29 @@ pub fn apply_config_defaults(args: &mut Args, config: &AppConfig) {
         && !args.iso
     {
         args.iso = val;
+    }
+    if let Some(val) = config.auto_crop
+        && !args.auto_crop
+    {
+        args.auto_crop = val;
+    }
+    if let Some(val) = config.detelecine
+        && !args.detelecine
+    {
+        args.detelecine = val;
+    }
+    if args.crf.is_none() {
+        args.crf = config.crf;
+    }
+    if let Some(val) = config.spool
+        && !args.spool
+    {
+        args.spool = val;
+    }
+    if let Some(val) = config.sector_retries
+        && args.sector_retries == 2
+    {
+        args.sector_retries = val;
     }
 }
 

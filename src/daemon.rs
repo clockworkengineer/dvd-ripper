@@ -80,11 +80,37 @@ pub fn process_detected_disc(
     args: &Args,
     container: &crate::AppContainer,
 ) {
+    let disc_path = normalize_dvd_path(drive_path_str);
+    let disc_format = crate::dvd::detect_optical_disc_format(&disc_path);
     println!(
-        "[Daemon Drive '{}'] New Disc Detected: {}",
-        drive_path_str, label
+        "[Daemon Drive '{}'] New {:?} Disc Detected: {}",
+        drive_path_str, disc_format, label
     );
     crate::api::set_drive_disc_detected(drive_path_str, label);
+
+    match disc_format {
+        crate::dvd::OpticalDiscFormat::BluRay => {
+            let playlists = crate::dvd::probe_bluray_playlists(&disc_path);
+            if let Some(main_pl) = playlists.first() {
+                println!(
+                    "[Daemon Drive '{}'] Blu-ray Main Playlist {} ({:.1} MB, {:.0}s)",
+                    drive_path_str,
+                    main_pl.filename,
+                    main_pl.total_stream_bytes as f64 / 1_048_576.0,
+                    main_pl.estimated_duration_secs
+                );
+            }
+        }
+        crate::dvd::OpticalDiscFormat::AudioCd => {
+            let tracks = crate::dvd::probe_audio_cd_tracks(&disc_path, "Unknown Artist", label);
+            println!(
+                "[Daemon Drive '{}'] Audio CD detected with {} RedBook tracks.",
+                drive_path_str,
+                tracks.len()
+            );
+        }
+        _ => {}
+    }
 
     if let Some(ref broker) = args.mqtt_broker {
         let _ = crate::mqtt::publish_mqtt_status(broker, label, "Detected - Search Required", 0.0);

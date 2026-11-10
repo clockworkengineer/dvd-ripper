@@ -253,7 +253,42 @@ pub fn clear_queue() {
     let handle = get_job_queue_handle();
     if let Ok(mut queue) = handle.lock() {
         queue.clear();
+        let _ = save_job_queue(&queue);
     }
+}
+
+/// Selects the next job ready for background encoding, prioritizing `"Spooled (Ready to Encode)"` over `"Queued"`.
+pub fn next_ready_job() -> Option<JobItem> {
+    let handle = get_job_queue_handle();
+    if let Ok(queue) = handle.lock() {
+        if let Some(spooled) = queue
+            .iter()
+            .find(|j| j.status == "Spooled (Ready to Encode)")
+        {
+            return Some(spooled.clone());
+        }
+        if let Some(queued) = queue.iter().find(|j| j.status == "Queued") {
+            return Some(queued.clone());
+        }
+    }
+    None
+}
+
+/// Cleans up temporary `.spool/<job_id>` files once background encoding completes.
+pub fn cleanup_job_spool(job_id: &str, spool_root: &std::path::Path) -> bool {
+    let spool_dir = spool_root.join(".spool").join(job_id);
+    let mut removed_fs = false;
+    if spool_dir.exists() {
+        removed_fs = std::fs::remove_dir_all(&spool_dir).is_ok();
+    }
+    let handle = get_job_queue_handle();
+    if let Ok(mut queue) = handle.lock()
+        && let Some(job) = queue.iter_mut().find(|j| j.id == job_id)
+    {
+        job.spool_path = None;
+        let _ = save_job_queue(&queue);
+    }
+    removed_fs
 }
 
 fn normalize_show_key(show_name: &str) -> String {
@@ -510,6 +545,17 @@ mod tests {
         assert!(move_job_down(&id_second));
         let restored = list_jobs();
         assert_eq!(restored[0].id, id_first);
+
+        // 7. next_ready_job prioritizes spooled jobs & cleanup_job_spool cleans up
+        let next = next_ready_job().unwrap();
+        assert_eq!(next.id, id_second);
+        let spool_root = std::env::temp_dir().join(format!("spool_test_{}", uuid_v4_short()));
+        let job_spool_dir = spool_root.join(".spool").join(&id_second);
+        std::fs::create_dir_all(&job_spool_dir).unwrap();
+        assert!(cleanup_job_spool(&id_second, &spool_root));
+        assert!(!job_spool_dir.exists());
+        let _ = std::fs::remove_dir_all(&spool_root);
+
         clear_queue();
     }
 }

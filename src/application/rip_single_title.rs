@@ -174,6 +174,17 @@ impl RipSingleTitleUseCase {
         observer: Option<&dyn ProgressObserver>,
         cancel_flag: Option<Arc<AtomicBool>>,
     ) -> Result<()> {
+        self.execute_with_chapter_range(request, None, observer, cancel_flag)
+    }
+
+    /// Executes the single-title ripping workflow constrained to an optional `(start_chapter, end_chapter)` span.
+    pub fn execute_with_chapter_range(
+        &self,
+        request: &RipSingleTitleRequest,
+        chapter_range: Option<(u32, u32)>,
+        observer: Option<&dyn ProgressObserver>,
+        cancel_flag: Option<Arc<AtomicBool>>,
+    ) -> Result<()> {
         let parent_dir = request.output_path.parent().unwrap_or(&request.output_path);
 
         // 1. Check disk space guard
@@ -198,9 +209,17 @@ impl RipSingleTitleUseCase {
 
         // 4. Execute transcoding
         let start_time = std::time::Instant::now();
-        let transcode_res = self
-            .transcoder
-            .transcode(&job, observer, cancel_flag.clone());
+        let transcode_res = if chapter_range.is_some() {
+            self.transcoder.transcode_chapter_range(
+                &job,
+                chapter_range,
+                observer,
+                cancel_flag.clone(),
+            )
+        } else {
+            self.transcoder
+                .transcode(&job, observer, cancel_flag.clone())
+        };
 
         let media_type = if request.metadata.as_ref().is_some_and(|m| m.is_series) {
             "tv"

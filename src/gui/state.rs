@@ -130,6 +130,7 @@ pub struct DvdRipperApp {
     pub detelecine: bool,
     pub start_chapter: Option<u32>,
     pub end_chapter: Option<u32>,
+    pub split_chapters: bool,
     pub angle: Option<u32>,
     pub custom_crf: Option<u8>,
     pub spool_mode: bool,
@@ -247,6 +248,7 @@ impl Default for DvdRipperApp {
             detelecine: false,
             start_chapter: None,
             end_chapter: None,
+            split_chapters: false,
             angle: None,
             custom_crf: None,
             spool_mode: false,
@@ -357,6 +359,14 @@ impl DvdRipperApp {
         self.transcode = def.transcode;
         self.deinterlace = def.deinterlace;
         self.denoise = def.denoise;
+        self.auto_crop = def.auto_crop;
+        self.detelecine = def.detelecine;
+        self.start_chapter = def.start_chapter;
+        self.end_chapter = def.end_chapter;
+        self.split_chapters = def.split_chapters;
+        self.angle = def.angle;
+        self.custom_crf = def.custom_crf;
+        self.spool_mode = def.spool_mode;
     }
 
     pub fn build_encoding_options(&self) -> crate::cli::EncodingOptions {
@@ -421,6 +431,15 @@ impl DvdRipperApp {
             tonemap: None,
             ignore_errors: true,
             iso: self.iso_mode,
+            start_chapter: self.start_chapter,
+            end_chapter: self.end_chapter,
+            split_chapters: self.split_chapters,
+            angle: self.angle,
+            auto_crop: self.auto_crop,
+            detelecine: self.detelecine,
+            crf: self.custom_crf,
+            spool: self.spool_mode,
+            sector_retries: 2,
         }
     }
 

@@ -450,7 +450,7 @@ impl Default for Args {
     }
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct EncodingOptions {
     pub all_audio: bool,
     pub normalize_audio: bool,
@@ -496,6 +496,24 @@ pub struct EncodingOptions {
     pub auto_rip: bool,
     pub tonemap: Option<String>,
     pub ignore_errors: bool,
+    #[serde(default)]
+    pub start_chapter: Option<u32>,
+    #[serde(default)]
+    pub end_chapter: Option<u32>,
+    #[serde(default)]
+    pub split_chapters: bool,
+    #[serde(default)]
+    pub angle: Option<u32>,
+    #[serde(default)]
+    pub auto_crop: bool,
+    #[serde(default)]
+    pub detelecine: bool,
+    #[serde(default)]
+    pub crf: Option<u8>,
+    #[serde(default)]
+    pub spool: bool,
+    #[serde(default)]
+    pub sector_retries: u32,
 }
 
 impl Args {
@@ -544,6 +562,17 @@ impl Args {
         self.auto_rip = opts.auto_rip;
         self.tonemap = opts.tonemap;
         self.ignore_errors = opts.ignore_errors;
+        self.start_chapter = opts.start_chapter;
+        self.end_chapter = opts.end_chapter;
+        self.split_chapters = opts.split_chapters;
+        self.angle = opts.angle;
+        self.auto_crop = opts.auto_crop;
+        self.detelecine = opts.detelecine;
+        self.crf = opts.crf;
+        self.spool = opts.spool;
+        if opts.sector_retries > 0 {
+            self.sector_retries = opts.sector_retries;
+        }
     }
 }
 
@@ -556,6 +585,21 @@ pub trait EncodingOptionProvider {
 impl EncodingOptionProvider for Args {
     fn build_encoding_options(&self) -> EncodingOptions {
         EncodingOptions {
+            all_audio: self.all_audio,
+            normalize_audio: self.normalize_audio,
+            dual_audio: self.dual_audio,
+            mkv: self.mkv,
+            iso: self.iso,
+            codec: self.codec.clone(),
+            profile: self.profile.clone(),
+            audio_lang: self.audio_lang.clone(),
+            subtitles: self.subtitles,
+            sub_lang: self.sub_lang.clone(),
+            sub_format: self.sub_format.clone(),
+            webhook_url: self.webhook_url.clone(),
+            webhook_secret: self.webhook_secret.clone(),
+            no_overwrite: self.no_overwrite,
+            auto_boxset: self.auto_boxset,
             deinterlace: self.deinterlace,
             deinterlace_algo: self.deinterlace_algo.clone(),
             denoise: self.denoise,
@@ -569,7 +613,6 @@ impl EncodingOptionProvider for Args {
             audio_track: self.audio_track,
             hwaccel_fallback: self.hwaccel_fallback,
             audio_title: self.audio_title.clone(),
-            webhook_secret: self.webhook_secret.clone(),
             audit_log: self.audit_log.clone(),
             spindown: self.spindown,
             sub_default: self.sub_default,
@@ -586,8 +629,15 @@ impl EncodingOptionProvider for Args {
             auto_rip: self.auto_rip,
             tonemap: self.tonemap.clone(),
             ignore_errors: self.ignore_errors,
-            iso: self.iso,
-            ..Default::default()
+            start_chapter: self.start_chapter,
+            end_chapter: self.end_chapter,
+            split_chapters: self.split_chapters,
+            angle: self.angle,
+            auto_crop: self.auto_crop,
+            detelecine: self.detelecine,
+            crf: self.crf,
+            spool: self.spool,
+            sector_retries: self.sector_retries,
         }
     }
 }

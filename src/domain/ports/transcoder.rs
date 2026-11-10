@@ -40,6 +40,18 @@ pub trait Transcoder: Send + Sync {
         observer: Option<&dyn ProgressObserver>,
         cancel_flag: Option<Arc<AtomicBool>>,
     ) -> Result<()>;
+
+    /// Transcodes a specific `(start_chapter, end_chapter)` range within a title track.
+    /// Defaults to delegating to [`Transcoder::transcode`] for mock or chapter-agnostic adapters.
+    fn transcode_chapter_range(
+        &self,
+        job: &TranscodeJob,
+        _chapter_range: Option<(u32, u32)>,
+        observer: Option<&dyn ProgressObserver>,
+        cancel_flag: Option<Arc<AtomicBool>>,
+    ) -> Result<()> {
+        self.transcode(job, observer, cancel_flag)
+    }
 }
 
 /// Open/Closed Principle (OCP/SOLID): Trait contract for video codec strategy resolvers.

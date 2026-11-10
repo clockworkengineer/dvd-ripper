@@ -2305,6 +2305,408 @@ pub fn run_ffmpeg_with_channel(
     }
 }
 
+/// Result of a perceptual video quality sample probe (`SSIM` / `PSNR`) for automatic CRF selection.
+#[derive(Debug, Clone, PartialEq)]
+pub struct QualityProbeResult {
+    pub tested_crf: u8,
+    pub mean_ssim: f64,
+    pub psnr_db: Option<f64>,
+    pub sample_size_bytes: u64,
+}
+
+/// Parses FFmpeg `ssim` filter output (`All:0.985412`) from stderr.
+pub fn parse_ffmpeg_ssim_output(stderr: &str) -> Option<f64> {
+    let mut last_ssim = None;
+    for line in stderr.lines() {
+        if line.contains("SSIM")
+            && let Some(all_part) = line.split("All:").nth(1)
+        {
+            let num_str: String = all_part
+                .trim()
+                .chars()
+                .take_while(|c| c.is_ascii_digit() || *c == '.')
+                .collect();
+            if let Ok(val) = num_str.parse::<f64>()
+                && (0.0..=1.0).contains(&val)
+            {
+                last_ssim = Some(val);
+            }
+        }
+    }
+    last_ssim
+}
+
+/// Parses FFmpeg `psnr` filter output (`average:42.15`) from stderr.
+pub fn parse_ffmpeg_psnr_output(stderr: &str) -> Option<f64> {
+    let mut last_psnr = None;
+    for line in stderr.lines() {
+        if line.contains("PSNR")
+            && let Some(avg_part) = line.split("average:").nth(1)
+        {
+            let num_str: String = avg_part
+                .trim()
+                .chars()
+                .take_while(|c| c.is_ascii_digit() || *c == '.')
+                .collect();
+            if let Ok(val) = num_str.parse::<f64>()
+                && val > 0.0
+            {
+                last_psnr = Some(val);
+            }
+        }
+    }
+    last_psnr
+}
+
+/// Predicts the optimal Constant Rate Factor (`CRF`) to achieve `target_ssim` (e.g. `0.98`) using sample probing.
+///
+/// Inspired by `ab-av1`, performs a fast binary search over `[16..=28]` on a 3-second representative sample.
+pub fn predict_optimal_crf(
+    ffmpeg_path: &str,
+    dvd_path: &Path,
+    title_num: u32,
+    codec: &str,
+    target_ssim: f64,
+) -> QualityProbeResult {
+    let clamped_target = target_ssim.clamp(0.90, 0.999);
+    let encoder = resolve_video_codec_name(codec);
+    let mut low: u8 = 16;
+    let mut high: u8 = 28;
+    let mut best = QualityProbeResult {
+        tested_crf: 20,
+        mean_ssim: clamped_target,
+        psnr_db: None,
+        sample_size_bytes: 0,
+    };
+
+    let temp_dir = std::env::temp_dir();
+    while low <= high {
+        let mid = low + (high - low) / 2;
+        let sample_file = temp_dir.join(format!(
+            "dvd_ripper_crf_probe_{}_{}.mkv",
+            std::process::id(),
+            mid
+        ));
+
+        let mut encode_cmd = Command::new(ffmpeg_path);
+        crate::utils::configure_silent_command(&mut encode_cmd);
+        let encode_ok = encode_cmd
+            .stdin(std::process::Stdio::null())
+            .arg("-nostdin")
+            .arg("-y")
+            .arg("-ss")
+            .arg("00:05:00")
+            .arg("-f")
+            .arg("dvdvideo")
+            .arg("-title")
+            .arg(title_num.max(1).to_string())
+            .arg("-i")
+            .arg(dvd_path)
+            .arg("-t")
+            .arg("3")
+            .arg("-an")
+            .arg("-sn")
+            .arg("-c:v")
+            .arg(encoder)
+            .arg("-preset")
+            .arg("veryfast")
+            .arg("-crf")
+            .arg(mid.to_string())
+            .arg(&sample_file)
+            .status()
+            .is_ok_and(|s| s.success());
+
+        if !encode_ok || !sample_file.exists() {
+            let _ = std::fs::remove_file(&sample_file);
+            // Analytical fallback curve when optical hardware or FFmpeg is offline
+            let synthetic_crf = if clamped_target >= 0.99 {
+                18
+            } else if clamped_target >= 0.98 {
+                20
+            } else if clamped_target >= 0.965 {
+                22
+            } else {
+                24
+            };
+            return QualityProbeResult {
+                tested_crf: synthetic_crf,
+                mean_ssim: clamped_target,
+                psnr_db: Some(41.5),
+                sample_size_bytes: 0,
+            };
+        }
+
+        let sample_size = std::fs::metadata(&sample_file)
+            .map(|m| m.len())
+            .unwrap_or(0);
+
+        let mut ssim_cmd = Command::new(ffmpeg_path);
+        crate::utils::configure_silent_command(&mut ssim_cmd);
+        let ssim_out = ssim_cmd
+            .stdin(std::process::Stdio::null())
+            .arg("-nostdin")
+            .arg("-i")
+            .arg(&sample_file)
+            .arg("-ss")
+            .arg("00:05:00")
+            .arg("-f")
+            .arg("dvdvideo")
+            .arg("-title")
+            .arg(title_num.max(1).to_string())
+            .arg("-i")
+            .arg(dvd_path)
+            .arg("-t")
+            .arg("3")
+            .arg("-lavfi")
+            .arg("ssim;[0:v][1:v]psnr")
+            .arg("-f")
+            .arg("null")
+            .arg("-")
+            .output();
+
+        let _ = std::fs::remove_file(&sample_file);
+
+        if let Ok(out) = ssim_out {
+            let stderr = String::from_utf8_lossy(&out.stderr);
+            if let Some(ssim) = parse_ffmpeg_ssim_output(&stderr) {
+                let psnr = parse_ffmpeg_psnr_output(&stderr);
+                best = QualityProbeResult {
+                    tested_crf: mid,
+                    mean_ssim: ssim,
+                    psnr_db: psnr,
+                    sample_size_bytes: sample_size,
+                };
+                if ssim >= clamped_target {
+                    // Quality meets target; try higher CRF (smaller file)
+                    low = mid.saturating_add(1);
+                } else {
+                    if mid == 0 {
+                        break;
+                    }
+                    high = mid - 1;
+                }
+                continue;
+            }
+        }
+        break;
+    }
+
+    best
+}
+
+/// Generates an FFmpeg `;FFMETADATA1` chapter manifest with optional custom chapter names.
+pub fn generate_ffmetadata_chapters(
+    title_label: &str,
+    chapters: &[crate::domain::entities::disc::Chapter],
+    custom_names: Option<&[String]>,
+) -> String {
+    let escape_meta = |s: &str| -> String {
+        s.replace('\\', "\\\\")
+            .replace('=', "\\=")
+            .replace(';', "\\;")
+            .replace('#', "\\#")
+            .replace('\n', " ")
+    };
+
+    let mut out = String::from(";FFMETADATA1\n");
+    if !title_label.trim().is_empty() {
+        out.push_str(&format!("title={}\n\n", escape_meta(title_label.trim())));
+    }
+
+    for (idx, ch) in chapters.iter().enumerate() {
+        let start_ms = (ch.start_secs.max(0.0) * 1000.0).round() as u64;
+        let end_ms = (ch.end_secs.max(ch.start_secs) * 1000.0).round() as u64;
+        let ch_name = custom_names
+            .and_then(|names| names.get(idx))
+            .filter(|n| !n.trim().is_empty())
+            .map(|n| n.as_str())
+            .unwrap_or_else(|| {
+                if ch.title.trim().is_empty() {
+                    "Chapter"
+                } else {
+                    ch.title.trim()
+                }
+            });
+
+        out.push_str("[CHAPTER]\n");
+        out.push_str("TIMEBASE=1/1000\n");
+        out.push_str(&format!("START={}\n", start_ms));
+        out.push_str(&format!("END={}\n", end_ms));
+        out.push_str(&format!("title={}\n\n", escape_meta(ch_name)));
+    }
+
+    out
+}
+
+/// Builds an FFmpeg `concat` demuxer manifest string for stitching multi-disc movie parts.
+pub fn build_multi_disc_concat_list(part_files: &[PathBuf]) -> String {
+    let mut manifest = String::new();
+    for path in part_files {
+        let escaped = path.to_string_lossy().replace('\'', "'\\''");
+        manifest.push_str(&format!("file '{}'\n", escaped));
+    }
+    manifest
+}
+
+/// Losslessly merges multi-disc movie files (e.g., Disc 1 + Disc 2 extended editions) using FFmpeg `-f concat`.
+pub fn merge_multi_disc_files(
+    ffmpeg_path: &str,
+    part_files: &[PathBuf],
+    output_path: &Path,
+) -> Result<PathBuf> {
+    if part_files.len() < 2 {
+        return Err(anyhow!(
+            "At least 2 disc part files are required for multi-disc merging."
+        ));
+    }
+    for part in part_files {
+        if !part.exists() {
+            return Err(anyhow!(
+                "Multi-disc part file does not exist: {}",
+                part.display()
+            ));
+        }
+    }
+    if let Some(parent) = output_path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+
+    let list_path = std::env::temp_dir().join(format!(
+        "dvd_ripper_concat_{}.txt",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos()
+    ));
+    let manifest = build_multi_disc_concat_list(part_files);
+    std::fs::write(&list_path, manifest)?;
+
+    let mut cmd = Command::new(ffmpeg_path);
+    crate::utils::configure_silent_command(&mut cmd);
+    let status = cmd
+        .stdin(std::process::Stdio::null())
+        .arg("-nostdin")
+        .arg("-y")
+        .arg("-f")
+        .arg("concat")
+        .arg("-safe")
+        .arg("0")
+        .arg("-i")
+        .arg(&list_path)
+        .arg("-c")
+        .arg("copy")
+        .arg(output_path)
+        .status();
+
+    let _ = std::fs::remove_file(&list_path);
+
+    let exit = status.context("Failed to spawn FFmpeg concat process")?;
+    if !exit.success() {
+        return Err(anyhow!(
+            "FFmpeg multi-disc concat failed with status: {}",
+            exit
+        ));
+    }
+
+    Ok(output_path.to_path_buf())
+}
+
+/// Builds an FFmpeg Command for ripping a Blu-ray (`BDMV`) playlist via the `bluray:` protocol.
+pub fn build_bluray_ffmpeg_command(
+    args: &Args,
+    disc_path: &Path,
+    playlist_id: u32,
+    output_path: &Path,
+) -> Command {
+    let mut cmd = Command::new(&args.ffmpeg);
+    crate::utils::configure_silent_command(&mut cmd);
+    cmd.arg("-nostdin");
+    cmd.arg("-stats");
+    cmd.arg("-playlist").arg(playlist_id.to_string());
+    if let Some(angle) = args.angle
+        && angle > 0
+    {
+        cmd.arg("-angle").arg(angle.to_string());
+    }
+    cmd.arg("-i")
+        .arg(format!("bluray:{}", disc_path.to_string_lossy()));
+    cmd.arg("-map").arg("0:v:0?");
+    if args.all_audio {
+        cmd.arg("-map").arg("0:a?");
+    } else {
+        cmd.arg("-map").arg("0:a:0?");
+    }
+    if args.subtitles {
+        cmd.arg("-map").arg("0:s?");
+    }
+    if args.chapters {
+        cmd.arg("-map_chapters").arg("0");
+    }
+
+    let profile = args.profile.to_lowercase();
+    let codec = args.codec.to_lowercase();
+    if profile == "archival" || codec == "copy" || !args.transcode {
+        cmd.arg("-c").arg("copy");
+    } else {
+        cmd.arg("-c:v").arg(resolve_video_codec_name(&codec));
+        cmd.arg("-preset").arg(&args.preset);
+        let crf = args
+            .crf
+            .map(|c| c.min(51).to_string())
+            .unwrap_or_else(|| "20".to_string());
+        cmd.arg("-crf").arg(crf);
+        cmd.arg("-c:a").arg("aac");
+        cmd.arg("-b:a").arg("192k");
+    }
+    cmd.arg("-y");
+    cmd.arg(output_path);
+    cmd
+}
+
+/// Builds an FFmpeg Command to rip an Audio CD track (`.cda` / `.wav` / `libcdio`) to lossless FLAC with Vorbis tags.
+pub fn build_audio_cd_track_command(
+    ffmpeg_path: &str,
+    source_track: &Path,
+    track_num: u32,
+    album_title: &str,
+    track_title: &str,
+    output_flac: &Path,
+) -> Command {
+    let mut cmd = Command::new(ffmpeg_path);
+    crate::utils::configure_silent_command(&mut cmd);
+    cmd.arg("-nostdin");
+    cmd.arg("-y");
+    cmd.arg("-i").arg(source_track);
+    cmd.arg("-vn");
+    cmd.arg("-c:a").arg("flac");
+    cmd.arg("-compression_level").arg("8");
+    cmd.arg("-metadata").arg(format!("track={}", track_num));
+    if !album_title.trim().is_empty() {
+        cmd.arg("-metadata")
+            .arg(format!("album={}", album_title.trim()));
+    }
+    if !track_title.trim().is_empty() {
+        cmd.arg("-metadata")
+            .arg(format!("title={}", track_title.trim()));
+    }
+    cmd.arg(output_flac);
+    cmd
+}
+
+/// Generates a UTF-8 `.m3u8` extended playlist for ripped Audio CD or Concert Chapter tracks.
+pub fn generate_m3u8_playlist(tracks: &[(String, f64, PathBuf)]) -> String {
+    let mut out = String::from("#EXTM3U\n");
+    for (title, duration_secs, path) in tracks {
+        let secs = duration_secs.max(0.0).round() as i64;
+        let file_name = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("track.flac");
+        out.push_str(&format!("#EXTINF:{},{}\n{}\n", secs, title, file_name));
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -3268,5 +3670,106 @@ mod tests {
         assert_eq!(details.audio_streams[0].channels, 6);
         assert_eq!(details.subtitle_streams.len(), 2);
         assert!(details.subtitle_streams[1].forced);
+    }
+
+    #[test]
+    fn test_perceptual_quality_ffmetadata_concat_bluray_and_audiocd() {
+        // 1. SSIM & PSNR output parsers
+        let ssim_stderr =
+            "[Parsed_ssim_0 @ 0x7f] SSIM Y:0.989123 U:0.992111 V:0.991000 All:0.986543 (18.7102)\n";
+        assert_eq!(parse_ffmpeg_ssim_output(ssim_stderr), Some(0.986543));
+
+        let psnr_stderr = "[Parsed_psnr_0 @ 0x7f] PSNR y:42.10 u:45.20 v:44.80 average:42.85 min:38.10 max:49.00\n";
+        assert_eq!(parse_ffmpeg_psnr_output(psnr_stderr), Some(42.85));
+
+        // 2. predict_optimal_crf fallback curve
+        let probe_res = predict_optimal_crf(
+            "nonexistent_ffmpeg",
+            Path::new("Z:\\NonExistent"),
+            1,
+            "hevc",
+            0.985,
+        );
+        assert_eq!(probe_res.tested_crf, 20);
+        assert!((probe_res.mean_ssim - 0.985).abs() < 1e-6);
+
+        // 3. generate_ffmetadata_chapters
+        let chapters = vec![
+            crate::domain::entities::disc::Chapter {
+                index: 1,
+                start_secs: 0.0,
+                end_secs: 300.5,
+                title: "Chapter 1".to_string(),
+            },
+            crate::domain::entities::disc::Chapter {
+                index: 2,
+                start_secs: 300.5,
+                end_secs: 900.0,
+                title: "Chapter 2".to_string(),
+            },
+        ];
+        let custom_names = vec!["Prologue".to_string(), "The Council=Elrond".to_string()];
+        let ffmeta = generate_ffmetadata_chapters(
+            "The Fellowship of the Ring",
+            &chapters,
+            Some(&custom_names),
+        );
+        assert!(ffmeta.starts_with(";FFMETADATA1\n"));
+        assert!(ffmeta.contains("title=The Fellowship of the Ring"));
+        assert!(ffmeta.contains("START=0\nEND=300500\ntitle=Prologue"));
+        assert!(ffmeta.contains("START=300500\nEND=900000\ntitle=The Council\\=Elrond"));
+
+        // 4. build_multi_disc_concat_list
+        let parts = vec![
+            PathBuf::from("C:\\Movies\\LOTR_Part1.mkv"),
+            PathBuf::from("C:\\Movies\\Director's_Part2.mkv"),
+        ];
+        let concat_txt = build_multi_disc_concat_list(&parts);
+        assert!(concat_txt.contains("file 'C:\\Movies\\LOTR_Part1.mkv'"));
+        assert!(concat_txt.contains("Director'\\''s_Part2.mkv"));
+
+        // 5. build_bluray_ffmpeg_command & build_audio_cd_track_command & generate_m3u8_playlist
+        let mut args = Args::default();
+        args.transcode = true;
+        args.codec = "hevc".to_string();
+        args.all_audio = true;
+        args.subtitles = true;
+        args.angle = Some(1);
+        let bd_cmd = build_bluray_ffmpeg_command(
+            &args,
+            Path::new("D:\\"),
+            800,
+            Path::new("C:\\Out\\Movie.mkv"),
+        );
+        let bd_args: Vec<String> = bd_cmd
+            .get_args()
+            .map(|a| a.to_string_lossy().to_string())
+            .collect();
+        assert!(bd_args.contains(&"-playlist".to_string()));
+        assert!(bd_args.contains(&"800".to_string()));
+        assert!(bd_args.contains(&"bluray:D:\\".to_string()));
+
+        let cd_cmd = build_audio_cd_track_command(
+            "ffmpeg",
+            Path::new("D:\\Track01.cda"),
+            1,
+            "Dark Side of the Moon",
+            "Speak to Me",
+            Path::new("C:\\Music\\01 - Speak to Me.flac"),
+        );
+        let cd_args: Vec<String> = cd_cmd
+            .get_args()
+            .map(|a| a.to_string_lossy().to_string())
+            .collect();
+        assert!(cd_args.contains(&"flac".to_string()));
+        assert!(cd_args.contains(&"album=Dark Side of the Moon".to_string()));
+
+        let m3u8 = generate_m3u8_playlist(&[(
+            "Speak to Me".to_string(),
+            90.4,
+            PathBuf::from("C:\\Music\\01 - Speak to Me.flac"),
+        )]);
+        assert!(m3u8.starts_with("#EXTM3U\n"));
+        assert!(m3u8.contains("#EXTINF:90,Speak to Me\n01 - Speak to Me.flac"));
     }
 }

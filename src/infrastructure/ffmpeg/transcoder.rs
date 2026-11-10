@@ -77,10 +77,24 @@ impl Transcoder for FfmpegTranscoder {
         observer: Option<&dyn ProgressObserver>,
         cancel_flag: Option<Arc<AtomicBool>>,
     ) -> Result<()> {
+        self.transcode_chapter_range(job, None, observer, cancel_flag)
+    }
+
+    fn transcode_chapter_range(
+        &self,
+        job: &TranscodeJob,
+        chapter_range: Option<(u32, u32)>,
+        observer: Option<&dyn ProgressObserver>,
+        cancel_flag: Option<Arc<AtomicBool>>,
+    ) -> Result<()> {
         let mut args = crate::cli::Args::from(&self.options);
         args.ffmpeg = self.ffmpeg_path.clone();
         if job.title_number > 0 {
             args.title = job.title_number;
+        }
+        if let Some((start_ch, end_ch)) = chapter_range {
+            args.start_chapter = Some(start_ch);
+            args.end_chapter = Some(end_ch);
         }
 
         if let Some(obs) = observer {
