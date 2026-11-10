@@ -219,6 +219,7 @@ impl DvdRipperApp {
                     if !self.simple_mode && !self.iso_mode {
                         let mut preview_requested = false;
                         let mut queue_requested = false;
+                        let mut auto_crf_requested = false;
                         ui.add_space(4.0);
                         ui.add_enabled_ui(!is_busy, |ui| {
                             ui.group(|ui| {
@@ -246,6 +247,8 @@ impl DvdRipperApp {
                                         .on_hover_text("Automatically detect and crop letterbox/pillarbox borders (-vf cropdetect)");
                                     ui.checkbox(&mut self.detelecine, "🎞 Inverse Telecine (IVTC)")
                                         .on_hover_text("Restore 29.97fps telecined NTSC film to 23.976fps progressive (-vf fieldmatch,yadif,decimate)");
+                                    ui.checkbox(&mut self.split_chapters, "🔪 Split by Chapters")
+                                        .on_hover_text("Split Play-All / Concert / Anthology titles by chapter markers");
 
                                     ui.separator();
                                     let mut ch_start = self.start_chapter.unwrap_or(0);
@@ -266,6 +269,35 @@ impl DvdRipperApp {
                                     {
                                         self.end_chapter = if ch_end == 0 { None } else { Some(ch_end) };
                                     }
+                                });
+                                ui.horizontal(|ui| {
+                                    let mut angle_val = self.angle.unwrap_or(1);
+                                    ui.label("Angle:");
+                                    if ui
+                                        .add(egui::DragValue::new(&mut angle_val).range(1..=9))
+                                        .on_hover_text("Select multi-angle camera track (1..9)")
+                                        .changed()
+                                    {
+                                        self.angle = if angle_val <= 1 { None } else { Some(angle_val) };
+                                    }
+
+                                    ui.separator();
+                                    let mut crf_val = self.custom_crf.unwrap_or(0);
+                                    ui.label("CRF:");
+                                    if ui
+                                        .add(egui::DragValue::new(&mut crf_val).range(0..=40))
+                                        .on_hover_text("0 = Use profile default; 16-24 = custom Constant Rate Factor")
+                                        .changed()
+                                    {
+                                        self.custom_crf = if crf_val == 0 { None } else { Some(crf_val) };
+                                    }
+                                    if ui
+                                        .button("🎯 Auto-CRF (SSIM)")
+                                        .on_hover_text("Probe video complexity to calculate optimal CRF for 98% SSIM perceptual quality")
+                                        .clicked()
+                                    {
+                                        auto_crf_requested = true;
+                                    }
 
                                     ui.separator();
                                     if ui
@@ -285,6 +317,9 @@ impl DvdRipperApp {
                                 });
                             });
                         });
+                        if auto_crf_requested {
+                            self.trigger_auto_crf();
+                        }
                         if preview_requested {
                             self.trigger_preview_clip();
                         }
@@ -299,6 +334,7 @@ impl DvdRipperApp {
                     let mut move_down_id = None;
                     let mut remove_id = None;
                     let mut clear_req = false;
+                    let mut process_next_req = false;
 
                     tabs::queue_tab::render_queue_tab(
                         ui,
@@ -311,6 +347,27 @@ impl DvdRipperApp {
                         |id| remove_id = Some(id.to_string()),
                         || clear_req = true,
                     );
+
+                    if !self.queued_jobs.is_empty() {
+                        ui.add_space(4.0);
+                        ui.add_enabled_ui(!is_busy, |ui| {
+                            if ui
+                                .button(
+                                    egui::RichText::new("▶ Process Next Queued / Spooled Job")
+                                        .strong()
+                                        .color(theme::ACCENT_COLOR),
+                                )
+                                .on_hover_text("Pop the highest-priority spooled or queued disc job and start encoding")
+                                .clicked()
+                            {
+                                process_next_req = true;
+                            }
+                        });
+                    }
+
+                    if process_next_req {
+                        self.start_next_queued_job();
+                    }
 
                     if enqueue_req {
                         self.enqueue_current_disc();

@@ -355,6 +355,14 @@ pub struct Args {
     /// Number of sector-level read retries on damaged/scratched optical sectors during ISO rescue
     #[arg(long = "sector-retries", default_value_t = 2)]
     pub sector_retries: u32,
+
+    /// Target output file size in Megabytes (e.g. --target-size-mb 1400) for automatic bitrate calculation
+    #[arg(long = "target-size-mb")]
+    pub target_size_mb: Option<u32>,
+
+    /// Automatically classify and extract DVD bonus features & extras into Plex/Jellyfin subfolders (Trailers, Deleted Scenes, Featurettes)
+    #[arg(long = "rip-extras")]
+    pub rip_extras: bool,
 }
 
 impl Default for Args {
@@ -446,6 +454,8 @@ impl Default for Args {
             crf: None,
             spool: false,
             sector_retries: 2,
+            target_size_mb: None,
+            rip_extras: false,
         }
     }
 }
@@ -514,6 +524,10 @@ pub struct EncodingOptions {
     pub spool: bool,
     #[serde(default)]
     pub sector_retries: u32,
+    #[serde(default)]
+    pub target_size_mb: Option<u32>,
+    #[serde(default)]
+    pub rip_extras: bool,
 }
 
 impl Args {
@@ -573,6 +587,8 @@ impl Args {
         if opts.sector_retries > 0 {
             self.sector_retries = opts.sector_retries;
         }
+        self.target_size_mb = opts.target_size_mb;
+        self.rip_extras = opts.rip_extras;
     }
 }
 
@@ -638,6 +654,8 @@ impl EncodingOptionProvider for Args {
             crf: self.crf,
             spool: self.spool,
             sector_retries: self.sector_retries,
+            target_size_mb: self.target_size_mb,
+            rip_extras: self.rip_extras,
         }
     }
 }
@@ -872,6 +890,7 @@ impl From<&Args> for crate::domain::ports::transcoder::TranscodeOptions {
             auto_crop: args.auto_crop,
             detelecine: args.detelecine,
             crf: args.crf,
+            target_size_mb: args.target_size_mb,
         }
     }
 }
@@ -913,6 +932,7 @@ impl From<&crate::domain::ports::transcoder::TranscodeOptions> for Args {
             auto_crop: opt.auto_crop,
             detelecine: opt.detelecine,
             crf: opt.crf,
+            target_size_mb: opt.target_size_mb,
             ..Default::default()
         }
     }

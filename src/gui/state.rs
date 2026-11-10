@@ -440,6 +440,8 @@ impl DvdRipperApp {
             crf: self.custom_crf,
             spool: self.spool_mode,
             sector_retries: 2,
+            target_size_mb: None,
+            rip_extras: false,
         }
     }
 
@@ -610,6 +612,46 @@ impl DvdRipperApp {
         let _id = crate::queue::add_job(&title, media_type, &self.input_drive);
         self.queued_jobs = crate::queue::list_jobs();
         self.status_message = format!("Added '{}' to batch job queue.", title);
+    }
+
+    pub fn trigger_auto_crf(&mut self) {
+        let dvd_path = normalize_dvd_path(&self.input_drive);
+        let probe = crate::ffmpeg::predict_optimal_crf(
+            &self.ffmpeg_path,
+            &dvd_path,
+            self.title_number.max(1),
+            &self.codec,
+            0.98,
+        );
+        self.custom_crf = Some(probe.tested_crf);
+        self.status_message = format!(
+            "Auto-CRF tuned to {} (target SSIM {:.1}%)",
+            probe.tested_crf,
+            probe.mean_ssim * 100.0
+        );
+    }
+
+    pub fn start_next_queued_job(&mut self) {
+        if self.is_ripping {
+            return;
+        }
+        if let Some(job) = crate::queue::next_ready_job() {
+            crate::queue::update_job_status(&job.id, "Encoding...", 0.6);
+            self.film_name = job.title.clone();
+            self.is_tv_mode = job.media_type.to_lowercase().contains("tv");
+            if let Some(ref spooled) = job.spool_path {
+                self.input_drive = spooled.clone();
+            } else {
+                self.input_drive = job.drive.clone();
+            }
+            self.queued_jobs = crate::queue::list_jobs();
+            self.start_ripping();
+            let _ = crate::queue::remove_job(&job.id);
+            let _ = crate::queue::cleanup_job_spool(&job.id, Path::new(&self.out_dir));
+            self.queued_jobs = crate::queue::list_jobs();
+        } else {
+            self.status_message = "No queued jobs ready to process.".to_string();
+        }
     }
 
     pub fn start_ripping(&mut self) {

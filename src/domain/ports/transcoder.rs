@@ -141,6 +141,8 @@ pub struct TranscodeOptions {
     pub detelecine: bool,
     #[serde(default)]
     pub crf: Option<u8>,
+    #[serde(default)]
+    pub target_size_mb: Option<u32>,
 }
 
 impl Default for TranscodeOptions {
@@ -180,6 +182,7 @@ impl Default for TranscodeOptions {
             auto_crop: false,
             detelecine: false,
             crf: None,
+            target_size_mb: None,
         }
     }
 }

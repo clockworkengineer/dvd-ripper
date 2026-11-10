@@ -858,6 +858,128 @@ pub fn probe_dvd_titles_ifo(dvd_path: &Path) -> Option<Vec<DvdTitleInfo>> {
     }
 }
 
+/// Parses binary `VIDEO_TS.IFO` and `VTS_xx_0.IFO` Cell Playback Tables (`C_PBIT`) to build
+/// [`crate::domain::heuristics::TitleCellTopology`] entries for structural fake-title de-obfuscation.
+pub fn probe_dvd_cell_topologies_ifo(
+    dvd_path: &Path,
+) -> Option<Vec<crate::domain::heuristics::TitleCellTopology>> {
+    let candidates = [
+        dvd_path.join("VIDEO_TS").join("VIDEO_TS.IFO"),
+        dvd_path.join("video_ts").join("video_ts.ifo"),
+        dvd_path.join("VIDEO_TS").join("video_ts.ifo"),
+        dvd_path.join("video_ts").join("VIDEO_TS.IFO"),
+        dvd_path.join("VIDEO_TS.IFO"),
+        dvd_path.join("video_ts.ifo"),
+    ];
+
+    let ifo_path = candidates.into_iter().find(|p| p.exists())?;
+    let data = std::fs::read(&ifo_path).ok()?;
+    if data.len() < 0xC8 {
+        return None;
+    }
+
+    let sector_offset = u32::from_be_bytes([data[0xc4], data[0xc5], data[0xc6], data[0xc7]]);
+    let byte_offset = (sector_offset as usize) * 2048;
+    if byte_offset + 8 > data.len() {
+        return None;
+    }
+
+    let nr_titles = u16::from_be_bytes([data[byte_offset], data[byte_offset + 1]]) as usize;
+    if nr_titles == 0 || byte_offset + 8 + nr_titles * 12 > data.len() {
+        return None;
+    }
+
+    let ifo_dir = ifo_path.parent().unwrap_or(dvd_path);
+    let mut topologies = Vec::with_capacity(nr_titles);
+
+    for t in 0..nr_titles {
+        let entry_off = byte_offset + 8 + t * 12;
+        let angle_count = data[entry_off + 1].max(1);
+        let vtsn = data[entry_off + 6];
+        let vts_ttn = data[entry_off + 7];
+
+        let mut duration_secs = 0.0;
+        let mut cell_sectors = Vec::new();
+        let vts_candidates = [
+            ifo_dir.join(format!("VTS_{:02}_0.IFO", vtsn)),
+            ifo_dir.join(format!("vts_{:02}_0.ifo", vtsn)),
+            ifo_dir.join(format!("VTS_{:02}_0.ifo", vtsn)),
+        ];
+
+        if let Some(vts_path) = vts_candidates.into_iter().find(|p| p.exists())
+            && let Ok(vts_data) = std::fs::read(&vts_path)
+            && vts_data.len() > 0xCC + 4
+        {
+            let pgciti_sec = u32::from_be_bytes([
+                vts_data[0xCC],
+                vts_data[0xCD],
+                vts_data[0xCE],
+                vts_data[0xCF],
+            ]);
+            let pgciti_off = (pgciti_sec as usize) * 2048;
+            if vts_ttn > 0 && pgciti_off + 8 + (vts_ttn as usize) * 8 <= vts_data.len() {
+                let pgc_entry_off = pgciti_off + 8 + (vts_ttn as usize - 1) * 8;
+                let pgc_start_rel = u32::from_be_bytes([
+                    vts_data[pgc_entry_off + 4],
+                    vts_data[pgc_entry_off + 5],
+                    vts_data[pgc_entry_off + 6],
+                    vts_data[pgc_entry_off + 7],
+                ]);
+                let pgc_off = pgciti_off + (pgc_start_rel as usize);
+                if pgc_off + 0xEC <= vts_data.len() {
+                    let nr_cells = vts_data[pgc_off + 3] as usize;
+                    let h_bcd = vts_data[pgc_off + 4];
+                    let m_bcd = vts_data[pgc_off + 5];
+                    let s_bcd = vts_data[pgc_off + 6];
+                    let h = (((h_bcd >> 4) * 10) + (h_bcd & 0x0F)) as f64;
+                    let m = (((m_bcd >> 4) * 10) + (m_bcd & 0x0F)) as f64;
+                    let s = (((s_bcd >> 4) * 10) + (s_bcd & 0x0F)) as f64;
+                    duration_secs = h * 3600.0 + m * 60.0 + s;
+
+                    let c_pbit_rel =
+                        u16::from_be_bytes([vts_data[pgc_off + 0xE8], vts_data[pgc_off + 0xE9]])
+                            as usize;
+                    let c_pbit_off = pgc_off + c_pbit_rel;
+                    if c_pbit_rel > 0
+                        && nr_cells > 0
+                        && c_pbit_off + nr_cells * 24 <= vts_data.len()
+                    {
+                        for c in 0..nr_cells {
+                            let c_off = c_pbit_off + c * 24;
+                            let first_sec = u32::from_be_bytes([
+                                vts_data[c_off + 8],
+                                vts_data[c_off + 9],
+                                vts_data[c_off + 10],
+                                vts_data[c_off + 11],
+                            ]);
+                            let last_sec = u32::from_be_bytes([
+                                vts_data[c_off + 16],
+                                vts_data[c_off + 17],
+                                vts_data[c_off + 18],
+                                vts_data[c_off + 19],
+                            ]);
+                            cell_sectors.push((first_sec, last_sec));
+                        }
+                    }
+                }
+            }
+        }
+
+        topologies.push(crate::domain::heuristics::TitleCellTopology {
+            title_num: (t + 1) as u32,
+            duration_secs,
+            cell_sectors,
+            angle_count,
+        });
+    }
+
+    if topologies.is_empty() {
+        None
+    } else {
+        Some(topologies)
+    }
+}
+
 /// Directly parses binary DVD-Video `VIDEO_TS.IFO` and `VTS_xx_0.IFO` tables to extract deep per-title stream topology:
 /// chapters, audio streams (codec, language, channels), subtitle tracks, video aspect/resolution, and camera angles.
 pub fn probe_title_details_ifo(
@@ -1401,6 +1523,18 @@ pub fn detect_best_title_info(
     dvd_path: &Path,
     expected_runtime_secs: Option<f64>,
 ) -> (u32, Option<f64>) {
+    if let Some(topologies) = probe_dvd_cell_topologies_ifo(dvd_path)
+        && topologies.iter().any(|t| !t.cell_sectors.is_empty())
+        && let Some(auth_title) = crate::domain::heuristics::select_authentic_main_title(
+            &topologies,
+            expected_runtime_secs,
+        )
+        && let Some(matched) = topologies.iter().find(|t| t.title_num == auth_title)
+        && matched.duration_secs >= 300.0
+    {
+        return (matched.title_num, Some(matched.duration_secs));
+    }
+
     let titles = probe_dvd_titles(ffmpeg_path, dvd_path, None);
     rank_best_title_from_slice(&titles, expected_runtime_secs)
 }
@@ -1733,7 +1867,16 @@ pub fn build_ffmpeg_command(
                     }
                     cmd.arg("-c:v").arg(resolve_video_codec_name(&codec));
                     cmd.arg("-preset").arg(&args.preset);
-                    cmd.arg("-crf").arg(custom_crf.as_deref().unwrap_or("22"));
+                    if let Some(target_mb) = args.target_size_mb
+                        && target_mb > 0
+                    {
+                        let v_kbps = calculate_target_video_bitrate_kbps(target_mb, 5400.0, 128);
+                        cmd.arg("-b:v").arg(format!("{}k", v_kbps));
+                        cmd.arg("-maxrate").arg(format!("{}k", (v_kbps * 5) / 4));
+                        cmd.arg("-bufsize").arg(format!("{}k", v_kbps * 2));
+                    } else {
+                        cmd.arg("-crf").arg(custom_crf.as_deref().unwrap_or("22"));
+                    }
                     cmd.arg("-c:a").arg("aac");
                     cmd.arg("-b:a").arg("128k");
                 }
@@ -2312,6 +2455,21 @@ pub struct QualityProbeResult {
     pub mean_ssim: f64,
     pub psnr_db: Option<f64>,
     pub sample_size_bytes: u64,
+}
+
+/// Calculates the exact target video bitrate (`kbps`) required to fit a title of `duration_secs`
+/// into `target_size_mb` Megabytes after accounting for audio stream overhead and container muxing.
+pub fn calculate_target_video_bitrate_kbps(
+    target_size_mb: u32,
+    duration_secs: f64,
+    audio_bitrate_kbps: u32,
+) -> u32 {
+    let eff_dur = duration_secs.max(60.0);
+    // Reserve ~1.5% for MP4/MKV container overhead
+    let usable_kbits = (target_size_mb as f64) * 8192.0 * 0.985;
+    let total_kbps = (usable_kbits / eff_dur).round() as i64;
+    let video_kbps = (total_kbps - (audio_bitrate_kbps as i64)).clamp(300, 15_000);
+    video_kbps as u32
 }
 
 /// Parses FFmpeg `ssim` filter output (`All:0.985412`) from stderr.
@@ -3771,5 +3929,9 @@ mod tests {
         )]);
         assert!(m3u8.starts_with("#EXTM3U\n"));
         assert!(m3u8.contains("#EXTINF:90,Speak to Me\n01 - Speak to Me.flac"));
+
+        // 6. calculate_target_video_bitrate_kbps (VidCoder target size calculator)
+        let v_kbps = calculate_target_video_bitrate_kbps(1400, 7200.0, 192);
+        assert!((1350..=1450).contains(&v_kbps));
     }
 }

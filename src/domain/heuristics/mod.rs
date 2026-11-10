@@ -2,7 +2,11 @@ pub mod cluster_detector;
 pub mod speedup;
 pub mod tv_detector;
 
-pub use cluster_detector::rank_best_title_from_slice;
+pub use cluster_detector::{
+    ClassifiedExtraTitle, ExtraCategory, SubtitleCandidateMetrics, TitleCellTopology,
+    classify_bonus_extra_titles, detect_foreign_audio_forced_subtitle, rank_best_title_from_slice,
+    score_title_structural_authenticity, select_authentic_main_title,
+};
 pub use speedup::{PAL_SPEEDUP_FACTOR, calculate_runtime_diff, theatrical_to_pal_duration};
 pub use tv_detector::{
     ChapterEpisodeSpan, DEFAULT_CHAPTER_EPISODE_TARGET_SECS, DEFAULT_MIN_TV_EPISODE_SECS,

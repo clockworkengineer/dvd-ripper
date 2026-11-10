@@ -500,11 +500,13 @@ pub fn dump_disc_to_iso(
             let reader = BufReader::with_capacity(1024 * 1024, dev_file);
             let out_file = File::create(output_iso_path)?;
             let writer = BufWriter::with_capacity(1024 * 1024, out_file);
+            let mapfile_path = output_iso_path.with_extension("iso.map");
 
-            let copied = copy_sectors_with_progress(
+            let rescue_map = rescue_sectors_with_progress(
                 reader,
                 writer,
                 total_size_hint,
+                2,
                 cancel_flag,
                 |pct, mbps, bytes| {
                     if let Some(tx) = progress_tx {
@@ -517,11 +519,23 @@ pub fn dump_disc_to_iso(
                 },
             )?;
 
+            if !rescue_map.bad_sector_ranges.is_empty() {
+                let _ = rescue_map.save_mapfile(&mapfile_path);
+                if let Some(tx) = progress_tx {
+                    let _ = tx.send(ProgressEvent::Log(format!(
+                        "ddrescue Sector Recovery: {:.2}% clean ({} bad sector ranges zero-filled; rescue map saved to '{}').",
+                        rescue_map.recovery_rate_percent(),
+                        rescue_map.bad_sector_ranges.len(),
+                        mapfile_path.display()
+                    )));
+                }
+            }
+
             if let Some(tx) = progress_tx {
                 let _ = tx.send(ProgressEvent::Success(output_iso_path.to_path_buf()));
             }
 
-            Ok(copied)
+            Ok(rescue_map.total_bytes)
         }
         Err(raw_err) => {
             // 2. If raw device open fails (e.g. mounted directory or restricted permissions), try directory packaging fallback
