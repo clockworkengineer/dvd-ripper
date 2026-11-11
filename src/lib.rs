@@ -264,13 +264,59 @@ impl AppContainer {
             &args.ffmpeg,
         ));
 
-        Self {
-            transcoder: Arc::new(
-                crate::infrastructure::ffmpeg::FfmpegTranscoder::with_options(
-                    &args.ffmpeg,
-                    args.into(),
-                ),
+        let trans_options: crate::domain::ports::TranscodeOptions = args.into();
+        let ffmpeg_transcoder = Arc::new(
+            crate::infrastructure::ffmpeg::FfmpegTranscoder::with_options(
+                &args.ffmpeg,
+                trans_options.clone(),
             ),
+        );
+        let native_transcoder = Arc::new(
+            crate::infrastructure::engines::NativeIfoTranscoder::new(
+                &args.ffmpeg,
+                trans_options.clone(),
+            ),
+        );
+
+        let transcoder: Arc<dyn Transcoder> = match args.engine.to_lowercase().as_str() {
+            "handbrake" => Arc::new(crate::infrastructure::engines::HandBrakeTranscoder::new(
+                &args.handbrake,
+                trans_options,
+            )),
+            "makemkv" => Arc::new(crate::infrastructure::engines::MakeMkvTranscoder::new(
+                &args.makemkv,
+            )),
+            "native" => native_transcoder,
+            "ffmpeg" => ffmpeg_transcoder,
+            _ => {
+                // "auto" smart fallback: FFmpeg -> Native IFO -> HandBrake -> MakeMKV
+                let mut engines: Vec<(&'static str, Arc<dyn Transcoder>)> = vec![
+                    ("ffmpeg", ffmpeg_transcoder),
+                    ("native_ifo", native_transcoder),
+                ];
+                if crate::infrastructure::engines::HandBrakeTranscoder::is_available(&args.handbrake) {
+                    engines.push((
+                        "handbrake",
+                        Arc::new(crate::infrastructure::engines::HandBrakeTranscoder::new(
+                            &args.handbrake,
+                            trans_options,
+                        )),
+                    ));
+                }
+                if crate::infrastructure::engines::MakeMkvTranscoder::is_available(&args.makemkv) {
+                    engines.push((
+                        "makemkv",
+                        Arc::new(crate::infrastructure::engines::MakeMkvTranscoder::new(
+                            &args.makemkv,
+                        )),
+                    ));
+                }
+                Arc::new(crate::infrastructure::engines::AutoFallbackTranscoder::new(engines))
+            }
+        };
+
+        Self {
+            transcoder,
             metadata_provider: Arc::new(
                 crate::infrastructure::metadata::OmdbMetadataProvider::new(None),
             ),

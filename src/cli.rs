@@ -52,9 +52,21 @@ pub struct Args {
     #[arg(long, default_value = "veryfast")]
     pub preset: String,
 
+    /// Optical ripping engine: auto (smart fallback), ffmpeg, handbrake, makemkv, native
+    #[arg(long = "engine", default_value = "auto")]
+    pub engine: String,
+
     /// Custom path to FFmpeg executable
     #[arg(long, default_value = "ffmpeg")]
     pub ffmpeg: String,
+
+    /// Custom path to HandBrakeCLI executable (default: HandBrakeCLI)
+    #[arg(long = "handbrake", default_value = "HandBrakeCLI")]
+    pub handbrake: String,
+
+    /// Custom path to MakeMKV CLI executable (default: makemkvcon)
+    #[arg(long = "makemkv", default_value = "makemkvcon")]
+    pub makemkv: String,
 
     /// Hardware acceleration mode for embedded transcoding (e.g. copy, v4l2m2m, vaapi, nvenc, qsv)
     #[arg(long = "hwaccel", default_value = "copy")]
@@ -378,7 +390,10 @@ impl Default for Args {
             codec: "h264".to_string(),
             profile: "standard".to_string(),
             preset: "veryfast".to_string(),
+            engine: "auto".to_string(),
             ffmpeg: "ffmpeg".to_string(),
+            handbrake: "HandBrakeCLI".to_string(),
+            makemkv: "makemkvcon".to_string(),
             hwaccel: "copy".to_string(),
             cli: false,
             daemon: false,

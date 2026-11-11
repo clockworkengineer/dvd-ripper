@@ -11,6 +11,9 @@ pub fn render_settings_tab(
     codec: &mut String,
     profile: &mut String,
     preset: &mut String,
+    engine: &mut String,
+    handbrake_path: &mut String,
+    makemkv_path: &mut String,
     normalize_audio: &mut bool,
     norm_target: &mut f64,
     hwaccel_fallback: &mut bool,
@@ -28,6 +31,43 @@ pub fn render_settings_tab(
         ui.add_space(8.0);
 
         egui::ScrollArea::vertical().show(ui, |ui| {
+            ui.group(|ui| {
+                ui.label(egui::RichText::new("🚀 Ripping & Transcoding Engine").strong());
+                ui.horizontal(|ui| {
+                    ui.label("Active Engine:");
+                    egui::ComboBox::from_id_salt("settings_engine_combo")
+                        .selected_text(match engine.as_str() {
+                            "handbrake" => "HandBrakeCLI (Optical Transcoder)",
+                            "makemkv" => "MakeMKV (AACS/BD+/Lossless MKV)",
+                            "native" => "Native IFO Cell Extractor (Pure Rust)",
+                            "ffmpeg" => "FFmpeg (Standard)",
+                            _ => "Auto (Smart Fallback: FFmpeg -> Native -> HandBrake -> MakeMKV)",
+                        })
+                        .show_ui(ui, |ui| {
+                            ui.selectable_value(engine, "auto".to_string(), "Auto (Smart Fallback)");
+                            ui.selectable_value(engine, "ffmpeg".to_string(), "FFmpeg (Standard)");
+                            ui.selectable_value(engine, "native".to_string(), "Native IFO Cell Extractor (Pure Rust)");
+                            ui.selectable_value(engine, "handbrake".to_string(), "HandBrakeCLI");
+                            ui.selectable_value(engine, "makemkv".to_string(), "MakeMKV (makemkvcon)");
+                        });
+                });
+
+                if engine == "handbrake" || engine == "auto" {
+                    ui.horizontal(|ui| {
+                        ui.label("HandBrakeCLI Path:");
+                        ui.add(egui::TextEdit::singleline(handbrake_path).desired_width(260.0));
+                    });
+                }
+
+                if engine == "makemkv" || engine == "auto" {
+                    ui.horizontal(|ui| {
+                        ui.label("MakeMKV (makemkvcon) Path:");
+                        ui.add(egui::TextEdit::singleline(makemkv_path).desired_width(260.0));
+                    });
+                }
+            });
+
+            ui.add_space(6.0);
             ui.group(|ui| {
                 ui.label(egui::RichText::new("📁 Storage & Paths").strong());
                 ui.horizontal(|ui| {
@@ -151,6 +191,9 @@ mod tests {
                 let mut codec = "h264".to_string();
                 let mut profile = "standard".to_string();
                 let mut preset = "slow".to_string();
+                let mut engine = "auto".to_string();
+                let mut handbrake_path = "HandBrakeCLI".to_string();
+                let mut makemkv_path = "makemkvcon".to_string();
                 let mut normalize_audio = true;
                 let mut norm_target = -23.0;
                 let mut hwaccel_fallback = true;
@@ -166,6 +209,9 @@ mod tests {
                     &mut codec,
                     &mut profile,
                     &mut preset,
+                    &mut engine,
+                    &mut handbrake_path,
+                    &mut makemkv_path,
                     &mut normalize_audio,
                     &mut norm_target,
                     &mut hwaccel_fallback,

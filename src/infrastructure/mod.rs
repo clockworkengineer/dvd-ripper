@@ -11,6 +11,7 @@
 //! - [`storage`]: Enterprise disk space guard checks and JSON history repository persistence.
 //! - [`system`]: OS-native file dialog services and desktop explorer triggers.
 
+pub mod engines;
 pub mod ffmpeg;
 pub mod metadata;
 pub mod notifications;

@@ -72,6 +72,9 @@ pub struct DvdRipperApp {
     pub mkv: bool,
     pub iso_mode: bool,
     pub preset: String,
+    pub engine: String,
+    pub handbrake_path: String,
+    pub makemkv_path: String,
     pub ffmpeg_path: String,
     pub expected_runtime_secs: Option<f64>,
 
@@ -228,6 +231,9 @@ impl Default for DvdRipperApp {
             mkv: false,
             iso_mode: false,
             preset: "veryfast".to_string(),
+            engine: cfg.engine.clone().unwrap_or_else(|| "auto".to_string()),
+            handbrake_path: cfg.handbrake.clone().unwrap_or_else(|| "HandBrakeCLI".to_string()),
+            makemkv_path: cfg.makemkv.clone().unwrap_or_else(|| "makemkvcon".to_string()),
             ffmpeg_path: "ffmpeg".to_string(),
             expected_runtime_secs: None,
 

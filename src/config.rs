@@ -14,6 +14,9 @@ pub struct AppConfig {
     pub codec: Option<String>,
     pub profile: Option<String>,
     pub preset: Option<String>,
+    pub engine: Option<String>,
+    pub handbrake: Option<String>,
+    pub makemkv: Option<String>,
     pub mqtt_broker: Option<String>,
     pub webhook_url: Option<String>,
     pub api_key: Option<String>,
@@ -171,6 +174,21 @@ pub fn apply_config_defaults(args: &mut Args, config: &AppConfig) {
         && args.preset == "veryfast"
     {
         args.preset = val.clone();
+    }
+    if let Some(ref val) = config.engine
+        && args.engine == "auto"
+    {
+        args.engine = val.clone();
+    }
+    if let Some(ref val) = config.handbrake
+        && args.handbrake == "HandBrakeCLI"
+    {
+        args.handbrake = val.clone();
+    }
+    if let Some(ref val) = config.makemkv
+        && args.makemkv == "makemkvcon"
+    {
+        args.makemkv = val.clone();
     }
     if args.mqtt_broker.is_none() {
         args.mqtt_broker = config.mqtt_broker.clone();
