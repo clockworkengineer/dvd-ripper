@@ -31,6 +31,9 @@ pub struct RipTaskSpecification {
     pub start_episode: u32,
     pub title_number: u32,
     pub preset: String,
+    pub engine: String,
+    pub handbrake_path: String,
+    pub makemkv_path: String,
     pub ffmpeg_path: String,
     pub expected_runtime_secs: Option<f64>,
     pub detected_episodes: Vec<TvEpisodeInfo>,
@@ -380,18 +383,66 @@ impl GuiApplicationController {
                 input: spec.drive.clone(),
                 out_dir: spec.out_dir.clone(),
                 ffmpeg: spec.ffmpeg_path.clone(),
+                handbrake: spec.handbrake_path.clone(),
+                makemkv: spec.makemkv_path.clone(),
+                engine: spec.engine.clone(),
                 transcode: spec.transcode,
                 preset: spec.preset.clone(),
                 ..Default::default()
             };
             base_args.apply_encoding_options(spec.encoding_options.clone());
 
-            let task_transcoder: Arc<dyn crate::domain::ports::transcoder::Transcoder> = Arc::new(
+            let trans_options: crate::domain::ports::TranscodeOptions = (&base_args).into();
+            let ffmpeg_transcoder = Arc::new(
                 crate::infrastructure::ffmpeg::FfmpegTranscoder::with_args(
                     &spec.ffmpeg_path,
                     base_args.clone(),
                 ),
             );
+            let native_transcoder = Arc::new(
+                crate::infrastructure::engines::NativeIfoTranscoder::new(
+                    &spec.ffmpeg_path,
+                    trans_options.clone(),
+                ),
+            );
+
+            let task_transcoder: Arc<dyn crate::domain::ports::transcoder::Transcoder> =
+                match spec.engine.to_lowercase().as_str() {
+                    "handbrake" => Arc::new(crate::infrastructure::engines::HandBrakeTranscoder::new(
+                        &spec.handbrake_path,
+                        trans_options,
+                    )),
+                    "makemkv" => Arc::new(crate::infrastructure::engines::MakeMkvTranscoder::new(
+                        &spec.makemkv_path,
+                    )),
+                    "native" => native_transcoder,
+                    "ffmpeg" => ffmpeg_transcoder,
+                    _ => {
+                        // "auto": Smart fallback across engines
+                        let mut engines: Vec<(&'static str, Arc<dyn crate::domain::ports::transcoder::Transcoder>)> = vec![
+                            ("ffmpeg", ffmpeg_transcoder),
+                            ("native_ifo", native_transcoder),
+                        ];
+                        if crate::infrastructure::engines::HandBrakeTranscoder::is_available(&spec.handbrake_path) {
+                            engines.push((
+                                "handbrake",
+                                Arc::new(crate::infrastructure::engines::HandBrakeTranscoder::new(
+                                    &spec.handbrake_path,
+                                    trans_options,
+                                )),
+                            ));
+                        }
+                        if crate::infrastructure::engines::MakeMkvTranscoder::is_available(&spec.makemkv_path) {
+                            engines.push((
+                                "makemkv",
+                                Arc::new(crate::infrastructure::engines::MakeMkvTranscoder::new(
+                                    &spec.makemkv_path,
+                                )),
+                            ));
+                        }
+                        Arc::new(crate::infrastructure::engines::AutoFallbackTranscoder::new(engines))
+                    }
+                };
             let single_title_uc = crate::application::rip_single_title::RipSingleTitleUseCase::new(
                 task_transcoder.clone(),
                 container.notifier.clone(),
@@ -789,6 +840,9 @@ mod tests {
             start_episode: 1,
             title_number: 1,
             preset: "slow".to_string(),
+            engine: "auto".to_string(),
+            handbrake_path: "HandBrakeCLI".to_string(),
+            makemkv_path: "makemkvcon".to_string(),
             ffmpeg_path: "ffmpeg".to_string(),
             expected_runtime_secs: Some(8160.0),
             detected_episodes: Vec::new(),
@@ -837,6 +891,9 @@ mod tests {
             start_episode: 1,
             title_number: 1,
             preset: "slow".to_string(),
+            engine: "auto".to_string(),
+            handbrake_path: "HandBrakeCLI".to_string(),
+            makemkv_path: "makemkvcon".to_string(),
             ffmpeg_path: "ffmpeg".to_string(),
             expected_runtime_secs: None,
             detected_episodes: Vec::new(),
