@@ -123,3 +123,4 @@ In the desktop GUI:
 2. In the **Quality & Video Profile** section, open the **Transcoding Engine** dropdown.
 3. Select **Auto Fallback**, **Native IFO Extractor**, **HandBrakeCLI**, or **MakeMKV**.
 4. Configure paths in the **Settings** tab if executables are installed in custom non-system directories.
+

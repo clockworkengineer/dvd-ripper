@@ -122,3 +122,4 @@ When encountering a difficult or failing disc:
    dvd-ripper --cli D: --iso -o "C:\Backups\DiscBackup.iso" --ignore-errors
    ```
    *In ISO mode, `dvd-ripper` copies sectors directly and logs damaged sector maps for post-processing rescue.*
+

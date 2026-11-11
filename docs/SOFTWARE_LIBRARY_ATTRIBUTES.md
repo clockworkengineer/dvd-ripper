@@ -85,3 +85,4 @@ graph LR
 ### Attribute 10: Low Dependency Footprint
 - **Minimal Core Dependencies**: Pure Rust standard library used for optical parsing, HTTP parsing, and serialization.
 - **Feature Flags**: GUI can be omitted completely via `--no-default-features --features cli` for ultralight container and embedded deployments.
+
