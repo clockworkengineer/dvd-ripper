@@ -17,6 +17,10 @@ impl eframe::App for DvdRipperApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.render_ui(ctx);
     }
+
+    fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
+        self.flush_window_state_to_config();
+    }
 }
 
 impl DvdRipperApp {
@@ -524,14 +528,24 @@ impl DvdRipperApp {
 
         // Modals & Overlays
         self.render_search_modal(ctx);
-        components::dialogs::render_about_modal(ctx, &mut self.show_about_modal, &self.ffmpeg_path);
-        components::dialogs::render_help_modal(ctx, &mut self.show_help_modal);
+        components::dialogs::render_about_modal(
+            ctx,
+            &mut self.show_about_modal,
+            &self.ffmpeg_path,
+            &self.subwindow_rects,
+        );
+        components::dialogs::render_help_modal(
+            ctx,
+            &mut self.show_help_modal,
+            &self.subwindow_rects,
+        );
 
         let mut do_cancel = false;
         components::dialogs::render_confirm_cancel_dialog(
             ctx,
             &mut self.show_confirm_cancel,
             self.progress_percent,
+            &self.subwindow_rects,
             || do_cancel = true,
         );
         if do_cancel {
@@ -544,21 +558,55 @@ impl DvdRipperApp {
             ctx,
             &mut self.show_confirm_clear,
             count,
+            &self.subwindow_rects,
             || do_clear_history = true,
         );
         if do_clear_history {
             self.history.clear();
             let _ = crate::history::clear_history(None);
         }
+
+        // Synchronize and persist main window and subwindow position & size
+        self.sync_window_state(ctx);
     }
+}
+
+/// Builds an [`egui::ViewportBuilder`] initialized with saved window position, size, and maximized state from [`crate::config::AppConfig`].
+pub fn build_viewport_from_config(cfg: &crate::config::AppConfig) -> egui::ViewportBuilder {
+    let default_width = cfg
+        .window_width
+        .filter(|w| w.is_finite() && (800.0..=7680.0).contains(w))
+        .unwrap_or(880.0);
+    let default_height = cfg
+        .window_height
+        .filter(|h| h.is_finite() && (800.0..=4320.0).contains(h))
+        .unwrap_or(920.0);
+
+    let mut viewport = egui::ViewportBuilder::default()
+        .with_inner_size([default_width, default_height])
+        .with_min_inner_size([800.0, 800.0])
+        .with_title("DVD Ripper (Movies & TV Series)");
+
+    if let (Some(x), Some(y)) = (cfg.window_pos_x, cfg.window_pos_y)
+        && x.is_finite()
+        && y.is_finite()
+        && (-3840.0..=7680.0).contains(&x)
+        && (-2160.0..=4320.0).contains(&y)
+    {
+        viewport = viewport.with_position(egui::pos2(x, y));
+    }
+
+    if cfg.window_maximized == Some(true) {
+        viewport = viewport.with_maximized(true);
+    }
+
+    viewport
 }
 
 /// Entry point to launch the native eframe desktop window.
 pub fn run_gui() -> eframe::Result<()> {
-    let mut viewport = egui::ViewportBuilder::default()
-        .with_inner_size([880.0, 920.0])
-        .with_min_inner_size([800.0, 800.0])
-        .with_title("DVD Ripper (Movies & TV Series)");
+    let cfg = crate::config::load_config(None);
+    let mut viewport = build_viewport_from_config(&cfg);
 
     let icon_bytes = include_bytes!("../../assets/icon.png");
     if let Ok(img) = image::load_from_memory(icon_bytes) {
@@ -785,5 +833,33 @@ mod tests {
 
             assert!(app.is_ripping);
         }
+    }
+
+    #[test]
+    fn test_build_viewport_from_config_restores_position_and_size() {
+        let cfg = crate::config::AppConfig {
+            window_pos_x: Some(240.0),
+            window_pos_y: Some(120.0),
+            window_width: Some(1120.0),
+            window_height: Some(980.0),
+            window_maximized: Some(true),
+            ..Default::default()
+        };
+        let vp = build_viewport_from_config(&cfg);
+        assert_eq!(vp.position, Some(egui::pos2(240.0, 120.0)));
+        assert_eq!(vp.inner_size, Some(egui::vec2(1120.0, 980.0)));
+        assert_eq!(vp.maximized, Some(true));
+
+        // Out-of-bounds / minimized coordinates fall back to safe defaults
+        let invalid_cfg = crate::config::AppConfig {
+            window_pos_x: Some(-32000.0),
+            window_pos_y: Some(-32000.0),
+            window_width: Some(200.0),
+            window_height: Some(200.0),
+            ..Default::default()
+        };
+        let vp_fallback = build_viewport_from_config(&invalid_cfg);
+        assert_eq!(vp_fallback.position, None);
+        assert_eq!(vp_fallback.inner_size, Some(egui::vec2(880.0, 920.0)));
     }
 }

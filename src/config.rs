@@ -63,6 +63,18 @@ pub struct AppConfig {
     pub spool: Option<bool>,
     #[serde(default)]
     pub sector_retries: Option<u32>,
+    #[serde(default)]
+    pub window_pos_x: Option<f32>,
+    #[serde(default)]
+    pub window_pos_y: Option<f32>,
+    #[serde(default)]
+    pub window_width: Option<f32>,
+    #[serde(default)]
+    pub window_height: Option<f32>,
+    #[serde(default)]
+    pub window_maximized: Option<bool>,
+    #[serde(default)]
+    pub subwindow_rects: Option<std::collections::BTreeMap<String, [f32; 4]>>,
 }
 
 fn try_load_config_file(path: &Path) -> Option<AppConfig> {
@@ -468,5 +480,36 @@ mod tests {
 
         let _ = get_default_config_path();
         let _ = std::fs::remove_file(&temp);
+    }
+
+    #[test]
+    fn test_config_window_geometry_and_subwindow_rects_persistence() {
+        let mut sub_rects = std::collections::BTreeMap::new();
+        sub_rects.insert("help_modal".to_string(), [120.0, 80.0, 620.0, 480.0]);
+        let cfg = AppConfig {
+            window_pos_x: Some(150.0),
+            window_pos_y: Some(90.0),
+            window_width: Some(1024.0),
+            window_height: Some(960.0),
+            window_maximized: Some(false),
+            subwindow_rects: Some(sub_rects),
+            ..Default::default()
+        };
+
+        let toml_str = toml::to_string_pretty(&cfg).unwrap();
+        let parsed = parse_config_toml(&toml_str).unwrap();
+        assert_eq!(parsed.window_pos_x, Some(150.0));
+        assert_eq!(parsed.window_pos_y, Some(90.0));
+        assert_eq!(parsed.window_width, Some(1024.0));
+        assert_eq!(parsed.window_height, Some(960.0));
+        assert_eq!(parsed.window_maximized, Some(false));
+        assert_eq!(
+            parsed
+                .subwindow_rects
+                .as_ref()
+                .and_then(|m| m.get("help_modal"))
+                .copied(),
+            Some([120.0, 80.0, 620.0, 480.0])
+        );
     }
 }

@@ -2,23 +2,68 @@
 //! Follows Jakob Nielsen's Heuristic #3 (User Control & Freedom) and #10 (Help & Documentation).
 
 use eframe::egui;
+use std::collections::BTreeMap;
+
+/// Known modal/subwindow titles tracked for position & size persistence.
+pub const TRACKED_SUBWINDOW_TITLES: &[&str] = &[
+    "⚠️ Confirm Operation Cancellation",
+    "🗑 Confirm Clear History",
+    "❓ Help & Keyboard Shortcuts Guide",
+    "ℹ️ About DVD Ripper",
+    "🔍 Select Movie / TV Show Match",
+];
+
+/// Computes the default position for a movable modal window (centered in the current viewport on first open).
+pub fn default_centered_pos(ctx: &egui::Context, default_size: [f32; 2]) -> egui::Pos2 {
+    let screen = ctx.screen_rect();
+    let x = (screen.center().x - default_size[0] * 0.5).max(16.0);
+    let y = (screen.center().y - default_size[1] * 0.5).max(16.0);
+    egui::pos2(x, y)
+}
+
+/// Applies saved `[x, y, width, height]` bounds from `subwindow_rects` (or centered defaults) to an `egui::Window`.
+pub fn apply_saved_subwindow_bounds<'a>(
+    window: egui::Window<'a>,
+    ctx: &egui::Context,
+    title: &str,
+    fallback_size: [f32; 2],
+    subwindow_rects: &BTreeMap<String, [f32; 4]>,
+) -> egui::Window<'a> {
+    if let Some(&[x, y, w, h]) = subwindow_rects.get(title)
+        && x.is_finite()
+        && y.is_finite()
+        && w >= 120.0
+        && h >= 80.0
+    {
+        window.default_pos([x, y]).default_size([w, h])
+    } else {
+        window
+            .default_pos(default_centered_pos(ctx, fallback_size))
+            .default_size(fallback_size)
+    }
+}
 
 /// Renders a confirmation dialog before cancelling an active rip.
 pub fn render_confirm_cancel_dialog(
     ctx: &egui::Context,
     is_open: &mut bool,
     progress_percent: f32,
+    subwindow_rects: &BTreeMap<String, [f32; 4]>,
     on_confirm: impl FnOnce(),
 ) {
     if !*is_open {
         return;
     }
 
-    egui::Window::new("⚠️ Confirm Operation Cancellation")
-        .collapsible(false)
-        .resizable(false)
-        .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
-        .show(ctx, |ui| {
+    let title = "⚠️ Confirm Operation Cancellation";
+    let window = apply_saved_subwindow_bounds(
+        egui::Window::new(title).collapsible(false).resizable(true),
+        ctx,
+        title,
+        [420.0, 150.0],
+        subwindow_rects,
+    );
+    window.show(ctx, |ui| {
             ui.add_space(6.0);
             ui.label(
                 egui::RichText::new(format!(
@@ -54,17 +99,22 @@ pub fn render_confirm_clear_history_dialog(
     ctx: &egui::Context,
     is_open: &mut bool,
     history_count: usize,
+    subwindow_rects: &BTreeMap<String, [f32; 4]>,
     on_confirm: impl FnOnce(),
 ) {
     if !*is_open {
         return;
     }
 
-    egui::Window::new("🗑 Confirm Clear History")
-        .collapsible(false)
-        .resizable(false)
-        .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
-        .show(ctx, |ui| {
+    let title = "🗑 Confirm Clear History";
+    let window = apply_saved_subwindow_bounds(
+        egui::Window::new(title).collapsible(false).resizable(true),
+        ctx,
+        title,
+        [420.0, 150.0],
+        subwindow_rects,
+    );
+    window.show(ctx, |ui| {
             ui.add_space(6.0);
             ui.label(
                 egui::RichText::new(format!(
@@ -99,17 +149,24 @@ pub fn render_confirm_clear_history_dialog(
 }
 
 /// Renders the Interactive Help & Keyboard Shortcuts guide modal.
-pub fn render_help_modal(ctx: &egui::Context, is_open: &mut bool) {
+pub fn render_help_modal(
+    ctx: &egui::Context,
+    is_open: &mut bool,
+    subwindow_rects: &BTreeMap<String, [f32; 4]>,
+) {
     if !*is_open {
         return;
     }
 
-    egui::Window::new("❓ Help & Keyboard Shortcuts Guide")
-        .collapsible(false)
-        .resizable(true)
-        .default_size([540.0, 420.0])
-        .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
-        .show(ctx, |ui| {
+    let title = "❓ Help & Keyboard Shortcuts Guide";
+    let window = apply_saved_subwindow_bounds(
+        egui::Window::new(title).collapsible(false).resizable(true),
+        ctx,
+        title,
+        [540.0, 420.0],
+        subwindow_rects,
+    );
+    window.show(ctx, |ui| {
             ui.heading("DVD Ripper User Guide");
             ui.add_space(6.0);
 
@@ -171,16 +228,25 @@ pub fn render_help_modal(ctx: &egui::Context, is_open: &mut bool) {
 }
 
 /// Renders the About modal window.
-pub fn render_about_modal(ctx: &egui::Context, is_open: &mut bool, ffmpeg_path: &str) {
+pub fn render_about_modal(
+    ctx: &egui::Context,
+    is_open: &mut bool,
+    ffmpeg_path: &str,
+    subwindow_rects: &BTreeMap<String, [f32; 4]>,
+) {
     if !*is_open {
         return;
     }
 
-    egui::Window::new("ℹ️ About DVD Ripper")
-        .collapsible(false)
-        .resizable(false)
-        .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
-        .show(ctx, |ui| {
+    let title = "ℹ️ About DVD Ripper";
+    let window = apply_saved_subwindow_bounds(
+        egui::Window::new(title).collapsible(false).resizable(true),
+        ctx,
+        title,
+        [440.0, 260.0],
+        subwindow_rects,
+    );
+    window.show(ctx, |ui| {
             ui.add_space(4.0);
             ui.heading("📀 DVD Ripper Desktop Utility");
             ui.label(egui::RichText::new(format!("Version {}", env!("CARGO_PKG_VERSION"))).weak());
@@ -229,11 +295,12 @@ mod tests {
         let mut help_open = false;
         let mut about_open = false;
 
+        let rects = BTreeMap::new();
         let _ = ctx.run(Default::default(), |ctx| {
-            render_confirm_cancel_dialog(ctx, &mut cancel_open, 0.45, || {});
-            render_confirm_clear_history_dialog(ctx, &mut clear_open, 5, || {});
-            render_help_modal(ctx, &mut help_open);
-            render_about_modal(ctx, &mut about_open, "ffmpeg");
+            render_confirm_cancel_dialog(ctx, &mut cancel_open, 0.45, &rects, || {});
+            render_confirm_clear_history_dialog(ctx, &mut clear_open, 5, &rects, || {});
+            render_help_modal(ctx, &mut help_open, &rects);
+            render_about_modal(ctx, &mut about_open, "ffmpeg", &rects);
         });
 
         // 2. All open
@@ -246,14 +313,14 @@ mod tests {
         let mut confirmed_clear = false;
 
         let _ = ctx.run(Default::default(), |ctx| {
-            render_confirm_cancel_dialog(ctx, &mut cancel_open, 0.75, || {
+            render_confirm_cancel_dialog(ctx, &mut cancel_open, 0.75, &rects, || {
                 confirmed_cancel = true;
             });
-            render_confirm_clear_history_dialog(ctx, &mut clear_open, 10, || {
+            render_confirm_clear_history_dialog(ctx, &mut clear_open, 10, &rects, || {
                 confirmed_clear = true;
             });
-            render_help_modal(ctx, &mut help_open);
-            render_about_modal(ctx, &mut about_open, "ffmpeg");
+            render_help_modal(ctx, &mut help_open, &rects);
+            render_about_modal(ctx, &mut about_open, "ffmpeg", &rects);
         });
 
         assert!(!confirmed_cancel); // Click not simulated, but UI code executed

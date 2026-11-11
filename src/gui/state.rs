@@ -159,6 +159,14 @@ pub struct DvdRipperApp {
     pub event_tx: Sender<ProgressEvent>,
 
     pub history: Vec<RipRecord>,
+
+    // Persisted window & subwindow geometry state
+    pub window_pos: Option<[f32; 2]>,
+    pub window_size: Option<[f32; 2]>,
+    pub window_maximized: bool,
+    pub subwindow_rects: std::collections::BTreeMap<String, [f32; 4]>,
+    pub window_state_dirty: bool,
+    pub last_window_state_save: Option<Instant>,
 }
 
 impl Default for DvdRipperApp {
@@ -173,6 +181,30 @@ impl Default for DvdRipperApp {
                 .to_string_lossy()
                 .to_string()
         });
+        let initial_window_pos = match (cfg.window_pos_x, cfg.window_pos_y) {
+            (Some(x), Some(y))
+                if x.is_finite()
+                    && y.is_finite()
+                    && (-3840.0..=7680.0).contains(&x)
+                    && (-2160.0..=4320.0).contains(&y) =>
+            {
+                Some([x, y])
+            }
+            _ => None,
+        };
+        let initial_window_size = match (cfg.window_width, cfg.window_height) {
+            (Some(w), Some(h))
+                if w.is_finite()
+                    && h.is_finite()
+                    && (400.0..=7680.0).contains(&w)
+                    && (400.0..=4320.0).contains(&h) =>
+            {
+                Some([w, h])
+            }
+            _ => None,
+        };
+        let initial_window_maximized = cfg.window_maximized.unwrap_or(false);
+        let initial_subwindow_rects = cfg.subwindow_rects.unwrap_or_default();
         Self {
             active_tab: ActiveTab::Rip,
             simple_mode: true,
@@ -278,6 +310,13 @@ impl Default for DvdRipperApp {
             event_tx,
 
             history: load_history(None),
+
+            window_pos: initial_window_pos,
+            window_size: initial_window_size,
+            window_maximized: initial_window_maximized,
+            subwindow_rects: initial_subwindow_rects,
+            window_state_dirty: false,
+            last_window_state_save: None,
         }
     }
 }
@@ -287,6 +326,110 @@ impl DvdRipperApp {
         let mut app = Self::default();
         app.trigger_detection();
         app
+    }
+
+    /// Synchronizes main viewport and modal subwindow positions and sizes from `egui::Context` and persists changes.
+    pub fn sync_window_state(&mut self, ctx: &egui::Context) {
+
+        let (minimized, maximized, outer_pos, inner_size, close_requested) = ctx.input(|i| {
+            let vp = i.viewport();
+            let min = vp.minimized.unwrap_or(false);
+            let max = vp.maximized.unwrap_or(false);
+            let pos = vp
+                .outer_rect
+                .map(|r| r.min)
+                .or_else(|| vp.inner_rect.map(|r| r.min));
+            let size = vp.inner_rect.map(|r| r.size());
+            (min, max, pos, size, vp.close_requested())
+        });
+
+        if !minimized {
+            if maximized != self.window_maximized {
+                self.window_maximized = maximized;
+                self.window_state_dirty = true;
+            }
+
+            if !maximized {
+                if let Some(pos) = outer_pos
+                    && pos.x.is_finite()
+                    && pos.y.is_finite()
+                    && (-3840.0..=7680.0).contains(&pos.x)
+                    && (-2160.0..=4320.0).contains(&pos.y)
+                {
+                    let rounded = [pos.x.round(), pos.y.round()];
+                    if self.window_pos != Some(rounded) {
+                        self.window_pos = Some(rounded);
+                        self.window_state_dirty = true;
+                    }
+                }
+
+                if let Some(size) = inner_size
+                    && size.x.is_finite()
+                    && size.y.is_finite()
+                    && (400.0..=7680.0).contains(&size.x)
+                    && (400.0..=4320.0).contains(&size.y)
+                {
+                    let rounded = [size.x.round(), size.y.round()];
+                    if self.window_size != Some(rounded) {
+                        self.window_size = Some(rounded);
+                        self.window_state_dirty = true;
+                    }
+                }
+            }
+        }
+
+        for &title in super::components::dialogs::TRACKED_SUBWINDOW_TITLES {
+            if let Some(rect) = ctx.memory(|mem| mem.area_rect(egui::Id::new(title)))
+                && rect.min.x.is_finite()
+                && rect.min.y.is_finite()
+                && rect.width() >= 120.0
+                && rect.height() >= 80.0
+            {
+                let bounds = [
+                    rect.min.x.round(),
+                    rect.min.y.round(),
+                    rect.width().round(),
+                    rect.height().round(),
+                ];
+                if self.subwindow_rects.get(title).copied() != Some(bounds) {
+                    self.subwindow_rects.insert(title.to_string(), bounds);
+                    self.window_state_dirty = true;
+                }
+            }
+        }
+
+        if self.window_state_dirty {
+            let debounce_elapsed = self
+                .last_window_state_save
+                .is_none_or(|t| t.elapsed() >= std::time::Duration::from_secs(1));
+            if close_requested || debounce_elapsed {
+                self.flush_window_state_to_config();
+            }
+        }
+    }
+
+    /// Immediately writes the current window and subwindow geometry state to `~/.dvd-ripper/config.toml`.
+    pub fn flush_window_state_to_config(&mut self) {
+        if !self.window_state_dirty {
+            return;
+        }
+        let mut cfg = crate::config::load_config(None);
+        if let Some([x, y]) = self.window_pos {
+            cfg.window_pos_x = Some(x);
+            cfg.window_pos_y = Some(y);
+        }
+        if let Some([w, h]) = self.window_size {
+            cfg.window_width = Some(w);
+            cfg.window_height = Some(h);
+        }
+        cfg.window_maximized = Some(self.window_maximized);
+        if !self.subwindow_rects.is_empty() {
+            cfg.subwindow_rects = Some(self.subwindow_rects.clone());
+        }
+        if crate::config::save_default_config(&cfg).is_ok() {
+            self.window_state_dirty = false;
+            self.last_window_state_save = Some(Instant::now());
+        }
     }
 
     #[allow(dead_code)]
@@ -1273,13 +1416,16 @@ impl DvdRipperApp {
         }
 
         let mut selected_id = None;
+        let title = "🔍 Select Movie / TV Show Match";
+        let window = super::components::dialogs::apply_saved_subwindow_bounds(
+            egui::Window::new(title).collapsible(false).resizable(true),
+            ctx,
+            title,
+            [550.0, 380.0],
+            &self.subwindow_rects,
+        );
 
-        egui::Window::new("🔍 Select Movie / TV Show Match")
-            .collapsible(false)
-            .resizable(true)
-            .default_size([550.0, 380.0])
-            .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
-            .show(ctx, |ui| {
+        window.show(ctx, |ui| {
                 ui.label("Multiple matches were found on OMDb/IMDb. Select the correct title:");
                 ui.separator();
 
