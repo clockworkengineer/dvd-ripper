@@ -204,11 +204,12 @@ pub fn send_webhook_notification(
     message: &str,
     webhook_secret: Option<&str>,
 ) -> Result<()> {
+    let safe_url = crate::utils::validate_safe_http_url(webhook_url)?;
     let payload = build_webhook_payload(disc_name, status, message);
     let client = crate::utils::get_http_client();
 
     let mut req = client
-        .post(webhook_url)
+        .post(safe_url)
         .header("Content-Type", "application/json");
 
     if let Some(secret) = webhook_secret

@@ -896,12 +896,40 @@ impl NotificationProvider for WebhookNotificationProvider {
     }
 }
 
+/// Validates that an outbound webhook or media server URL uses an explicit `http://` or `https://` scheme,
+/// has a non-empty host authority, and contains no control or CRLF characters.
+pub fn validate_safe_http_url(url: &str) -> anyhow::Result<&str> {
+    let trimmed = url.trim();
+    if trimmed.is_empty() {
+        return Err(anyhow::anyhow!("URL cannot be empty"));
+    }
+    if trimmed.bytes().any(|b| b < 0x20 || b == 0x7F) {
+        return Err(anyhow::anyhow!(
+            "URL contains forbidden control or newline characters"
+        ));
+    }
+    let after_scheme = trimmed
+        .strip_prefix("https://")
+        .or_else(|| trimmed.strip_prefix("http://"))
+        .ok_or_else(|| anyhow::anyhow!("URL must start with http:// or https://"))?;
+    let host_part = after_scheme
+        .split(['/', '?', '#'])
+        .next()
+        .unwrap_or_default();
+    if host_part.is_empty() || host_part.starts_with(':') {
+        return Err(anyhow::anyhow!("URL is missing a valid host authority"));
+    }
+    Ok(trimmed)
+}
+
 /// Sends an HTTP POST request to trigger media server library scans with a 3-attempt exponential backoff retry loop.
 fn send_media_server_refresh_post(
     server_name: &str,
     base_url: &str,
     endpoint: &str,
 ) -> anyhow::Result<()> {
+    validate_safe_http_url(base_url)?;
+    let safe_endpoint = validate_safe_http_url(endpoint)?;
     println!(
         "[Media Server] Requesting {} library refresh: {}",
         server_name, base_url
@@ -910,7 +938,7 @@ fn send_media_server_refresh_post(
     let mut success = false;
 
     for attempt in 1..=3 {
-        if client.post(endpoint).send().is_ok() {
+        if client.post(safe_endpoint).send().is_ok() {
             success = true;
             break;
         }
@@ -1724,5 +1752,22 @@ mod tests {
         args_scans.plex_token = Some("dummy_tok".to_string());
         trigger_media_server_scans(&args_scans);
         let _ = mock_server.join();
+    }
+
+    #[test]
+    fn test_validate_safe_http_url() {
+        assert_eq!(
+            validate_safe_http_url("https://hooks.example.com/notify").unwrap(),
+            "https://hooks.example.com/notify"
+        );
+        assert_eq!(
+            validate_safe_http_url("http://127.0.0.1:8096/Items/Root/Refresh").unwrap(),
+            "http://127.0.0.1:8096/Items/Root/Refresh"
+        );
+        assert!(validate_safe_http_url("").is_err());
+        assert!(validate_safe_http_url("file:///etc/passwd").is_err());
+        assert!(validate_safe_http_url("ftp://example.com/resource").is_err());
+        assert!(validate_safe_http_url("http:///missing-host").is_err());
+        assert!(validate_safe_http_url("https://example.com/hook\r\nX-Injected: 1").is_err());
     }
 }

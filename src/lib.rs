@@ -347,6 +347,103 @@ impl AppContainer {
             self.history_repo.clone(),
         )
     }
+
+    /// Returns a fluent [`AppContainerBuilder`] initialized with production defaults for `ffmpeg_bin`,
+    /// allowing library consumers to selectively override individual domain ports.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use dvd_ripper::AppContainer;
+    ///
+    /// let container = AppContainer::builder("ffmpeg").build();
+    /// let _probe_uc = container.probe_disc_use_case();
+    /// ```
+    pub fn builder(ffmpeg_bin: &str) -> AppContainerBuilder {
+        AppContainerBuilder::new(ffmpeg_bin)
+    }
+}
+
+/// Fluent builder for [`AppContainer`] enabling selective port injection without boilerplate.
+pub struct AppContainerBuilder {
+    container: AppContainer,
+}
+
+impl AppContainerBuilder {
+    /// Initializes a builder with production default adapters for `ffmpeg_bin`.
+    pub fn new(ffmpeg_bin: &str) -> Self {
+        Self {
+            container: AppContainer::build_production(ffmpeg_bin),
+        }
+    }
+
+    /// Overrides the [`Transcoder`] port implementation.
+    pub fn with_transcoder(mut self, transcoder: Arc<dyn Transcoder>) -> Self {
+        self.container.transcoder = transcoder;
+        self
+    }
+
+    /// Overrides the [`MetadataProvider`] port implementation.
+    pub fn with_metadata_provider(mut self, provider: Arc<dyn MetadataProvider>) -> Self {
+        self.container.metadata_provider = provider;
+        self
+    }
+
+    /// Overrides the [`TvSeriesMetadataProvider`] port implementation.
+    pub fn with_tv_metadata_provider(
+        mut self,
+        provider: Arc<dyn TvSeriesMetadataProvider>,
+    ) -> Self {
+        self.container.tv_metadata_provider = provider;
+        self
+    }
+
+    /// Overrides the [`DiscFingerprintRepository`] port implementation.
+    pub fn with_fingerprint_repo(mut self, repo: Arc<dyn DiscFingerprintRepository>) -> Self {
+        self.container.fingerprint_repo = repo;
+        self
+    }
+
+    /// Overrides the [`Notifier`] port implementation.
+    pub fn with_notifier(mut self, notifier: Arc<dyn Notifier>) -> Self {
+        self.container.notifier = notifier;
+        self
+    }
+
+    /// Overrides the [`DiskSpaceGuard`] port implementation.
+    pub fn with_disk_guard(mut self, guard: Arc<dyn DiskSpaceGuard>) -> Self {
+        self.container.disk_guard = guard;
+        self
+    }
+
+    /// Overrides the [`HistoryRepository`] port implementation.
+    pub fn with_history_repo(mut self, repo: Arc<dyn HistoryRepository>) -> Self {
+        self.container.history_repo = repo;
+        self
+    }
+
+    /// Overrides the [`PostProcessor`] port implementation.
+    pub fn with_post_processor(mut self, processor: Arc<dyn PostProcessor>) -> Self {
+        self.container.post_processor = processor;
+        self
+    }
+
+    /// Overrides the [`IsoArchiver`] port implementation.
+    pub fn with_iso_archiver(mut self, archiver: Arc<dyn IsoArchiver>) -> Self {
+        self.container.iso_archiver = archiver;
+        self
+    }
+
+    /// Overrides the [`TrayController`] port implementation.
+    pub fn with_tray_controller(mut self, controller: Arc<dyn TrayController>) -> Self {
+        self.container.tray_controller = controller;
+        self
+    }
+
+    /// Consumes the builder and returns the configured [`AppContainer`].
+    pub fn build(self) -> AppContainer {
+        self.container
+    }
 }
 
 /// Dependency Inversion (DIP/SOLID): High-level trait abstraction for DVD path normalization.

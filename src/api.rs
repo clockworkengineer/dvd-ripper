@@ -19,19 +19,92 @@ use crate::history::load_history;
 #[allow(dead_code)]
 pub const MIME_APPLICATION_JSON: &str = "application/json";
 
-static CANCEL_FLAG: OnceLock<Arc<AtomicBool>> = OnceLock::new();
-static CANCEL_TX: OnceLock<Arc<Mutex<Option<Sender<()>>>>> = OnceLock::new();
+/// Thread-safe, poison-resilient state store encapsulating appliance status, multi-drive pool state,
+/// cancellation flags, and REST API authentication configuration.
+///
+/// Can be instantiated independently in tests via [`ApplianceStateStore::new`] or accessed via
+/// [`ApplianceStateStore::global`].
+pub struct ApplianceStateStore {
+    pub status: Arc<Mutex<ApplianceStatusInfo>>,
+    pub drive_pool: Arc<Mutex<HashMap<String, DriveStatusInfo>>>,
+    pub drive_cancel_flags: Arc<Mutex<HashMap<String, Arc<AtomicBool>>>>,
+    pub cancel_flag: Arc<AtomicBool>,
+    pub cancel_tx: Arc<Mutex<Option<Sender<()>>>>,
+    pub api_key: Arc<Mutex<Option<String>>>,
+    pub completed_rips: AtomicU64,
+    pub failed_rips: AtomicU64,
+}
+
+impl Default for ApplianceStateStore {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl ApplianceStateStore {
+    /// Creates an isolated [`ApplianceStateStore`] instance with clean initial state.
+    pub fn new() -> Self {
+        Self {
+            status: Arc::new(Mutex::new(ApplianceStatusInfo {
+                status: "Idle".to_string(),
+                drive: "auto".to_string(),
+                disc: String::new(),
+                current_title: String::new(),
+                progress: 0.0,
+                fps: "0".to_string(),
+                speed: "0x".to_string(),
+                has_selected_movie: false,
+                is_series: false,
+                year: None,
+            })),
+            drive_pool: Arc::new(Mutex::new(HashMap::new())),
+            drive_cancel_flags: Arc::new(Mutex::new(HashMap::new())),
+            cancel_flag: Arc::new(AtomicBool::new(false)),
+            cancel_tx: Arc::new(Mutex::new(None)),
+            api_key: Arc::new(Mutex::new(None)),
+            completed_rips: AtomicU64::new(0),
+            failed_rips: AtomicU64::new(0),
+        }
+    }
+
+    /// Returns a reference to the process-wide global [`ApplianceStateStore`].
+    pub fn global() -> &'static Self {
+        static GLOBAL_STORE: OnceLock<ApplianceStateStore> = OnceLock::new();
+        GLOBAL_STORE.get_or_init(Self::new)
+    }
+
+    /// Updates the primary appliance status in a poison-resilient manner.
+    pub fn update_status(
+        &self,
+        status: &str,
+        disc: &str,
+        title: &str,
+        progress: f64,
+        fps: &str,
+        speed: &str,
+    ) {
+        let mut state = lock_or_recover(&self.status);
+        state.status = status.to_string();
+        if !disc.is_empty() {
+            state.disc = disc.to_string();
+        }
+        if !title.is_empty() {
+            state.current_title = title.to_string();
+        }
+        state.progress = progress;
+        state.fps = fps.to_string();
+        state.speed = speed.to_string();
+    }
+}
 
 /// Returns the global atomic cancel flag handle for ongoing operations.
 pub fn get_cancel_flag_handle() -> Arc<AtomicBool> {
-    CANCEL_FLAG
-        .get_or_init(|| Arc::new(AtomicBool::new(false)))
-        .clone()
+    ApplianceStateStore::global().cancel_flag.clone()
 }
 
 /// Returns the global thread-safe sender handle for process cancellation signals.
 pub fn get_cancel_tx_handle() -> Arc<Mutex<Option<Sender<()>>>> {
-    CANCEL_TX.get_or_init(|| Arc::new(Mutex::new(None))).clone()
+    ApplianceStateStore::global().cancel_tx.clone()
 }
 
 /// Liskov Substitution Principle (LSP/SOLID): Trait contract for telemetry metrics rendering.
@@ -164,43 +237,31 @@ impl ApplianceStatusInfo {
     }
 }
 
-static APPLIANCE_STATUS: OnceLock<Arc<Mutex<ApplianceStatusInfo>>> = OnceLock::new();
-
 pub fn get_appliance_status_handle() -> Arc<Mutex<ApplianceStatusInfo>> {
-    APPLIANCE_STATUS
-        .get_or_init(|| {
-            Arc::new(Mutex::new(ApplianceStatusInfo {
-                status: "Idle".to_string(),
-                drive: "auto".to_string(),
-                disc: "".to_string(),
-                current_title: "".to_string(),
-                progress: 0.0,
-                fps: "0".to_string(),
-                speed: "0x".to_string(),
-                has_selected_movie: false,
-                is_series: false,
-                year: None,
-            }))
-        })
-        .clone()
+    ApplianceStateStore::global().status.clone()
 }
-
-static COMPLETED_RIPS_COUNTER: AtomicU64 = AtomicU64::new(0);
-static FAILED_RIPS_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 #[allow(dead_code)]
 pub fn increment_completed_rips() {
-    COMPLETED_RIPS_COUNTER.fetch_add(1, Ordering::SeqCst);
+    ApplianceStateStore::global()
+        .completed_rips
+        .fetch_add(1, Ordering::SeqCst);
 }
 
 #[allow(dead_code)]
 pub fn increment_failed_rips() {
-    FAILED_RIPS_COUNTER.fetch_add(1, Ordering::SeqCst);
+    ApplianceStateStore::global()
+        .failed_rips
+        .fetch_add(1, Ordering::SeqCst);
 }
 
 pub fn render_prometheus_metrics() -> String {
-    let completed = COMPLETED_RIPS_COUNTER.load(Ordering::SeqCst);
-    let failed = FAILED_RIPS_COUNTER.load(Ordering::SeqCst);
+    let completed = ApplianceStateStore::global()
+        .completed_rips
+        .load(Ordering::SeqCst);
+    let failed = ApplianceStateStore::global()
+        .failed_rips
+        .load(Ordering::SeqCst);
 
     let handle = get_appliance_status_handle();
     let (is_active, progress) = if let Ok(state) = handle.lock() {
@@ -286,21 +347,12 @@ pub fn fail_appliance_status(title: &str, out_dir: &str, err_msg: &str) {
 /// Re-export DriveStatusInfo from the domain layer.
 pub use crate::domain::entities::disc::DriveStatusInfo;
 
-static DRIVE_POOL_REGISTRY: OnceLock<Arc<Mutex<HashMap<String, DriveStatusInfo>>>> =
-    OnceLock::new();
-type DriveCancelMap = Arc<Mutex<HashMap<String, Arc<AtomicBool>>>>;
-static DRIVE_CANCEL_FLAGS: OnceLock<DriveCancelMap> = OnceLock::new();
-
 pub fn get_drive_pool_registry() -> Arc<Mutex<HashMap<String, DriveStatusInfo>>> {
-    DRIVE_POOL_REGISTRY
-        .get_or_init(|| Arc::new(Mutex::new(HashMap::new())))
-        .clone()
+    ApplianceStateStore::global().drive_pool.clone()
 }
 
 pub fn get_drive_cancel_flags_map() -> Arc<Mutex<HashMap<String, Arc<AtomicBool>>>> {
-    DRIVE_CANCEL_FLAGS
-        .get_or_init(|| Arc::new(Mutex::new(HashMap::new())))
-        .clone()
+    ApplianceStateStore::global().drive_cancel_flags.clone()
 }
 
 /// Initializes the multi-drive appliance pool with optical drive paths.
@@ -994,10 +1046,8 @@ pub fn extract_body(req_bytes: &[u8]) -> Option<&str> {
     }
 }
 
-static CONFIGURED_API_KEY: OnceLock<Arc<Mutex<Option<String>>>> = OnceLock::new();
-
 fn get_configured_api_key_handle() -> &'static Arc<Mutex<Option<String>>> {
-    CONFIGURED_API_KEY.get_or_init(|| Arc::new(Mutex::new(None)))
+    &ApplianceStateStore::global().api_key
 }
 
 pub fn lock_or_recover<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
@@ -1007,17 +1057,18 @@ pub fn lock_or_recover<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     }
 }
 
+/// Performs a length-hiding, constant-time byte comparison of two strings to mitigate timing side-channels.
 pub fn constant_time_eq(a: &str, b: &str) -> bool {
     let a_bytes = a.as_bytes();
     let b_bytes = b.as_bytes();
-    if a_bytes.len() != b_bytes.len() {
-        return false;
+    let max_len = a_bytes.len().max(b_bytes.len());
+    let mut diff = a_bytes.len() ^ b_bytes.len();
+    for i in 0..max_len {
+        let x = a_bytes.get(i).copied().unwrap_or(0);
+        let y = b_bytes.get(i).copied().unwrap_or(0);
+        diff |= (x ^ y) as usize;
     }
-    let mut res = 0u8;
-    for (x, y) in a_bytes.iter().zip(b_bytes.iter()) {
-        res |= x ^ y;
-    }
-    res == 0
+    diff == 0
 }
 
 #[allow(dead_code)]
@@ -2185,8 +2236,12 @@ pub struct MetricCounters {
 #[allow(dead_code)]
 pub fn snapshot_metrics() -> MetricCounters {
     MetricCounters {
-        completed_rips: COMPLETED_RIPS_COUNTER.load(Ordering::SeqCst),
-        failed_rips: FAILED_RIPS_COUNTER.load(Ordering::SeqCst),
+        completed_rips: ApplianceStateStore::global()
+            .completed_rips
+            .load(Ordering::SeqCst),
+        failed_rips: ApplianceStateStore::global()
+            .failed_rips
+            .load(Ordering::SeqCst),
         active_jobs: if get_appliance_status_handle()
             .lock()
             .is_ok_and(|s| s.status == "Ripping")
@@ -2895,5 +2950,22 @@ mod tests {
         assert!(flags_map.lock().is_ok());
 
         reset_drive_status("Z:\\", "Idle");
+    }
+
+    #[test]
+    fn test_constant_time_eq_and_isolated_appliance_state_store() {
+        assert!(constant_time_eq("secret_token_123", "secret_token_123"));
+        assert!(!constant_time_eq("secret_token_123", "secret_token_124"));
+        assert!(!constant_time_eq("short", "longer_token"));
+        assert!(!constant_time_eq("longer_token", "short"));
+        assert!(constant_time_eq("", ""));
+
+        let store = ApplianceStateStore::new();
+        store.update_status("Ripping", "DISC_1", "Movie 1", 55.5, "48.0", "2.0x");
+        let st = lock_or_recover(&store.status);
+        assert_eq!(st.status, "Ripping");
+        assert_eq!(st.disc, "DISC_1");
+        assert_eq!(st.current_title, "Movie 1");
+        assert_eq!(st.progress, 55.5);
     }
 }

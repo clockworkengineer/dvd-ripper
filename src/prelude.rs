@@ -33,6 +33,10 @@ pub use crate::domain::ports::{
     },
     post_processor::{PostProcessContext, PostProcessor},
     storage::{DiskSpaceGuard, HistoryRepository},
+    testing::{
+        FixedDiskSpaceGuard, InMemoryHistoryRepository, RecordedNotification, RecordingNotifier,
+        RecordingProgressObserver,
+    },
     transcoder::{
         DefaultVideoCodecResolver, ProgressObserver, TranscodeJob, TranscodeOptions, Transcoder,
         VideoCodecResolver,
@@ -66,7 +70,9 @@ pub use crate::infrastructure::{
 };
 
 // Application Container & Lifecycle
-pub use crate::{AppContainer, AppInitializer, DefaultPathResolver, PathResolver};
+pub use crate::{
+    AppContainer, AppContainerBuilder, AppInitializer, DefaultPathResolver, PathResolver,
+};
 
 #[cfg(test)]
 mod tests {
@@ -86,5 +92,56 @@ mod tests {
         let _trans_opts = TranscodeOptions::default();
         let _status = DriveStatusInfo::new("D:\\");
         let _codec_res = DefaultVideoCodecResolver;
+    }
+
+    #[test]
+    fn test_app_container_builder_and_test_doubles() {
+        let history_repo = Arc::new(InMemoryHistoryRepository::new());
+        let notifier = Arc::new(RecordingNotifier::new());
+        let disk_guard = Arc::new(FixedDiskSpaceGuard::new(250));
+
+        let container = AppContainer::builder("ffmpeg")
+            .with_history_repo(history_repo.clone())
+            .with_notifier(notifier.clone())
+            .with_disk_guard(disk_guard.clone())
+            .build();
+
+        container
+            .history_repo
+            .append_record(
+                &RipRecord::new("Inception", "Movie", "/out/Inception.mkv", "Success"),
+                None,
+            )
+            .unwrap();
+        assert_eq!(history_repo.records().len(), 1);
+
+        container
+            .notifier
+            .send(&NotificationEvent::RipStarted {
+                title: "Inception",
+                drive: "D:\\",
+            })
+            .unwrap();
+        assert_eq!(notifier.events().len(), 1);
+        assert_eq!(notifier.events()[0].kind, "RipStarted");
+
+        assert!(
+            container
+                .disk_guard
+                .check_free_space(std::path::Path::new("."), 100)
+                .is_ok()
+        );
+        assert!(
+            container
+                .disk_guard
+                .check_free_space(std::path::Path::new("."), 300)
+                .is_err()
+        );
+
+        let observer = RecordingProgressObserver::new();
+        observer.on_progress(42.5, "60.0", "2.4x");
+        observer.on_log("frame=120");
+        assert_eq!(observer.progress_updates().len(), 1);
+        assert_eq!(observer.logs().len(), 1);
     }
 }

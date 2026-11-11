@@ -769,536 +769,10 @@ impl MediaProcessRunner for SystemMediaProcessRunner {
     }
 }
 
-/// Resolves a 1-based VTS title number (`vts_ttn`) to its 1-based Program Chain Number (`pgcn`)
-/// via the `VTS_PTT_SRPT` table (sector pointer at `0xC8..0xCC` in `VTS_xx_0.IFO`).
-/// Falls back to `vts_ttn as usize` if `VTS_PTT_SRPT` is absent or out of bounds.
-pub fn resolve_vts_ttn_to_pgcn(vts_data: &[u8], vts_ttn: u8) -> usize {
-    let fallback = (vts_ttn as usize).max(1);
-    if vts_ttn == 0 || vts_data.len() < 0xCC {
-        return fallback;
-    }
-    let ptt_srpt_sec = u32::from_be_bytes([
-        vts_data[0xC8],
-        vts_data[0xC9],
-        vts_data[0xCA],
-        vts_data[0xCB],
-    ]) as usize;
-    if ptt_srpt_sec == 0 {
-        return fallback;
-    }
-    let ptt_srpt_off = ptt_srpt_sec * 2048;
-    if ptt_srpt_off + 8 > vts_data.len() {
-        return fallback;
-    }
-    let nr_ttu = u16::from_be_bytes([vts_data[ptt_srpt_off], vts_data[ptt_srpt_off + 1]]) as usize;
-    let ttn_idx = (vts_ttn as usize).saturating_sub(1);
-    if nr_ttu == 0 || ttn_idx >= nr_ttu || ptt_srpt_off + 8 + nr_ttu * 4 > vts_data.len() {
-        return fallback;
-    }
-    let ptr_off = ptt_srpt_off + 8 + ttn_idx * 4;
-    let ttu_rel = u32::from_be_bytes([
-        vts_data[ptr_off],
-        vts_data[ptr_off + 1],
-        vts_data[ptr_off + 2],
-        vts_data[ptr_off + 3],
-    ]) as usize;
-    let first_ptt_off = ptt_srpt_off + ttu_rel;
-    if ttu_rel < 8 || first_ptt_off + 4 > vts_data.len() {
-        return fallback;
-    }
-    let pgcn =
-        u16::from_be_bytes([vts_data[first_ptt_off], vts_data[first_ptt_off + 1]]) as usize;
-    if pgcn == 0 { fallback } else { pgcn }
-}
-
-/// Ultra-fast DVD title probing by directly reading DVD-Video IFO structures (VIDEO_TS.IFO and VTS_xx_0.IFO).
-/// Returns titles and exact durations in <10ms without launching FFmpeg subprocesses.
-pub fn probe_dvd_titles_ifo(dvd_path: &Path) -> Option<Vec<DvdTitleInfo>> {
-    let candidates = [
-        dvd_path.join("VIDEO_TS").join("VIDEO_TS.IFO"),
-        dvd_path.join("video_ts").join("video_ts.ifo"),
-        dvd_path.join("VIDEO_TS").join("video_ts.ifo"),
-        dvd_path.join("video_ts").join("VIDEO_TS.IFO"),
-        dvd_path.join("VIDEO_TS.IFO"),
-        dvd_path.join("video_ts.ifo"),
-    ];
-
-    let ifo_path = candidates.into_iter().find(|p| p.exists())?;
-    let data = std::fs::read(&ifo_path).ok()?;
-    if data.len() < 0xC8 {
-        return None;
-    }
-
-    let sector_offset = u32::from_be_bytes([data[0xc4], data[0xc5], data[0xc6], data[0xc7]]);
-    let byte_offset = (sector_offset as usize) * 2048;
-    if byte_offset + 8 > data.len() {
-        return None;
-    }
-
-    let nr_titles = u16::from_be_bytes([data[byte_offset], data[byte_offset + 1]]) as usize;
-    if nr_titles == 0 || byte_offset + 8 + nr_titles * 12 > data.len() {
-        return None;
-    }
-
-    let ifo_dir = ifo_path.parent().unwrap_or(dvd_path);
-    let mut titles = Vec::with_capacity(nr_titles);
-
-    for t in 0..nr_titles {
-        let entry_off = byte_offset + 8 + t * 12;
-        let vtsn = data[entry_off + 6];
-        let vts_ttn = data[entry_off + 7];
-
-        let mut duration_secs = 0.0;
-        let vts_candidates = [
-            ifo_dir.join(format!("VTS_{:02}_0.IFO", vtsn)),
-            ifo_dir.join(format!("vts_{:02}_0.ifo", vtsn)),
-            ifo_dir.join(format!("VTS_{:02}_0.ifo", vtsn)),
-        ];
-
-        if let Some(vts_path) = vts_candidates.into_iter().find(|p| p.exists())
-            && let Ok(vts_data) = std::fs::read(&vts_path)
-            && vts_data.len() > 0xCC + 4
-        {
-            let pgciti_sec = u32::from_be_bytes([
-                vts_data[0xCC],
-                vts_data[0xCD],
-                vts_data[0xCE],
-                vts_data[0xCF],
-            ]);
-            let pgciti_off = (pgciti_sec as usize) * 2048;
-            let pgcn = resolve_vts_ttn_to_pgcn(&vts_data, vts_ttn);
-            if vts_ttn > 0 && pgciti_off + 8 + pgcn * 8 <= vts_data.len() {
-                let pgc_entry_off = pgciti_off + 8 + (pgcn - 1) * 8;
-                let pgc_start_rel = u32::from_be_bytes([
-                    vts_data[pgc_entry_off + 4],
-                    vts_data[pgc_entry_off + 5],
-                    vts_data[pgc_entry_off + 6],
-                    vts_data[pgc_entry_off + 7],
-                ]);
-                let pgc_off = pgciti_off + (pgc_start_rel as usize);
-                if pgc_off + 8 <= vts_data.len() {
-                    let h_bcd = vts_data[pgc_off + 4];
-                    let m_bcd = vts_data[pgc_off + 5];
-                    let s_bcd = vts_data[pgc_off + 6];
-                    let h = (((h_bcd >> 4) * 10) + (h_bcd & 0x0F)) as f64;
-                    let m = (((m_bcd >> 4) * 10) + (m_bcd & 0x0F)) as f64;
-                    let s = (((s_bcd >> 4) * 10) + (s_bcd & 0x0F)) as f64;
-                    duration_secs = h * 3600.0 + m * 60.0 + s;
-                }
-            }
-        }
-
-        titles.push(DvdTitleInfo {
-            title_num: (t + 1) as u32,
-            duration_secs,
-        });
-    }
-
-    if titles.is_empty() {
-        None
-    } else {
-        Some(titles)
-    }
-}
-
-/// Parses binary `VIDEO_TS.IFO` and `VTS_xx_0.IFO` Cell Playback Tables (`C_PBIT`) to build
-/// [`crate::domain::heuristics::TitleCellTopology`] entries for structural fake-title de-obfuscation.
-pub fn probe_dvd_cell_topologies_ifo(
-    dvd_path: &Path,
-) -> Option<Vec<crate::domain::heuristics::TitleCellTopology>> {
-    let candidates = [
-        dvd_path.join("VIDEO_TS").join("VIDEO_TS.IFO"),
-        dvd_path.join("video_ts").join("video_ts.ifo"),
-        dvd_path.join("VIDEO_TS").join("video_ts.ifo"),
-        dvd_path.join("video_ts").join("VIDEO_TS.IFO"),
-        dvd_path.join("VIDEO_TS.IFO"),
-        dvd_path.join("video_ts.ifo"),
-    ];
-
-    let ifo_path = candidates.into_iter().find(|p| p.exists())?;
-    let data = std::fs::read(&ifo_path).ok()?;
-    if data.len() < 0xC8 {
-        return None;
-    }
-
-    let sector_offset = u32::from_be_bytes([data[0xc4], data[0xc5], data[0xc6], data[0xc7]]);
-    let byte_offset = (sector_offset as usize) * 2048;
-    if byte_offset + 8 > data.len() {
-        return None;
-    }
-
-    let nr_titles = u16::from_be_bytes([data[byte_offset], data[byte_offset + 1]]) as usize;
-    if nr_titles == 0 || byte_offset + 8 + nr_titles * 12 > data.len() {
-        return None;
-    }
-
-    let ifo_dir = ifo_path.parent().unwrap_or(dvd_path);
-    let mut topologies = Vec::with_capacity(nr_titles);
-
-    for t in 0..nr_titles {
-        let entry_off = byte_offset + 8 + t * 12;
-        let angle_count = data[entry_off + 1].max(1);
-        let vtsn = data[entry_off + 6];
-        let vts_ttn = data[entry_off + 7];
-
-        let mut duration_secs = 0.0;
-        let mut cell_sectors = Vec::new();
-        let vts_candidates = [
-            ifo_dir.join(format!("VTS_{:02}_0.IFO", vtsn)),
-            ifo_dir.join(format!("vts_{:02}_0.ifo", vtsn)),
-            ifo_dir.join(format!("VTS_{:02}_0.ifo", vtsn)),
-        ];
-
-        if let Some(vts_path) = vts_candidates.into_iter().find(|p| p.exists())
-            && let Ok(vts_data) = std::fs::read(&vts_path)
-            && vts_data.len() > 0xCC + 4
-        {
-            let pgciti_sec = u32::from_be_bytes([
-                vts_data[0xCC],
-                vts_data[0xCD],
-                vts_data[0xCE],
-                vts_data[0xCF],
-            ]);
-            let pgciti_off = (pgciti_sec as usize) * 2048;
-            let pgcn = resolve_vts_ttn_to_pgcn(&vts_data, vts_ttn);
-            if vts_ttn > 0 && pgciti_off + 8 + pgcn * 8 <= vts_data.len() {
-                let pgc_entry_off = pgciti_off + 8 + (pgcn - 1) * 8;
-                let pgc_start_rel = u32::from_be_bytes([
-                    vts_data[pgc_entry_off + 4],
-                    vts_data[pgc_entry_off + 5],
-                    vts_data[pgc_entry_off + 6],
-                    vts_data[pgc_entry_off + 7],
-                ]);
-                let pgc_off = pgciti_off + (pgc_start_rel as usize);
-                if pgc_off + 0xEC <= vts_data.len() {
-                    let nr_cells = vts_data[pgc_off + 3] as usize;
-                    let h_bcd = vts_data[pgc_off + 4];
-                    let m_bcd = vts_data[pgc_off + 5];
-                    let s_bcd = vts_data[pgc_off + 6];
-                    let h = (((h_bcd >> 4) * 10) + (h_bcd & 0x0F)) as f64;
-                    let m = (((m_bcd >> 4) * 10) + (m_bcd & 0x0F)) as f64;
-                    let s = (((s_bcd >> 4) * 10) + (s_bcd & 0x0F)) as f64;
-                    duration_secs = h * 3600.0 + m * 60.0 + s;
-
-                    let c_pbit_rel =
-                        u16::from_be_bytes([vts_data[pgc_off + 0xE8], vts_data[pgc_off + 0xE9]])
-                            as usize;
-                    let c_pbit_off = pgc_off + c_pbit_rel;
-                    if c_pbit_rel > 0
-                        && nr_cells > 0
-                        && c_pbit_off + nr_cells * 24 <= vts_data.len()
-                    {
-                        for c in 0..nr_cells {
-                            let c_off = c_pbit_off + c * 24;
-                            let first_sec = u32::from_be_bytes([
-                                vts_data[c_off + 8],
-                                vts_data[c_off + 9],
-                                vts_data[c_off + 10],
-                                vts_data[c_off + 11],
-                            ]);
-                            let last_sec = u32::from_be_bytes([
-                                vts_data[c_off + 16],
-                                vts_data[c_off + 17],
-                                vts_data[c_off + 18],
-                                vts_data[c_off + 19],
-                            ]);
-                            cell_sectors.push((first_sec, last_sec));
-                        }
-                    }
-                }
-            }
-        }
-
-        topologies.push(crate::domain::heuristics::TitleCellTopology {
-            title_num: (t + 1) as u32,
-            duration_secs,
-            cell_sectors,
-            angle_count,
-        });
-    }
-
-    if topologies.is_empty() {
-        None
-    } else {
-        Some(topologies)
-    }
-}
-
-/// Directly parses binary DVD-Video `VIDEO_TS.IFO` and `VTS_xx_0.IFO` tables to extract deep per-title stream topology:
-/// chapters, audio streams (codec, language, channels), subtitle tracks, video aspect/resolution, and camera angles.
-pub fn probe_title_details_ifo(
-    dvd_path: &Path,
-    title_num: u32,
-) -> Option<crate::domain::entities::disc::TitleStreamDetails> {
-    use crate::domain::entities::disc::{
-        AudioStreamInfo, Chapter, SubtitleStreamInfo, TitleStreamDetails,
-    };
-
-    if title_num == 0 {
-        return None;
-    }
-
-    let candidates = [
-        dvd_path.join("VIDEO_TS").join("VIDEO_TS.IFO"),
-        dvd_path.join("video_ts").join("video_ts.ifo"),
-        dvd_path.join("VIDEO_TS").join("video_ts.ifo"),
-        dvd_path.join("video_ts").join("VIDEO_TS.IFO"),
-        dvd_path.join("VIDEO_TS.IFO"),
-        dvd_path.join("video_ts.ifo"),
-    ];
-
-    let ifo_path = candidates.into_iter().find(|p| p.exists())?;
-    let data = std::fs::read(&ifo_path).ok()?;
-    if data.len() < 0xC8 {
-        return None;
-    }
-
-    let sector_offset = u32::from_be_bytes([data[0xc4], data[0xc5], data[0xc6], data[0xc7]]);
-    let byte_offset = (sector_offset as usize) * 2048;
-    if byte_offset + 8 > data.len() {
-        return None;
-    }
-
-    let nr_titles = u16::from_be_bytes([data[byte_offset], data[byte_offset + 1]]) as usize;
-    let idx = (title_num as usize).checked_sub(1)?;
-    if idx >= nr_titles || byte_offset + 8 + nr_titles * 12 > data.len() {
-        return None;
-    }
-
-    let entry_off = byte_offset + 8 + idx * 12;
-    let angles = data[entry_off + 1].max(1);
-    let num_chapters = u16::from_be_bytes([data[entry_off + 2], data[entry_off + 3]]) as u32;
-    let vtsn = data[entry_off + 6];
-    let vts_ttn = data[entry_off + 7];
-
-    let ifo_dir = ifo_path.parent().unwrap_or(dvd_path);
-    let vts_candidates = [
-        ifo_dir.join(format!("VTS_{:02}_0.IFO", vtsn)),
-        ifo_dir.join(format!("vts_{:02}_0.ifo", vtsn)),
-        ifo_dir.join(format!("VTS_{:02}_0.ifo", vtsn)),
-    ];
-
-    let vts_path = vts_candidates.into_iter().find(|p| p.exists())?;
-    let vts_data = std::fs::read(&vts_path).ok()?;
-    if vts_data.len() < 0x300 {
-        return None;
-    }
-
-    // 1. Video attributes at 0x200..0x202
-    let v_attr0 = vts_data[0x200];
-    let is_pal = ((v_attr0 >> 4) & 0x03) == 1;
-    let aspect_code = (v_attr0 >> 2) & 0x03;
-    let aspect_ratio = Some(if aspect_code == 3 {
-        "16:9".to_string()
-    } else {
-        "4:3".to_string()
-    });
-    let resolution = Some(if is_pal { (720, 576) } else { (720, 480) });
-    let frame_rate = Some(if is_pal {
-        "25.00".to_string()
-    } else {
-        "29.97".to_string()
-    });
-
-    // 2. Audio streams at 0x202..0x204 (count) and 0x204.. (8 bytes per stream, up to 8 streams)
-    let nr_audio = (u16::from_be_bytes([vts_data[0x202], vts_data[0x203]]) as usize).min(8);
-    let mut audio_streams = Vec::with_capacity(nr_audio);
-    for a in 0..nr_audio {
-        let a_off = 0x204 + a * 8;
-        if a_off + 8 > vts_data.len() {
-            break;
-        }
-        let coding_mode = (vts_data[a_off] >> 5) & 0x07;
-        let codec = match coding_mode {
-            0 => "ac3",
-            2 | 3 => "mp2",
-            4 => "pcm",
-            6 => "dts",
-            _ => "ac3",
-        }
-        .to_string();
-        let channels = ((vts_data[a_off + 1] & 0x07) + 1) as u32;
-        let lang_bytes = &vts_data[a_off + 2..a_off + 4];
-        let language = if lang_bytes.iter().all(|b| b.is_ascii_alphabetic()) {
-            String::from_utf8_lossy(lang_bytes).to_lowercase()
-        } else {
-            "und".to_string()
-        };
-        let channel_layout = match channels {
-            6 => "5.1".to_string(),
-            2 => "2.0".to_string(),
-            1 => "1.0".to_string(),
-            c => format!("{}ch", c),
-        };
-        let ext_code = vts_data[a_off + 5];
-        let title = match ext_code {
-            2 => Some("Visually Impaired".to_string()),
-            3 | 4 => Some("Director's Commentary".to_string()),
-            _ => None,
-        };
-        audio_streams.push(AudioStreamInfo {
-            stream_index: a as u32,
-            codec,
-            language,
-            channels,
-            channel_layout,
-            title,
-        });
-    }
-
-    // 3. Subtitle streams at 0x254..0x256 (count) and 0x256.. (6 bytes per stream, up to 32 streams)
-    let nr_subs = (u16::from_be_bytes([vts_data[0x254], vts_data[0x255]]) as usize).min(32);
-    let mut subtitle_streams = Vec::with_capacity(nr_subs);
-    for s in 0..nr_subs {
-        let s_off = 0x256 + s * 6;
-        if s_off + 6 > vts_data.len() {
-            break;
-        }
-        let lang_bytes = &vts_data[s_off + 2..s_off + 4];
-        let language = if lang_bytes.iter().all(|b| b.is_ascii_alphabetic()) {
-            String::from_utf8_lossy(lang_bytes).to_lowercase()
-        } else {
-            "und".to_string()
-        };
-        let ext_code = vts_data[s_off + 5];
-        let forced = ext_code == 9;
-        subtitle_streams.push(SubtitleStreamInfo {
-            stream_index: s as u32,
-            language,
-            format: "dvdsub".to_string(),
-            forced,
-        });
-    }
-
-    // 4. PGC Duration & Chapters
-    let mut duration_secs = 0.0;
-    let mut chapters = Vec::new();
-    let pgciti_sec = u32::from_be_bytes([
-        vts_data[0xCC],
-        vts_data[0xCD],
-        vts_data[0xCE],
-        vts_data[0xCF],
-    ]);
-    let pgciti_off = (pgciti_sec as usize) * 2048;
-    let pgcn = resolve_vts_ttn_to_pgcn(&vts_data, vts_ttn);
-    if vts_ttn > 0 && pgciti_off + 8 + pgcn * 8 <= vts_data.len() {
-        let pgc_entry_off = pgciti_off + 8 + (pgcn - 1) * 8;
-        let pgc_start_rel = u32::from_be_bytes([
-            vts_data[pgc_entry_off + 4],
-            vts_data[pgc_entry_off + 5],
-            vts_data[pgc_entry_off + 6],
-            vts_data[pgc_entry_off + 7],
-        ]);
-        let pgc_off = pgciti_off + (pgc_start_rel as usize);
-        if pgc_off + 0xEC <= vts_data.len() {
-            let nr_programs = vts_data[pgc_off + 2] as u32;
-            let nr_cells = vts_data[pgc_off + 3] as usize;
-            let h_bcd = vts_data[pgc_off + 4];
-            let m_bcd = vts_data[pgc_off + 5];
-            let s_bcd = vts_data[pgc_off + 6];
-            let h = (((h_bcd >> 4) * 10) + (h_bcd & 0x0F)) as f64;
-            let m = (((m_bcd >> 4) * 10) + (m_bcd & 0x0F)) as f64;
-            let s = (((s_bcd >> 4) * 10) + (s_bcd & 0x0F)) as f64;
-            duration_secs = h * 3600.0 + m * 60.0 + s;
-
-            let pg_map_rel =
-                u16::from_be_bytes([vts_data[pgc_off + 0xE6], vts_data[pgc_off + 0xE7]]) as usize;
-            let c_pbit_rel =
-                u16::from_be_bytes([vts_data[pgc_off + 0xE8], vts_data[pgc_off + 0xE9]]) as usize;
-            let c_pbit_off = pgc_off + c_pbit_rel;
-            if c_pbit_rel > 0 && nr_cells > 0 && c_pbit_off + nr_cells * 24 <= vts_data.len() {
-                let mut cell_durations = Vec::with_capacity(nr_cells);
-                for c in 0..nr_cells {
-                    let cell_off = c_pbit_off + c * 24;
-                    let ch_bcd = vts_data[cell_off + 4];
-                    let cm_bcd = vts_data[cell_off + 5];
-                    let cs_bcd = vts_data[cell_off + 6];
-                    let ch_h = (((ch_bcd >> 4) * 10) + (ch_bcd & 0x0F)) as f64;
-                    let ch_m = (((cm_bcd >> 4) * 10) + (cm_bcd & 0x0F)) as f64;
-                    let ch_s = (((cs_bcd >> 4) * 10) + (cs_bcd & 0x0F)) as f64;
-                    cell_durations.push(ch_h * 3600.0 + ch_m * 60.0 + ch_s);
-                }
-
-                let pg_map_off = pgc_off + pg_map_rel;
-                let has_valid_pg_map = pg_map_rel > 0
-                    && nr_programs > 0
-                    && pg_map_off + (nr_programs as usize) <= vts_data.len()
-                    && (0..nr_programs as usize).all(|p| {
-                        let start_cell = vts_data[pg_map_off + p] as usize;
-                        start_cell >= 1 && start_cell <= nr_cells
-                    });
-
-                let mut cur_start = 0.0;
-                if has_valid_pg_map {
-                    let prog_count = nr_programs as usize;
-                    for p in 0..prog_count {
-                        let start_cell_idx = (vts_data[pg_map_off + p] as usize) - 1;
-                        let end_cell_idx = if p + 1 < prog_count {
-                            ((vts_data[pg_map_off + p + 1] as usize) - 1).max(start_cell_idx + 1)
-                        } else {
-                            nr_cells
-                        }
-                        .min(nr_cells);
-                        let prog_dur: f64 = cell_durations[start_cell_idx..end_cell_idx]
-                            .iter()
-                            .copied()
-                            .sum();
-                        if prog_dur > 0.0 {
-                            let ch_idx = (chapters.len() + 1) as u32;
-                            chapters.push(Chapter {
-                                index: ch_idx,
-                                start_secs: cur_start,
-                                end_secs: cur_start + prog_dur,
-                                title: format!("Chapter {:02}", ch_idx),
-                            });
-                            cur_start += prog_dur;
-                        }
-                    }
-                } else {
-                    for cell_dur in cell_durations {
-                        if cell_dur > 0.0 {
-                            let ch_idx = (chapters.len() + 1) as u32;
-                            chapters.push(Chapter {
-                                index: ch_idx,
-                                start_secs: cur_start,
-                                end_secs: cur_start + cell_dur,
-                                title: format!("Chapter {:02}", ch_idx),
-                            });
-                            cur_start += cell_dur;
-                        }
-                    }
-                }
-            } else {
-                let count = nr_programs.max(num_chapters).max(1);
-                let step = if duration_secs > 0.0 {
-                    duration_secs / (count as f64)
-                } else {
-                    300.0
-                };
-                for c in 1..=count {
-                    chapters.push(Chapter {
-                        index: c,
-                        start_secs: (c - 1) as f64 * step,
-                        end_secs: c as f64 * step,
-                        title: format!("Chapter {:02}", c),
-                    });
-                }
-            }
-        }
-    }
-
-    Some(TitleStreamDetails {
-        title_num,
-        duration_secs,
-        chapters,
-        audio_streams,
-        subtitle_streams,
-        angles,
-        resolution,
-        aspect_ratio,
-        frame_rate,
-    })
-}
+pub use crate::infrastructure::optical::ifo_parser::{
+    probe_dvd_cell_topologies_ifo, probe_dvd_titles_ifo, probe_title_details_ifo,
+    resolve_vts_ttn_to_pgcn,
+};
 
 /// Parses FFmpeg stderr probe output into a structured [`TitleStreamDetails`](crate::domain::entities::disc::TitleStreamDetails).
 pub fn parse_ffmpeg_stream_details(
@@ -2065,6 +1539,105 @@ pub enum RipOutcome {
     FatalError(String),
 }
 
+/// Typed context for evaluating whether an FFmpeg rip execution produced a verified, complete output.
+///
+/// Replaces positional boolean/numeric tuples with named fields for clarity and self-documenting call sites.
+#[derive(Debug, Clone)]
+pub struct RipEvaluationContext<'a> {
+    pub exit_status_success: bool,
+    pub exit_code: Option<i32>,
+    pub output_size: u64,
+    pub last_progress_secs: f64,
+    pub total_seconds: Option<f64>,
+    pub demux_error: bool,
+    pub empty_output: bool,
+    pub css_error: bool,
+    pub resolved_title: u32,
+    pub output_path: &'a Path,
+    pub last_error_lines: &'a [String],
+    pub is_batch: bool,
+}
+
+impl<'a> RipEvaluationContext<'a> {
+    /// Evaluates the rip telemetry and output file metrics into a structured [`RipOutcome`].
+    pub fn evaluate(&self) -> RipOutcome {
+        let min_valid_size = if self.is_batch {
+            30_000_000
+        } else {
+            50_000_000
+        };
+        let is_premature_truncation = self
+            .total_seconds
+            .filter(|&total| total >= 300.0)
+            .is_some_and(|total| {
+                self.last_progress_secs > 0.0 && self.last_progress_secs < total * 0.85
+            });
+        let is_premature_demux_error = self.demux_error
+            && (self.output_size < min_valid_size || is_premature_truncation);
+        let is_fatal_error = self.output_size == 0
+            || is_premature_demux_error
+            || is_premature_truncation
+            || self.empty_output
+            || self.css_error;
+
+        // Detect if the movie/episode feature was fully ripped to completion before optical drive EOF / bad sector traps
+        let has_completed_feature = self.output_size >= min_valid_size
+            && !self.css_error
+            && !self.empty_output
+            && (self.last_progress_secs >= 300.0)
+            && (self.total_seconds.is_none()
+                || self.last_progress_secs >= self.total_seconds.unwrap_or(0.0) * 0.85);
+
+        if self.exit_status_success && !is_fatal_error {
+            RipOutcome::Success
+        } else if has_completed_feature {
+            RipOutcome::TrailingSectorNotice {
+                exit_code: self.exit_code,
+                output_size_mb: self.output_size as f64 / 1_000_000.0,
+                ripped_mins: self.last_progress_secs / 60.0,
+            }
+        } else {
+            let err_msg = if self.css_error {
+                format!(
+                    "FFmpeg cannot rip this encrypted DVD because CSS support is unavailable. Install libdvdcss and retry (output: {}).",
+                    self.output_path.display()
+                )
+            } else if is_premature_demux_error || is_premature_truncation {
+                let pct = self
+                    .total_seconds
+                    .filter(|&t| t > 0.0)
+                    .map(|t| (self.last_progress_secs / t * 100.0).clamp(0.0, 100.0))
+                    .unwrap_or(0.0);
+                format!(
+                    "DVD Title #{} stopped early at {:.1}% ({:.1} mins / {:.1} MB) due to copy-protection bad sectors or demux read error. On copy-protected discs, select Title #2 or check detection.",
+                    self.resolved_title,
+                    pct,
+                    self.last_progress_secs / 60.0,
+                    self.output_size as f64 / 1_000_000.0
+                )
+            } else if !self.exit_status_success {
+                let detail = if !self.last_error_lines.is_empty() {
+                    format!(": {}", self.last_error_lines.join(" | "))
+                } else {
+                    String::new()
+                };
+                format!(
+                    "FFmpeg exited with non-zero status code: {:?}{}",
+                    self.exit_code, detail
+                )
+            } else {
+                format!(
+                    "FFmpeg did not produce a valid rip at {} (output size: {} bytes; DVD demux error: {})",
+                    self.output_path.display(),
+                    self.output_size,
+                    self.demux_error
+                )
+            };
+            RipOutcome::FatalError(err_msg)
+        }
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 pub fn evaluate_rip_outcome(
     exit_status_success: bool,
@@ -2080,71 +1653,21 @@ pub fn evaluate_rip_outcome(
     last_error_lines: &[String],
     is_batch: bool,
 ) -> RipOutcome {
-    let min_valid_size = if is_batch { 30_000_000 } else { 50_000_000 };
-    let is_premature_truncation = total_seconds
-        .filter(|&total| total >= 300.0)
-        .is_some_and(|total| last_progress_secs > 0.0 && last_progress_secs < total * 0.85);
-    let is_premature_demux_error =
-        demux_error && (output_size < min_valid_size || is_premature_truncation);
-    let is_fatal_error = output_size == 0
-        || is_premature_demux_error
-        || is_premature_truncation
-        || empty_output
-        || css_error;
-
-    // Detect if the movie/episode feature was fully ripped to completion before optical drive EOF / bad sector traps
-    let has_completed_feature = output_size >= min_valid_size
-        && !css_error
-        && !empty_output
-        && (last_progress_secs >= 300.0)
-        && (total_seconds.is_none() || last_progress_secs >= total_seconds.unwrap_or(0.0) * 0.85);
-
-    if exit_status_success && !is_fatal_error {
-        RipOutcome::Success
-    } else if has_completed_feature {
-        RipOutcome::TrailingSectorNotice {
-            exit_code,
-            output_size_mb: output_size as f64 / 1_000_000.0,
-            ripped_mins: last_progress_secs / 60.0,
-        }
-    } else {
-        let err_msg = if css_error {
-            format!(
-                "FFmpeg cannot rip this encrypted DVD because CSS support is unavailable. Install libdvdcss and retry (output: {}).",
-                output_path.display()
-            )
-        } else if is_premature_demux_error || is_premature_truncation {
-            let pct = total_seconds
-                .filter(|&t| t > 0.0)
-                .map(|t| (last_progress_secs / t * 100.0).clamp(0.0, 100.0))
-                .unwrap_or(0.0);
-            format!(
-                "DVD Title #{} stopped early at {:.1}% ({:.1} mins / {:.1} MB) due to copy-protection bad sectors or demux read error. On copy-protected discs, select Title #2 or check detection.",
-                resolved_title,
-                pct,
-                last_progress_secs / 60.0,
-                output_size as f64 / 1_000_000.0
-            )
-        } else if !exit_status_success {
-            let detail = if !last_error_lines.is_empty() {
-                format!(": {}", last_error_lines.join(" | "))
-            } else {
-                String::new()
-            };
-            format!(
-                "FFmpeg exited with non-zero status code: {:?}{}",
-                exit_code, detail
-            )
-        } else {
-            format!(
-                "FFmpeg did not produce a valid rip at {} (output size: {} bytes; DVD demux error: {})",
-                output_path.display(),
-                output_size,
-                demux_error
-            )
-        };
-        RipOutcome::FatalError(err_msg)
+    RipEvaluationContext {
+        exit_status_success,
+        exit_code,
+        output_size,
+        last_progress_secs,
+        total_seconds,
+        demux_error,
+        empty_output,
+        css_error,
+        resolved_title,
+        output_path,
+        last_error_lines,
+        is_batch,
     }
+    .evaluate()
 }
 
 /// Executes FFmpeg child process, sending events over a channel and allowing cancellation.
@@ -2160,227 +1683,272 @@ pub fn run_ffmpeg_with_channel(
     cancel_flag: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
     is_batch: bool,
 ) -> Result<()> {
-    let (resolved_title, probed_duration) = if args.title == 0 {
-        let msg = if let Some(target) = expected_runtime_secs {
-            format!(
-                "Auto-detecting DVD title matching movie running time ({:.0} mins)...",
-                target / 60.0
-            )
-        } else {
-            "Auto-detecting title with longest duration on DVD...".to_string()
-        };
-
-        if let Some(ref sender) = tx {
-            let _ = sender.send(ProgressEvent::Log(msg));
-        } else {
-            println!("\n{}", msg);
-            std::io::stdout().flush().ok();
-        }
-
-        let (detected, duration_opt) =
-            detect_best_title_info(&args.ffmpeg, dvd_path, expected_runtime_secs);
-        let msg2 = if expected_runtime_secs.is_some() {
-            format!("Auto-selected Title #{} (matched running time)", detected)
-        } else {
-            format!("Auto-selected Title #{} (longest duration)", detected)
-        };
-
-        if let Some(ref sender) = tx {
-            let _ = sender.send(ProgressEvent::Log(msg2));
-        } else {
-            println!("{}", msg2);
-            std::io::stdout().flush().ok();
-        }
-        (detected, duration_opt)
-    } else if args.start_chapter.is_some()
-        || args.end_chapter.is_some()
-        || expected_runtime_secs.is_some_and(|d| d > 0.0)
-    {
-        (args.title, expected_runtime_secs)
+    let max_retries = if dvd_path.exists() {
+        args.sector_retries.min(2)
     } else {
-        let dur = probe_single_title_duration(&args.ffmpeg, dvd_path, args.title);
-        (args.title, dur)
+        0
     };
-
-    if let Some(ref sender) = tx {
-        let _ = sender.send(ProgressEvent::Progress {
-            percent: 0.0,
-            fps: "N/A".to_string(),
-            speed: "N/A".to_string(),
-        });
-    }
-
-    let mut cmd = build_ffmpeg_command(args, dvd_path, absolute_output, resolved_title);
-
-    let mode_desc = if args.transcode {
-        "Transcoding to high-quality H.264 video & AAC audio...".to_string()
-    } else {
-        "Performing fast, lossless stream copy (remuxing)...".to_string()
-    };
-
-    let cmd_line = format!(
-        "Running command: {} {:?}",
-        args.ffmpeg,
-        cmd.get_args().collect::<Vec<_>>()
-    );
-    let rip_line = format!("Ripping Film: {}", display_title);
-
-    if tx.is_none() {
-        println!("\n{}", mode_desc);
-        println!("\n{}", cmd_line);
-        println!("\n{}", rip_line);
-    } else if let Some(ref sender) = tx {
-        let _ = sender.send(ProgressEvent::Log(mode_desc));
-        let _ = sender.send(ProgressEvent::Log(cmd_line));
-        let _ = sender.send(ProgressEvent::Log(rip_line));
-    }
-
-    if absolute_output.exists() {
-        std::fs::remove_file(absolute_output).with_context(|| {
-            format!(
-                "Failed to remove existing output file {}",
-                absolute_output.display()
-            )
-        })?;
-    }
-
-    cmd.stdin(std::process::Stdio::null());
-    cmd.stdout(std::process::Stdio::null());
-    cmd.stderr(std::process::Stdio::piped());
-
-    let raw_child = cmd
-        .spawn()
-        .context("Failed to spawn FFmpeg process. Is it installed and in your PATH?")?;
-    let mut child = crate::infrastructure::ffmpeg::ChildGuard::new(raw_child);
-
-    let mut stderr = child
-        .as_mut()
-        .stderr
-        .take()
-        .ok_or_else(|| anyhow!("Failed to capture FFmpeg stderr"))?;
-
-    let mut total_seconds: Option<f64> = probed_duration.or(expected_runtime_secs);
-    let mut demux_error = false;
-    let mut empty_output = false;
-    let mut css_error = false;
-    let mut last_progress_secs: f64 = 0.0;
-    let mut last_error_lines: std::collections::VecDeque<String> =
-        std::collections::VecDeque::with_capacity(10);
-
-    let mut buf = [0u8; 1024];
-    let mut line_bytes = Vec::new();
+    let mut attempt: u32 = 0;
 
     loop {
-        if let Some(ref flag) = cancel_flag
-            && flag.load(std::sync::atomic::Ordering::SeqCst)
-        {
-            let _ = child.as_mut().kill();
-            let _ = child.as_mut().wait();
-            if absolute_output.exists() {
-                let _ = std::fs::remove_file(absolute_output);
-            }
-            let msg = "Ripping process cancelled by user.".to_string();
+        let mut attempt_args = args.clone();
+        if attempt > 0 {
+            attempt_args.ignore_errors = true;
+            let retry_msg = format!(
+                "Retrying rip (attempt {}/{}) with error-tolerant demux flags enabled after bad sector / demux interruption...",
+                attempt, max_retries
+            );
             if let Some(ref sender) = tx {
-                let _ = sender.send(ProgressEvent::Error(msg.clone()));
+                let _ = sender.send(ProgressEvent::Log(retry_msg));
+            } else {
+                println!("{}", retry_msg);
             }
-            return Err(anyhow!(msg));
+            std::thread::sleep(std::time::Duration::from_millis(600));
         }
 
-        if let Some(ref rx) = cancel_rx
-            && rx.try_recv().is_ok()
-        {
-            let _ = child.as_mut().kill();
-            let _ = child.as_mut().wait();
-            if absolute_output.exists() {
-                let _ = std::fs::remove_file(absolute_output);
-            }
-            let msg = "Ripping process cancelled by user.".to_string();
-            if let Some(ref sender) = tx {
-                let _ = sender.send(ProgressEvent::Error(msg.clone()));
-            }
-            return Err(anyhow!(msg));
-        }
+        let (resolved_title, probed_duration) = if attempt_args.title == 0 {
+            let msg = if let Some(target) = expected_runtime_secs {
+                format!(
+                    "Auto-detecting DVD title matching movie running time ({:.0} mins)...",
+                    target / 60.0
+                )
+            } else {
+                "Auto-detecting title with longest duration on DVD...".to_string()
+            };
 
-        let n = match stderr.read(&mut buf) {
-            Ok(0) => {
-                if let Ok(Some(_)) = child.as_mut().try_wait() {
-                    break;
-                }
-                std::thread::sleep(std::time::Duration::from_millis(10));
-                continue;
+            if let Some(ref sender) = tx {
+                let _ = sender.send(ProgressEvent::Log(msg));
+            } else {
+                println!("\n{}", msg);
+                std::io::stdout().flush().ok();
             }
-            Ok(n) => n,
-            Err(_) => {
-                if let Ok(Some(_)) = child.as_mut().try_wait() {
-                    break;
-                }
-                std::thread::sleep(std::time::Duration::from_millis(10));
-                continue;
+
+            let (detected, duration_opt) =
+                detect_best_title_info(&attempt_args.ffmpeg, dvd_path, expected_runtime_secs);
+            let msg2 = if expected_runtime_secs.is_some() {
+                format!("Auto-selected Title #{} (matched running time)", detected)
+            } else {
+                format!("Auto-selected Title #{} (longest duration)", detected)
+            };
+
+            if let Some(ref sender) = tx {
+                let _ = sender.send(ProgressEvent::Log(msg2));
+            } else {
+                println!("{}", msg2);
+                std::io::stdout().flush().ok();
             }
+            (detected, duration_opt)
+        } else if attempt_args.start_chapter.is_some()
+            || attempt_args.end_chapter.is_some()
+            || expected_runtime_secs.is_some_and(|d| d > 0.0)
+        {
+            (attempt_args.title, expected_runtime_secs)
+        } else {
+            let dur =
+                probe_single_title_duration(&attempt_args.ffmpeg, dvd_path, attempt_args.title);
+            (attempt_args.title, dur)
         };
 
-        for &b in &buf[..n] {
-            if b == b'\r' || b == b'\n' {
-                if !line_bytes.is_empty() {
-                    let line = String::from_utf8_lossy(&line_bytes).to_string();
-                    line_bytes.clear();
+        if let Some(ref sender) = tx {
+            let _ = sender.send(ProgressEvent::Progress {
+                percent: 0.0,
+                fps: "N/A".to_string(),
+                speed: "N/A".to_string(),
+            });
+        }
 
-                    if let Some(ref sender) = tx {
-                        let _ = sender.send(ProgressEvent::Log(line.clone()));
+        let mut cmd =
+            build_ffmpeg_command(&attempt_args, dvd_path, absolute_output, resolved_title);
+
+        let mode_desc = if attempt_args.transcode {
+            "Transcoding to high-quality H.264 video & AAC audio...".to_string()
+        } else {
+            "Performing fast, lossless stream copy (remuxing)...".to_string()
+        };
+
+        let cmd_line = format!(
+            "Running command: {} {:?}",
+            attempt_args.ffmpeg,
+            cmd.get_args().collect::<Vec<_>>()
+        );
+        let rip_line = format!("Ripping Film: {}", display_title);
+
+        if tx.is_none() {
+            println!("\n{}", mode_desc);
+            println!("\n{}", cmd_line);
+            println!("\n{}", rip_line);
+        } else if let Some(ref sender) = tx {
+            let _ = sender.send(ProgressEvent::Log(mode_desc));
+            let _ = sender.send(ProgressEvent::Log(cmd_line));
+            let _ = sender.send(ProgressEvent::Log(rip_line));
+        }
+
+        if absolute_output.exists() {
+            std::fs::remove_file(absolute_output).with_context(|| {
+                format!(
+                    "Failed to remove existing output file {}",
+                    absolute_output.display()
+                )
+            })?;
+        }
+
+        cmd.stdin(std::process::Stdio::null());
+        cmd.stdout(std::process::Stdio::null());
+        cmd.stderr(std::process::Stdio::piped());
+
+        let raw_child = cmd
+            .spawn()
+            .context("Failed to spawn FFmpeg process. Is it installed and in your PATH?")?;
+        let mut child = crate::infrastructure::ffmpeg::ChildGuard::new(raw_child);
+
+        let mut stderr = child
+            .as_mut()
+            .stderr
+            .take()
+            .ok_or_else(|| anyhow!("Failed to capture FFmpeg stderr"))?;
+
+        let mut total_seconds: Option<f64> = probed_duration.or(expected_runtime_secs);
+        let mut demux_error = false;
+        let mut empty_output = false;
+        let mut css_error = false;
+        let mut last_progress_secs: f64 = 0.0;
+        let mut last_error_lines: std::collections::VecDeque<String> =
+            std::collections::VecDeque::with_capacity(10);
+
+        let mut buf = [0u8; 1024];
+        let mut line_bytes = Vec::new();
+
+        loop {
+            if let Some(ref flag) = cancel_flag
+                && flag.load(std::sync::atomic::Ordering::SeqCst)
+            {
+                let _ = child.as_mut().kill();
+                let _ = child.as_mut().wait();
+                if absolute_output.exists() {
+                    let _ = std::fs::remove_file(absolute_output);
+                }
+                let msg = "Ripping process cancelled by user.".to_string();
+                if let Some(ref sender) = tx {
+                    let _ = sender.send(ProgressEvent::Error(msg.clone()));
+                }
+                return Err(anyhow!(msg));
+            }
+
+            if let Some(ref rx) = cancel_rx
+                && rx.try_recv().is_ok()
+            {
+                let _ = child.as_mut().kill();
+                let _ = child.as_mut().wait();
+                if absolute_output.exists() {
+                    let _ = std::fs::remove_file(absolute_output);
+                }
+                let msg = "Ripping process cancelled by user.".to_string();
+                if let Some(ref sender) = tx {
+                    let _ = sender.send(ProgressEvent::Error(msg.clone()));
+                }
+                return Err(anyhow!(msg));
+            }
+
+            let n = match stderr.read(&mut buf) {
+                Ok(0) => {
+                    if let Ok(Some(_)) = child.as_mut().try_wait() {
+                        break;
                     }
+                    std::thread::sleep(std::time::Duration::from_millis(10));
+                    continue;
+                }
+                Ok(n) => n,
+                Err(_) => {
+                    if let Ok(Some(_)) = child.as_mut().try_wait() {
+                        break;
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(10));
+                    continue;
+                }
+            };
 
-                    if line.contains("Error")
-                        || line.contains("error")
-                        || line.contains("failed")
-                        || line.contains("Invalid")
-                        || line.contains("invalid")
-                    {
-                        if last_error_lines.len() >= 5 {
-                            last_error_lines.pop_front();
+            for &b in &buf[..n] {
+                if b == b'\r' || b == b'\n' {
+                    if !line_bytes.is_empty() {
+                        // Zero-allocation byte-level progress extraction before String conversion
+                        let byte_metrics = crate::infrastructure::ffmpeg::progress_parser::parse_ffmpeg_progress_bytes(&line_bytes)
+                            .and_then(|slice| {
+                                slice.time_secs.map(|secs| {
+                                    let speed_str = slice.speed.unwrap_or("N/A").to_string();
+                                    let fps_str = crate::infrastructure::ffmpeg::progress_parser::extract_kv_field_bytes(&line_bytes, b"fps=")
+                                        .unwrap_or("N/A")
+                                        .to_string();
+                                    (secs, fps_str, speed_str)
+                                })
+                            });
+
+                        let line = String::from_utf8_lossy(&line_bytes).to_string();
+                        line_bytes.clear();
+
+                        if let Some(ref sender) = tx {
+                            let _ = sender.send(ProgressEvent::Log(line.clone()));
                         }
-                        last_error_lines.push_back(line.clone());
-                    }
 
-                    if line.contains("Error during demuxing") {
-                        demux_error = true;
-                    }
-                    if line.contains("Output file is empty") {
-                        empty_output = true;
-                    }
-                    if line.contains("Encrypted DVD support unavailable")
-                        || line.contains("No css library available")
-                    {
-                        css_error = true;
-                    }
-
-                    // Detect overall duration from initialization log or stream info
-                    if let Some(duration_str) = extract_kv_field(&line, "Duration: ") {
-                        let clean_duration = duration_str.trim_end_matches(',');
-                        if let Some(secs) = parse_duration(clean_duration)
-                            && secs > 0.0
+                        if line.contains("Error")
+                            || line.contains("error")
+                            || line.contains("failed")
+                            || line.contains("Invalid")
+                            || line.contains("invalid")
                         {
-                            let is_chapter_slice =
-                                args.start_chapter.is_some() || args.end_chapter.is_some();
-                            if total_seconds.is_none()
-                                || total_seconds.unwrap_or(0.0) <= 0.0
-                                || (!is_chapter_slice
-                                    && secs >= 60.0
-                                    && (total_seconds.unwrap_or(0.0) - secs).abs() > 60.0)
+                            if last_error_lines.len() >= 5 {
+                                last_error_lines.pop_front();
+                            }
+                            last_error_lines.push_back(line.clone());
+                        }
+
+                        if line.contains("Error during demuxing") {
+                            demux_error = true;
+                        }
+                        if line.contains("Output file is empty") {
+                            empty_output = true;
+                        }
+                        if line.contains("Encrypted DVD support unavailable")
+                            || line.contains("No css library available")
+                        {
+                            css_error = true;
+                        }
+
+                        // Detect overall duration from initialization log or stream info
+                        if let Some(duration_str) = extract_kv_field(&line, "Duration: ") {
+                            let clean_duration = duration_str.trim_end_matches(',');
+                            if let Some(secs) = parse_duration(clean_duration)
+                                && secs > 0.0
                             {
-                                total_seconds = Some(secs);
+                                let is_chapter_slice = attempt_args.start_chapter.is_some()
+                                    || attempt_args.end_chapter.is_some();
+                                if total_seconds.is_none()
+                                    || total_seconds.unwrap_or(0.0) <= 0.0
+                                    || (!is_chapter_slice
+                                        && secs >= 60.0
+                                        && (total_seconds.unwrap_or(0.0) - secs).abs() > 60.0)
+                                {
+                                    total_seconds = Some(secs);
+                                }
                             }
                         }
-                    }
 
-                    // Parse time=, speed=, and fps= using DRY helper
-                    if let Some(time_str) = extract_kv_field(&line, "time=") {
-                        let clean_time = time_str.trim_start_matches('-');
-                        if let Some(secs) = parse_duration(clean_time) {
+                        // Apply zero-allocation byte-parsed metrics (with fallback to line helper for negative timestamps)
+                        let parsed_progress = byte_metrics.or_else(|| {
+                            extract_kv_field(&line, "time=").and_then(|time_str| {
+                                let clean_time = time_str.trim_start_matches('-');
+                                parse_duration(clean_time).map(|secs| {
+                                    let speed = extract_kv_field(&line, "speed=")
+                                        .unwrap_or("N/A")
+                                        .to_string();
+                                    let fps =
+                                        extract_kv_field(&line, "fps=").unwrap_or("N/A").to_string();
+                                    (secs, fps, speed)
+                                })
+                            })
+                        });
+
+                        if let Some((secs, fps, speed)) = parsed_progress {
                             last_progress_secs = secs;
-                            let speed = extract_kv_field(&line, "speed=")
-                                .unwrap_or("N/A")
-                                .to_string();
-                            let fps = extract_kv_field(&line, "fps=").unwrap_or("N/A").to_string();
 
                             // If encoding progresses past estimated total duration (e.g. unprobed credits/cells),
                             // dynamically expand total_seconds so progress doesn't stall at 100% prematurely.
@@ -2432,140 +2000,148 @@ pub fn run_ffmpeg_with_channel(
                             }
                         }
                     }
-                }
-            } else {
-                line_bytes.push(b);
-            }
-        }
-    }
-
-    if let Some(ref flag) = cancel_flag
-        && flag.load(std::sync::atomic::Ordering::SeqCst)
-    {
-        let _ = child.as_mut().kill();
-        let _ = child.as_mut().wait();
-        if absolute_output.exists() {
-            let _ = std::fs::remove_file(absolute_output);
-        }
-        let msg = "Ripping process cancelled by user.".to_string();
-        return Err(anyhow!(msg));
-    }
-
-    let status = child
-        .as_mut()
-        .wait()
-        .context("Failed to wait on FFmpeg process")?;
-    child.disarm();
-    let output_size = std::fs::metadata(absolute_output)
-        .map(|metadata| metadata.len())
-        .unwrap_or(0);
-
-    let err_lines_vec: Vec<String> = last_error_lines.into_iter().collect();
-    let outcome = evaluate_rip_outcome(
-        status.success(),
-        status.code(),
-        output_size,
-        last_progress_secs,
-        total_seconds,
-        demux_error,
-        empty_output,
-        css_error,
-        resolved_title,
-        absolute_output,
-        &err_lines_vec,
-        is_batch,
-    );
-
-    match outcome {
-        RipOutcome::Success => {
-            crate::api::update_appliance_status(
-                "Completed",
-                "",
-                display_title,
-                100.0,
-                "N/A",
-                "N/A",
-            );
-            if let Some(ref sender) = tx {
-                let _ = sender.send(ProgressEvent::Progress {
-                    percent: 100.0,
-                    fps: "N/A".to_string(),
-                    speed: "N/A".to_string(),
-                });
-            }
-            let succ_msg = format!(
-                "Success! DVD ripped successfully to: {}",
-                absolute_output.display()
-            );
-            if tx.is_none() {
-                println!("\n\n{}", succ_msg);
-            } else if let Some(ref sender) = tx {
-                if is_batch {
-                    let _ = sender.send(ProgressEvent::Log(format!(
-                        "Successfully finished episode: {}",
-                        absolute_output.display()
-                    )));
                 } else {
-                    let _ = sender.send(ProgressEvent::Success(absolute_output.to_path_buf()));
+                    line_bytes.push(b);
                 }
             }
-            Ok(())
         }
-        RipOutcome::TrailingSectorNotice {
-            exit_code,
-            output_size_mb,
-            ripped_mins,
-        } => {
-            let notice = format!(
-                "Notice: Optical drive encountered trailing bad sectors / EOF notice at end of disc ({:?}), but feature was successfully ripped ({:.1} MB, {:.0} mins).",
-                exit_code, output_size_mb, ripped_mins
-            );
-            if let Some(ref sender) = tx {
-                let _ = sender.send(ProgressEvent::Log(notice.clone()));
-            } else {
-                println!("{}", notice);
+
+        if let Some(ref flag) = cancel_flag
+            && flag.load(std::sync::atomic::Ordering::SeqCst)
+        {
+            let _ = child.as_mut().kill();
+            let _ = child.as_mut().wait();
+            if absolute_output.exists() {
+                let _ = std::fs::remove_file(absolute_output);
             }
-            crate::api::update_appliance_status(
-                "Completed",
-                "",
-                display_title,
-                100.0,
-                "N/A",
-                "N/A",
-            );
-            if let Some(ref sender) = tx {
-                let _ = sender.send(ProgressEvent::Progress {
-                    percent: 100.0,
-                    fps: "N/A".to_string(),
-                    speed: "N/A".to_string(),
-                });
+            let msg = "Ripping process cancelled by user.".to_string();
+            return Err(anyhow!(msg));
+        }
+
+        let status = child
+            .as_mut()
+            .wait()
+            .context("Failed to wait on FFmpeg process")?;
+        child.disarm();
+        let output_size = std::fs::metadata(absolute_output)
+            .map(|metadata| metadata.len())
+            .unwrap_or(0);
+
+        let err_lines_vec: Vec<String> = last_error_lines.into_iter().collect();
+        let outcome = RipEvaluationContext {
+            exit_status_success: status.success(),
+            exit_code: status.code(),
+            output_size,
+            last_progress_secs,
+            total_seconds,
+            demux_error,
+            empty_output,
+            css_error,
+            resolved_title,
+            output_path: absolute_output,
+            last_error_lines: &err_lines_vec,
+            is_batch,
+        }
+        .evaluate();
+
+        match outcome {
+            RipOutcome::Success => {
+                crate::api::update_appliance_status(
+                    "Completed",
+                    "",
+                    display_title,
+                    100.0,
+                    "N/A",
+                    "N/A",
+                );
+                if let Some(ref sender) = tx {
+                    let _ = sender.send(ProgressEvent::Progress {
+                        percent: 100.0,
+                        fps: "N/A".to_string(),
+                        speed: "N/A".to_string(),
+                    });
+                }
+                let succ_msg = format!(
+                    "Success! DVD ripped successfully to: {}",
+                    absolute_output.display()
+                );
+                if tx.is_none() {
+                    println!("\n\n{}", succ_msg);
+                } else if let Some(ref sender) = tx {
+                    if is_batch {
+                        let _ = sender.send(ProgressEvent::Log(format!(
+                            "Successfully finished episode: {}",
+                            absolute_output.display()
+                        )));
+                    } else {
+                        let _ = sender.send(ProgressEvent::Success(absolute_output.to_path_buf()));
+                    }
+                }
+                return Ok(());
             }
-            let succ_msg = format!(
-                "Success! DVD ripped successfully to: {}",
-                absolute_output.display()
-            );
-            if tx.is_none() {
-                println!("\n\n{}", succ_msg);
-            } else if let Some(ref sender) = tx {
-                if is_batch {
-                    let _ = sender.send(ProgressEvent::Log(format!(
-                        "Successfully finished episode: {}",
-                        absolute_output.display()
-                    )));
+            RipOutcome::TrailingSectorNotice {
+                exit_code,
+                output_size_mb,
+                ripped_mins,
+            } => {
+                let notice = format!(
+                    "Notice: Optical drive encountered trailing bad sectors / EOF notice at end of disc ({:?}), but feature was successfully ripped ({:.1} MB, {:.0} mins).",
+                    exit_code, output_size_mb, ripped_mins
+                );
+                if let Some(ref sender) = tx {
+                    let _ = sender.send(ProgressEvent::Log(notice.clone()));
                 } else {
-                    let _ = sender.send(ProgressEvent::Success(absolute_output.to_path_buf()));
+                    println!("{}", notice);
                 }
+                crate::api::update_appliance_status(
+                    "Completed",
+                    "",
+                    display_title,
+                    100.0,
+                    "N/A",
+                    "N/A",
+                );
+                if let Some(ref sender) = tx {
+                    let _ = sender.send(ProgressEvent::Progress {
+                        percent: 100.0,
+                        fps: "N/A".to_string(),
+                        speed: "N/A".to_string(),
+                    });
+                }
+                let succ_msg = format!(
+                    "Success! DVD ripped successfully to: {}",
+                    absolute_output.display()
+                );
+                if tx.is_none() {
+                    println!("\n\n{}", succ_msg);
+                } else if let Some(ref sender) = tx {
+                    if is_batch {
+                        let _ = sender.send(ProgressEvent::Log(format!(
+                            "Successfully finished episode: {}",
+                            absolute_output.display()
+                        )));
+                    } else {
+                        let _ = sender.send(ProgressEvent::Success(absolute_output.to_path_buf()));
+                    }
+                }
+                return Ok(());
             }
-            Ok(())
-        }
-        RipOutcome::FatalError(err_msg) => {
-            crate::api::fail_appliance_status(display_title, "", &err_msg);
-            if tx.is_none() {
-                eprintln!("\n{}", err_msg);
-            } else if let Some(ref sender) = tx {
-                let _ = sender.send(ProgressEvent::Error(err_msg.clone()));
+            RipOutcome::FatalError(err_msg) => {
+                let is_retryable = !css_error
+                    && (demux_error || err_msg.contains("stopped early"))
+                    && attempt < max_retries;
+                if is_retryable {
+                    attempt += 1;
+                    continue;
+                }
+                crate::api::fail_appliance_status(display_title, "", &err_msg);
+                if tx.is_none() {
+                    eprintln!("\n{}", err_msg);
+                } else if let Some(ref sender) = tx {
+                    let _ = sender.send(ProgressEvent::Error(err_msg.clone()));
+                }
+                return Err(anyhow!(err_msg));
             }
-            Err(anyhow!(err_msg))
         }
     }
 }
@@ -2818,174 +2394,10 @@ pub fn generate_ffmetadata_chapters(
     out
 }
 
-/// Builds an FFmpeg `concat` demuxer manifest string for stitching multi-disc movie parts.
-pub fn build_multi_disc_concat_list(part_files: &[PathBuf]) -> String {
-    let mut manifest = String::new();
-    for path in part_files {
-        let escaped = path.to_string_lossy().replace('\'', "'\\''");
-        manifest.push_str(&format!("file '{}'\n", escaped));
-    }
-    manifest
-}
-
-/// Losslessly merges multi-disc movie files (e.g., Disc 1 + Disc 2 extended editions) using FFmpeg `-f concat`.
-pub fn merge_multi_disc_files(
-    ffmpeg_path: &str,
-    part_files: &[PathBuf],
-    output_path: &Path,
-) -> Result<PathBuf> {
-    if part_files.len() < 2 {
-        return Err(anyhow!(
-            "At least 2 disc part files are required for multi-disc merging."
-        ));
-    }
-    for part in part_files {
-        if !part.exists() {
-            return Err(anyhow!(
-                "Multi-disc part file does not exist: {}",
-                part.display()
-            ));
-        }
-    }
-    if let Some(parent) = output_path.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-
-    let list_path = std::env::temp_dir().join(format!(
-        "dvd_ripper_concat_{}.txt",
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_nanos()
-    ));
-    let manifest = build_multi_disc_concat_list(part_files);
-    std::fs::write(&list_path, manifest)?;
-
-    let mut cmd = Command::new(ffmpeg_path);
-    crate::utils::configure_silent_command(&mut cmd);
-    let status = cmd
-        .stdin(std::process::Stdio::null())
-        .arg("-nostdin")
-        .arg("-y")
-        .arg("-f")
-        .arg("concat")
-        .arg("-safe")
-        .arg("0")
-        .arg("-i")
-        .arg(&list_path)
-        .arg("-c")
-        .arg("copy")
-        .arg(output_path)
-        .status();
-
-    let _ = std::fs::remove_file(&list_path);
-
-    let exit = status.context("Failed to spawn FFmpeg concat process")?;
-    if !exit.success() {
-        return Err(anyhow!(
-            "FFmpeg multi-disc concat failed with status: {}",
-            exit
-        ));
-    }
-
-    Ok(output_path.to_path_buf())
-}
-
-/// Builds an FFmpeg Command for ripping a Blu-ray (`BDMV`) playlist via the `bluray:` protocol.
-pub fn build_bluray_ffmpeg_command(
-    args: &Args,
-    disc_path: &Path,
-    playlist_id: u32,
-    output_path: &Path,
-) -> Command {
-    let mut cmd = Command::new(&args.ffmpeg);
-    crate::utils::configure_silent_command(&mut cmd);
-    cmd.arg("-nostdin");
-    cmd.arg("-stats");
-    cmd.arg("-playlist").arg(playlist_id.to_string());
-    if let Some(angle) = args.angle
-        && angle > 0
-    {
-        cmd.arg("-angle").arg(angle.to_string());
-    }
-    cmd.arg("-i")
-        .arg(format!("bluray:{}", disc_path.to_string_lossy()));
-    cmd.arg("-map").arg("0:v:0?");
-    if args.all_audio {
-        cmd.arg("-map").arg("0:a?");
-    } else {
-        cmd.arg("-map").arg("0:a:0?");
-    }
-    if args.subtitles {
-        cmd.arg("-map").arg("0:s?");
-    }
-    if args.chapters {
-        cmd.arg("-map_chapters").arg("0");
-    }
-
-    let profile = args.profile.to_lowercase();
-    let codec = args.codec.to_lowercase();
-    if profile == "archival" || codec == "copy" || !args.transcode {
-        cmd.arg("-c").arg("copy");
-    } else {
-        cmd.arg("-c:v").arg(resolve_video_codec_name(&codec));
-        cmd.arg("-preset").arg(&args.preset);
-        let crf = args
-            .crf
-            .map(|c| c.min(51).to_string())
-            .unwrap_or_else(|| "20".to_string());
-        cmd.arg("-crf").arg(crf);
-        cmd.arg("-c:a").arg("aac");
-        cmd.arg("-b:a").arg("192k");
-    }
-    cmd.arg("-y");
-    cmd.arg(output_path);
-    cmd
-}
-
-/// Builds an FFmpeg Command to rip an Audio CD track (`.cda` / `.wav` / `libcdio`) to lossless FLAC with Vorbis tags.
-pub fn build_audio_cd_track_command(
-    ffmpeg_path: &str,
-    source_track: &Path,
-    track_num: u32,
-    album_title: &str,
-    track_title: &str,
-    output_flac: &Path,
-) -> Command {
-    let mut cmd = Command::new(ffmpeg_path);
-    crate::utils::configure_silent_command(&mut cmd);
-    cmd.arg("-nostdin");
-    cmd.arg("-y");
-    cmd.arg("-i").arg(source_track);
-    cmd.arg("-vn");
-    cmd.arg("-c:a").arg("flac");
-    cmd.arg("-compression_level").arg("8");
-    cmd.arg("-metadata").arg(format!("track={}", track_num));
-    if !album_title.trim().is_empty() {
-        cmd.arg("-metadata")
-            .arg(format!("album={}", album_title.trim()));
-    }
-    if !track_title.trim().is_empty() {
-        cmd.arg("-metadata")
-            .arg(format!("title={}", track_title.trim()));
-    }
-    cmd.arg(output_flac);
-    cmd
-}
-
-/// Generates a UTF-8 `.m3u8` extended playlist for ripped Audio CD or Concert Chapter tracks.
-pub fn generate_m3u8_playlist(tracks: &[(String, f64, PathBuf)]) -> String {
-    let mut out = String::from("#EXTM3U\n");
-    for (title, duration_secs, path) in tracks {
-        let secs = duration_secs.max(0.0).round() as i64;
-        let file_name = path
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or("track.flac");
-        out.push_str(&format!("#EXTINF:{},{}\n{}\n", secs, title, file_name));
-    }
-    out
-}
+pub use crate::infrastructure::ffmpeg::disc_formats::{
+    build_audio_cd_track_command, build_bluray_ffmpeg_command, build_multi_disc_concat_list,
+    generate_m3u8_playlist, merge_multi_disc_files,
+};
 
 #[cfg(test)]
 mod tests {

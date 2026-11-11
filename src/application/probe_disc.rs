@@ -4,6 +4,7 @@ use crate::domain::entities::disc::{DiscInfo, TvEpisodeInfo};
 use crate::domain::entities::media::FilmMetadata;
 use crate::domain::heuristics::cluster_detector::rank_best_title_from_slice;
 use crate::domain::heuristics::tv_detector::detect_tv_episodes_from_titles;
+use crate::domain::heuristics::{EpisodeDetectionStrategy, TitleRankingStrategy, TvDetectionConfig};
 use crate::domain::ports::metadata::{DiscFingerprintRepository, MetadataProvider};
 use crate::domain::ports::optical_drive::OpticalDrive;
 use anyhow::Result;
@@ -61,6 +62,8 @@ impl SessionDiscCache {
 pub struct ProbeDiscUseCase {
     metadata_provider: Option<Arc<dyn MetadataProvider>>,
     fingerprint_repo: Option<Arc<dyn DiscFingerprintRepository>>,
+    ranking_strategy: Option<Arc<dyn TitleRankingStrategy>>,
+    episode_strategy: Option<Arc<dyn EpisodeDetectionStrategy>>,
     session_cache: SessionDiscCache,
 }
 
@@ -73,6 +76,8 @@ impl ProbeDiscUseCase {
         Self {
             metadata_provider,
             fingerprint_repo: None,
+            ranking_strategy: None,
+            episode_strategy: None,
             session_cache: SessionDiscCache::new(),
         }
     }
@@ -85,6 +90,8 @@ impl ProbeDiscUseCase {
         Self {
             metadata_provider,
             fingerprint_repo: None,
+            ranking_strategy: None,
+            episode_strategy: None,
             session_cache,
         }
     }
@@ -95,6 +102,18 @@ impl ProbeDiscUseCase {
         fingerprint_repo: Arc<dyn DiscFingerprintRepository>,
     ) -> Self {
         self.fingerprint_repo = Some(fingerprint_repo);
+        self
+    }
+
+    /// Injects a custom [`TitleRankingStrategy`] implementation (OCP/DIP).
+    pub fn with_ranking_strategy(mut self, strategy: Arc<dyn TitleRankingStrategy>) -> Self {
+        self.ranking_strategy = Some(strategy);
+        self
+    }
+
+    /// Injects a custom [`EpisodeDetectionStrategy`] implementation (OCP/DIP).
+    pub fn with_episode_strategy(mut self, strategy: Arc<dyn EpisodeDetectionStrategy>) -> Self {
+        self.episode_strategy = Some(strategy);
         self
     }
 
@@ -152,17 +171,31 @@ impl ProbeDiscUseCase {
             }
         });
 
-        // 3. Rank best theatrical title using duration cluster detector
+        // 3. Rank best theatrical title using injected strategy or duration cluster detector
         let expected_runtime = metadata.as_ref().and_then(|m| m.runtime_secs);
         let (primary_title_num, primary_duration_secs) =
-            rank_best_title_from_slice(&titles, expected_runtime);
+            if let Some(ref strategy) = self.ranking_strategy {
+                strategy.rank_title(&titles, expected_runtime)
+            } else {
+                rank_best_title_from_slice(&titles, expected_runtime)
+            };
 
-        // 4. Detect TV episodes using TV detector heuristic
+        // 4. Detect TV episodes using injected strategy or TV detector heuristic
         let show_title = metadata
             .as_ref()
             .map(|m| m.title.as_str())
             .unwrap_or("TV Show");
-        let tv_episodes = detect_tv_episodes_from_titles(&titles, show_title, 1, 1, None);
+        let tv_episodes = if let Some(ref ep_strategy) = self.episode_strategy {
+            let cfg = TvDetectionConfig {
+                show_name: show_title.to_string(),
+                season: 1,
+                start_episode: 1,
+                min_duration_secs: None,
+            };
+            ep_strategy.detect_episodes(&titles, &cfg)
+        } else {
+            detect_tv_episodes_from_titles(&titles, show_title, 1, 1, None)
+        };
 
         let disc_info = DiscInfo {
             device_path: drive_path.to_path_buf(),
@@ -182,5 +215,86 @@ impl ProbeDiscUseCase {
 
         self.session_cache.insert(fingerprint, result.clone());
         Ok(result)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::domain::entities::disc::{DiscCopyProtectionReport, DvdTitleInfo};
+    use crate::domain::heuristics::LongestTrackStrategy;
+    use crate::domain::ports::optical_drive::{
+        DriveIdentity, OpticalDrive, ProtectionInspector, TitleProber, TrayOperator,
+    };
+    use std::path::Path;
+
+    struct DummyDrive;
+    impl DriveIdentity for DummyDrive {
+        fn get_path(&self) -> &Path {
+            Path::new("D:\\")
+        }
+        fn read_volume_label(&self) -> Option<String> {
+            Some("TEST_DISC".to_string())
+        }
+        fn compute_fingerprint(&self) -> String {
+            "FP_12345".to_string()
+        }
+    }
+    impl TitleProber for DummyDrive {
+        fn probe_titles(&self) -> Vec<DvdTitleInfo> {
+            vec![
+                DvdTitleInfo {
+                    title_num: 1,
+                    duration_secs: 2500.0,
+                },
+                DvdTitleInfo {
+                    title_num: 2,
+                    duration_secs: 7200.0,
+                },
+            ]
+        }
+    }
+    impl ProtectionInspector for DummyDrive {
+        fn inspect_protection(&self) -> DiscCopyProtectionReport {
+            DiscCopyProtectionReport::default()
+        }
+    }
+    impl TrayOperator for DummyDrive {
+        fn eject(&self) -> Result<()> {
+            Ok(())
+        }
+    }
+    impl OpticalDrive for DummyDrive {}
+
+    struct CustomEpisodeStrategy;
+    impl EpisodeDetectionStrategy for CustomEpisodeStrategy {
+        fn detect_episodes(
+            &self,
+            titles: &[DvdTitleInfo],
+            cfg: &TvDetectionConfig,
+        ) -> Vec<TvEpisodeInfo> {
+            titles
+                .iter()
+                .enumerate()
+                .map(|(idx, t)| TvEpisodeInfo {
+                    title_num: t.title_num,
+                    episode_num: cfg.start_episode + idx as u32,
+                    duration_secs: t.duration_secs,
+                    formatted_name: format!("{} - S01E{:02}", cfg.show_name, idx + 1),
+                })
+                .collect()
+        }
+    }
+
+    #[test]
+    fn test_probe_disc_use_case_with_custom_strategies() {
+        let uc = ProbeDiscUseCase::new(None)
+            .with_ranking_strategy(Arc::new(LongestTrackStrategy))
+            .with_episode_strategy(Arc::new(CustomEpisodeStrategy));
+        let drive = DummyDrive;
+        let res = uc.execute(&drive).unwrap();
+        assert_eq!(res.primary_title_num, 2);
+        assert_eq!(res.primary_duration_secs, Some(7200.0));
+        assert_eq!(res.tv_episodes.len(), 2);
     }
 }

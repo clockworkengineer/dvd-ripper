@@ -9,6 +9,7 @@ pub mod optical_drive;
 pub mod post_processor;
 pub mod queue;
 pub mod storage;
+pub mod testing;
 pub mod transcoder;
 
 pub use benchmark::DriveBenchmarkService;
@@ -25,6 +26,10 @@ pub use optical_drive::{
 pub use post_processor::{PostProcessContext, PostProcessor};
 pub use queue::{BoxSetRepository, JobQueueRepository};
 pub use storage::{DiskSpaceGuard, HistoryRepository};
+pub use testing::{
+    FixedDiskSpaceGuard, InMemoryHistoryRepository, RecordedNotification, RecordingNotifier,
+    RecordingProgressObserver,
+};
 pub use transcoder::{
     DefaultVideoCodecResolver, ProgressObserver, TranscodeJob, TranscodeOptions, Transcoder,
     VideoCodecResolver,
