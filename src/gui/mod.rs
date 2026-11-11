@@ -102,25 +102,6 @@ impl DvdRipperApp {
                 ui.heading("📀 DVD Ripper Desktop Utility");
                 components::status_banner::render_drive_status_pill(ui, drive_state);
 
-                if self.is_ripping {
-                    ui.add_space(8.0);
-                    if ui
-                        .add(
-                            egui::Button::new(
-                                egui::RichText::new("⏹ Cancel Ripping")
-                                    .strong()
-                                    .color(egui::Color32::WHITE),
-                            )
-                            .fill(theme::DANGER_COLOR)
-                            .min_size(egui::vec2(130.0, 24.0)),
-                        )
-                        .on_hover_text("Abort the active ripping operation (Esc)")
-                        .clicked()
-                    {
-                        self.show_confirm_cancel = true;
-                    }
-                }
-
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     ui.add_enabled_ui(!self.is_ripping, |ui| {
                         if ui.button("ℹ️ About").clicked() {
@@ -506,7 +487,6 @@ impl DvdRipperApp {
 
             ui.add_space(8.0);
 
-            let mut telemetry_cancel = false;
             // Telemetry & Status Bar
             components::status_banner::render_telemetry_bar(
                 ui,
@@ -517,11 +497,7 @@ impl DvdRipperApp {
                 &self.status_message,
                 self.start_time,
                 self.eta_seconds,
-                || telemetry_cancel = true,
             );
-            if telemetry_cancel {
-                self.show_confirm_cancel = true;
-            }
 
             ui.add_space(4.0);
 
