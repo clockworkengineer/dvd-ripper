@@ -383,8 +383,14 @@ impl RipTvBatchUseCase {
                 return Err(anyhow!("TV Batch ripping cancelled by user."));
             }
 
+            // Allow optical drive handles and laser seek state from the previous episode to settle
+            if idx > 0 && request.source_dvd.exists() {
+                std::thread::sleep(std::time::Duration::from_millis(500));
+            }
+
             if let Some(obs) = observer {
                 obs.on_title_start(ep.title_num);
+                obs.on_progress(0.0, "N/A", "N/A");
             }
 
             let ep_title = catalog_episodes

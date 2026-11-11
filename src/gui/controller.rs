@@ -24,6 +24,7 @@ pub struct RipTaskSpecification {
     pub is_iso: bool,
     pub is_tv: bool,
     pub all_episodes: bool,
+    pub transcode: bool,
     pub film_name: Option<String>,
     pub film_year: Option<u32>,
     pub season: u32,
@@ -379,9 +380,35 @@ impl GuiApplicationController {
                 input: spec.drive.clone(),
                 out_dir: spec.out_dir.clone(),
                 ffmpeg: spec.ffmpeg_path.clone(),
+                transcode: spec.transcode,
+                preset: spec.preset.clone(),
                 ..Default::default()
             };
             base_args.apply_encoding_options(spec.encoding_options.clone());
+
+            let task_transcoder: Arc<dyn crate::domain::ports::transcoder::Transcoder> = Arc::new(
+                crate::infrastructure::ffmpeg::FfmpegTranscoder::with_args(
+                    &spec.ffmpeg_path,
+                    base_args.clone(),
+                ),
+            );
+            let single_title_uc = crate::application::rip_single_title::RipSingleTitleUseCase::new(
+                task_transcoder.clone(),
+                container.notifier.clone(),
+                container.disk_guard.clone(),
+                container.history_repo.clone(),
+            );
+            let tv_batch_uc = crate::application::rip_tv_batch::RipTvBatchUseCase::new(
+                task_transcoder,
+                container.notifier.clone(),
+                container.disk_guard.clone(),
+                container.history_repo.clone(),
+            )
+            .with_ports(
+                container.tv_metadata_provider.clone(),
+                container.stream_prober.clone(),
+                container.boxset_repo.clone(),
+            );
 
             let mut rip_history_records: Vec<(String, String, PathBuf, f64)> = Vec::new();
             let mut last_output_file: Option<PathBuf> = None;
@@ -496,7 +523,7 @@ impl GuiApplicationController {
                     };
 
                     let observer = super::state::GuiProgressObserver { tx: tx.clone() };
-                    match container.rip_tv_batch_use_case().execute(
+                    match tv_batch_uc.execute(
                         &request,
                         Some(&observer),
                         Some(cancel_flag.clone()),
@@ -592,7 +619,7 @@ impl GuiApplicationController {
                     };
 
                     let observer = super::state::GuiProgressObserver { tx: tx.clone() };
-                    match container.rip_single_title_use_case().execute(
+                    match single_title_uc.execute(
                         &request,
                         Some(&observer),
                         Some(cancel_flag.clone()),
@@ -755,6 +782,7 @@ mod tests {
             is_iso: false,
             is_tv: false,
             all_episodes: false,
+            transcode: true,
             film_name: Some("The Matrix".to_string()),
             film_year: Some(1999),
             season: 1,
@@ -802,6 +830,7 @@ mod tests {
             is_iso: true,
             is_tv: false,
             all_episodes: false,
+            transcode: false,
             film_name: Some("Test ISO".to_string()),
             film_year: None,
             season: 1,

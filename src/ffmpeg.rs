@@ -769,6 +769,48 @@ impl MediaProcessRunner for SystemMediaProcessRunner {
     }
 }
 
+/// Resolves a 1-based VTS title number (`vts_ttn`) to its 1-based Program Chain Number (`pgcn`)
+/// via the `VTS_PTT_SRPT` table (sector pointer at `0xC8..0xCC` in `VTS_xx_0.IFO`).
+/// Falls back to `vts_ttn as usize` if `VTS_PTT_SRPT` is absent or out of bounds.
+pub fn resolve_vts_ttn_to_pgcn(vts_data: &[u8], vts_ttn: u8) -> usize {
+    let fallback = (vts_ttn as usize).max(1);
+    if vts_ttn == 0 || vts_data.len() < 0xCC {
+        return fallback;
+    }
+    let ptt_srpt_sec = u32::from_be_bytes([
+        vts_data[0xC8],
+        vts_data[0xC9],
+        vts_data[0xCA],
+        vts_data[0xCB],
+    ]) as usize;
+    if ptt_srpt_sec == 0 {
+        return fallback;
+    }
+    let ptt_srpt_off = ptt_srpt_sec * 2048;
+    if ptt_srpt_off + 8 > vts_data.len() {
+        return fallback;
+    }
+    let nr_ttu = u16::from_be_bytes([vts_data[ptt_srpt_off], vts_data[ptt_srpt_off + 1]]) as usize;
+    let ttn_idx = (vts_ttn as usize).saturating_sub(1);
+    if nr_ttu == 0 || ttn_idx >= nr_ttu || ptt_srpt_off + 8 + nr_ttu * 4 > vts_data.len() {
+        return fallback;
+    }
+    let ptr_off = ptt_srpt_off + 8 + ttn_idx * 4;
+    let ttu_rel = u32::from_be_bytes([
+        vts_data[ptr_off],
+        vts_data[ptr_off + 1],
+        vts_data[ptr_off + 2],
+        vts_data[ptr_off + 3],
+    ]) as usize;
+    let first_ptt_off = ptt_srpt_off + ttu_rel;
+    if ttu_rel < 8 || first_ptt_off + 4 > vts_data.len() {
+        return fallback;
+    }
+    let pgcn =
+        u16::from_be_bytes([vts_data[first_ptt_off], vts_data[first_ptt_off + 1]]) as usize;
+    if pgcn == 0 { fallback } else { pgcn }
+}
+
 /// Ultra-fast DVD title probing by directly reading DVD-Video IFO structures (VIDEO_TS.IFO and VTS_xx_0.IFO).
 /// Returns titles and exact durations in <10ms without launching FFmpeg subprocesses.
 pub fn probe_dvd_titles_ifo(dvd_path: &Path) -> Option<Vec<DvdTitleInfo>> {
@@ -824,8 +866,9 @@ pub fn probe_dvd_titles_ifo(dvd_path: &Path) -> Option<Vec<DvdTitleInfo>> {
                 vts_data[0xCF],
             ]);
             let pgciti_off = (pgciti_sec as usize) * 2048;
-            if vts_ttn > 0 && pgciti_off + 8 + (vts_ttn as usize) * 8 <= vts_data.len() {
-                let pgc_entry_off = pgciti_off + 8 + (vts_ttn as usize - 1) * 8;
+            let pgcn = resolve_vts_ttn_to_pgcn(&vts_data, vts_ttn);
+            if vts_ttn > 0 && pgciti_off + 8 + pgcn * 8 <= vts_data.len() {
+                let pgc_entry_off = pgciti_off + 8 + (pgcn - 1) * 8;
                 let pgc_start_rel = u32::from_be_bytes([
                     vts_data[pgc_entry_off + 4],
                     vts_data[pgc_entry_off + 5],
@@ -917,8 +960,9 @@ pub fn probe_dvd_cell_topologies_ifo(
                 vts_data[0xCF],
             ]);
             let pgciti_off = (pgciti_sec as usize) * 2048;
-            if vts_ttn > 0 && pgciti_off + 8 + (vts_ttn as usize) * 8 <= vts_data.len() {
-                let pgc_entry_off = pgciti_off + 8 + (vts_ttn as usize - 1) * 8;
+            let pgcn = resolve_vts_ttn_to_pgcn(&vts_data, vts_ttn);
+            if vts_ttn > 0 && pgciti_off + 8 + pgcn * 8 <= vts_data.len() {
+                let pgc_entry_off = pgciti_off + 8 + (pgcn - 1) * 8;
                 let pgc_start_rel = u32::from_be_bytes([
                     vts_data[pgc_entry_off + 4],
                     vts_data[pgc_entry_off + 5],
@@ -1136,8 +1180,9 @@ pub fn probe_title_details_ifo(
         vts_data[0xCF],
     ]);
     let pgciti_off = (pgciti_sec as usize) * 2048;
-    if vts_ttn > 0 && pgciti_off + 8 + (vts_ttn as usize) * 8 <= vts_data.len() {
-        let pgc_entry_off = pgciti_off + 8 + (vts_ttn as usize - 1) * 8;
+    let pgcn = resolve_vts_ttn_to_pgcn(&vts_data, vts_ttn);
+    if vts_ttn > 0 && pgciti_off + 8 + pgcn * 8 <= vts_data.len() {
+        let pgc_entry_off = pgciti_off + 8 + (pgcn - 1) * 8;
         let pgc_start_rel = u32::from_be_bytes([
             vts_data[pgc_entry_off + 4],
             vts_data[pgc_entry_off + 5],
@@ -1156,11 +1201,13 @@ pub fn probe_title_details_ifo(
             let s = (((s_bcd >> 4) * 10) + (s_bcd & 0x0F)) as f64;
             duration_secs = h * 3600.0 + m * 60.0 + s;
 
+            let pg_map_rel =
+                u16::from_be_bytes([vts_data[pgc_off + 0xE6], vts_data[pgc_off + 0xE7]]) as usize;
             let c_pbit_rel =
                 u16::from_be_bytes([vts_data[pgc_off + 0xE8], vts_data[pgc_off + 0xE9]]) as usize;
             let c_pbit_off = pgc_off + c_pbit_rel;
             if c_pbit_rel > 0 && nr_cells > 0 && c_pbit_off + nr_cells * 24 <= vts_data.len() {
-                let mut cur_start = 0.0;
+                let mut cell_durations = Vec::with_capacity(nr_cells);
                 for c in 0..nr_cells {
                     let cell_off = c_pbit_off + c * 24;
                     let ch_bcd = vts_data[cell_off + 4];
@@ -1169,16 +1216,56 @@ pub fn probe_title_details_ifo(
                     let ch_h = (((ch_bcd >> 4) * 10) + (ch_bcd & 0x0F)) as f64;
                     let ch_m = (((cm_bcd >> 4) * 10) + (cm_bcd & 0x0F)) as f64;
                     let ch_s = (((cs_bcd >> 4) * 10) + (cs_bcd & 0x0F)) as f64;
-                    let cell_dur = ch_h * 3600.0 + ch_m * 60.0 + ch_s;
-                    if cell_dur > 0.0 {
-                        let ch_idx = (chapters.len() + 1) as u32;
-                        chapters.push(Chapter {
-                            index: ch_idx,
-                            start_secs: cur_start,
-                            end_secs: cur_start + cell_dur,
-                            title: format!("Chapter {:02}", ch_idx),
-                        });
-                        cur_start += cell_dur;
+                    cell_durations.push(ch_h * 3600.0 + ch_m * 60.0 + ch_s);
+                }
+
+                let pg_map_off = pgc_off + pg_map_rel;
+                let has_valid_pg_map = pg_map_rel > 0
+                    && nr_programs > 0
+                    && pg_map_off + (nr_programs as usize) <= vts_data.len()
+                    && (0..nr_programs as usize).all(|p| {
+                        let start_cell = vts_data[pg_map_off + p] as usize;
+                        start_cell >= 1 && start_cell <= nr_cells
+                    });
+
+                let mut cur_start = 0.0;
+                if has_valid_pg_map {
+                    let prog_count = nr_programs as usize;
+                    for p in 0..prog_count {
+                        let start_cell_idx = (vts_data[pg_map_off + p] as usize) - 1;
+                        let end_cell_idx = if p + 1 < prog_count {
+                            ((vts_data[pg_map_off + p + 1] as usize) - 1).max(start_cell_idx + 1)
+                        } else {
+                            nr_cells
+                        }
+                        .min(nr_cells);
+                        let prog_dur: f64 = cell_durations[start_cell_idx..end_cell_idx]
+                            .iter()
+                            .copied()
+                            .sum();
+                        if prog_dur > 0.0 {
+                            let ch_idx = (chapters.len() + 1) as u32;
+                            chapters.push(Chapter {
+                                index: ch_idx,
+                                start_secs: cur_start,
+                                end_secs: cur_start + prog_dur,
+                                title: format!("Chapter {:02}", ch_idx),
+                            });
+                            cur_start += prog_dur;
+                        }
+                    }
+                } else {
+                    for cell_dur in cell_durations {
+                        if cell_dur > 0.0 {
+                            let ch_idx = (chapters.len() + 1) as u32;
+                            chapters.push(Chapter {
+                                index: ch_idx,
+                                start_secs: cur_start,
+                                end_secs: cur_start + cell_dur,
+                                title: format!("Chapter {:02}", ch_idx),
+                            });
+                            cur_start += cell_dur;
+                        }
                     }
                 }
             } else {
@@ -1994,8 +2081,16 @@ pub fn evaluate_rip_outcome(
     is_batch: bool,
 ) -> RipOutcome {
     let min_valid_size = if is_batch { 30_000_000 } else { 50_000_000 };
-    let is_premature_demux_error = demux_error && output_size < min_valid_size;
-    let is_fatal_error = output_size == 0 || is_premature_demux_error || empty_output || css_error;
+    let is_premature_truncation = total_seconds
+        .filter(|&total| total >= 300.0)
+        .is_some_and(|total| last_progress_secs > 0.0 && last_progress_secs < total * 0.85);
+    let is_premature_demux_error =
+        demux_error && (output_size < min_valid_size || is_premature_truncation);
+    let is_fatal_error = output_size == 0
+        || is_premature_demux_error
+        || is_premature_truncation
+        || empty_output
+        || css_error;
 
     // Detect if the movie/episode feature was fully ripped to completion before optical drive EOF / bad sector traps
     let has_completed_feature = output_size >= min_valid_size
@@ -2018,10 +2113,16 @@ pub fn evaluate_rip_outcome(
                 "FFmpeg cannot rip this encrypted DVD because CSS support is unavailable. Install libdvdcss and retry (output: {}).",
                 output_path.display()
             )
-        } else if is_premature_demux_error {
+        } else if is_premature_demux_error || is_premature_truncation {
+            let pct = total_seconds
+                .filter(|&t| t > 0.0)
+                .map(|t| (last_progress_secs / t * 100.0).clamp(0.0, 100.0))
+                .unwrap_or(0.0);
             format!(
-                "DVD Title #{} stopped early ({:.1} MB) due to copy-protection bad sectors or demux read error. On copy-protected discs, select Title #2 or check detection.",
+                "DVD Title #{} stopped early at {:.1}% ({:.1} mins / {:.1} MB) due to copy-protection bad sectors or demux read error. On copy-protected discs, select Title #2 or check detection.",
                 resolved_title,
+                pct,
+                last_progress_secs / 60.0,
                 output_size as f64 / 1_000_000.0
             )
         } else if !exit_status_success {
@@ -2091,10 +2192,23 @@ pub fn run_ffmpeg_with_channel(
             std::io::stdout().flush().ok();
         }
         (detected, duration_opt)
+    } else if args.start_chapter.is_some()
+        || args.end_chapter.is_some()
+        || expected_runtime_secs.is_some_and(|d| d > 0.0)
+    {
+        (args.title, expected_runtime_secs)
     } else {
         let dur = probe_single_title_duration(&args.ffmpeg, dvd_path, args.title);
         (args.title, dur)
     };
+
+    if let Some(ref sender) = tx {
+        let _ = sender.send(ProgressEvent::Progress {
+            percent: 0.0,
+            fps: "N/A".to_string(),
+            speed: "N/A".to_string(),
+        });
+    }
 
     let mut cmd = build_ffmpeg_command(args, dvd_path, absolute_output, resolved_title);
 
@@ -2244,9 +2358,17 @@ pub fn run_ffmpeg_with_channel(
                         let clean_duration = duration_str.trim_end_matches(',');
                         if let Some(secs) = parse_duration(clean_duration)
                             && secs > 0.0
-                            && (total_seconds.is_none() || total_seconds.unwrap_or(0.0) <= 0.0)
                         {
-                            total_seconds = Some(secs);
+                            let is_chapter_slice =
+                                args.start_chapter.is_some() || args.end_chapter.is_some();
+                            if total_seconds.is_none()
+                                || total_seconds.unwrap_or(0.0) <= 0.0
+                                || (!is_chapter_slice
+                                    && secs >= 60.0
+                                    && (total_seconds.unwrap_or(0.0) - secs).abs() > 60.0)
+                            {
+                                total_seconds = Some(secs);
+                            }
                         }
                     }
 
@@ -3933,5 +4055,57 @@ mod tests {
         // 6. calculate_target_video_bitrate_kbps (VidCoder target size calculator)
         let v_kbps = calculate_target_video_bitrate_kbps(1400, 7200.0, 192);
         assert!((1350..=1450).contains(&v_kbps));
+    }
+
+    #[test]
+    fn test_evaluate_rip_outcome_rejects_60_percent_truncated_episode() {
+        // Episode 2 is 2700s (45 mins), stops at 60% (1620s, 180 MB) with exit status 0
+        let out_path = Path::new("TV/Show/Season 01/Show - S01E02.mp4");
+        let outcome = evaluate_rip_outcome(
+            true,
+            Some(0),
+            180_000_000,
+            1620.0,
+            Some(2700.0),
+            false,
+            false,
+            false,
+            2,
+            out_path,
+            &[],
+            true,
+        );
+        match outcome {
+            RipOutcome::FatalError(err) => {
+                assert!(err.contains("stopped early at 60.0%"));
+            }
+            other => panic!("Expected FatalError for 60% truncated episode, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_resolve_vts_ttn_to_pgcn_maps_ptt_srpt_correctly() {
+        // Build a synthetic VTS_01_0.IFO with VTS_PTT_SRPT at sector 1 (0x800)
+        // mapping vts_ttn=1 -> pgcn=1 and vts_ttn=2 -> pgcn=3 (skipping Play-All pgcn=2)
+        let mut vts_data = vec![0u8; 4096];
+        // Pointer to VTS_PTT_SRPT at 0xC8..0xCC = sector 1
+        vts_data[0xC8..0xCC].copy_from_slice(&1u32.to_be_bytes());
+        let ptt_off = 2048;
+        // nr_of_srpts = 2 titles
+        vts_data[ptt_off..ptt_off + 2].copy_from_slice(&2u16.to_be_bytes());
+        // Offset to TTU #1 = 16, Offset to TTU #2 = 20
+        vts_data[ptt_off + 8..ptt_off + 12].copy_from_slice(&16u32.to_be_bytes());
+        vts_data[ptt_off + 12..ptt_off + 16].copy_from_slice(&20u32.to_be_bytes());
+        // TTU #1 first PTT: pgcn = 1, pgn = 1
+        vts_data[ptt_off + 16..ptt_off + 18].copy_from_slice(&1u16.to_be_bytes());
+        vts_data[ptt_off + 18..ptt_off + 20].copy_from_slice(&1u16.to_be_bytes());
+        // TTU #2 first PTT: pgcn = 3, pgn = 1
+        vts_data[ptt_off + 20..ptt_off + 22].copy_from_slice(&3u16.to_be_bytes());
+        vts_data[ptt_off + 22..ptt_off + 24].copy_from_slice(&1u16.to_be_bytes());
+
+        assert_eq!(resolve_vts_ttn_to_pgcn(&vts_data, 1), 1);
+        assert_eq!(resolve_vts_ttn_to_pgcn(&vts_data, 2), 3);
+        // Out-of-range vts_ttn falls back to vts_ttn
+        assert_eq!(resolve_vts_ttn_to_pgcn(&vts_data, 4), 4);
     }
 }

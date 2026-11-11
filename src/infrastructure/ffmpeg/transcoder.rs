@@ -97,7 +97,13 @@ impl Transcoder for FfmpegTranscoder {
             args.end_chapter = Some(end_ch);
         }
 
+        let is_batch = chapter_range.is_some()
+            || job
+                .expected_duration_secs
+                .is_some_and(|d| d > 0.0 && d <= 3900.0);
+
         if let Some(obs) = observer {
+            obs.on_progress(0.0, "N/A", "N/A");
             let (tx, rx) = std::sync::mpsc::channel();
 
             let args_clone = args.clone();
@@ -117,7 +123,7 @@ impl Transcoder for FfmpegTranscoder {
                     Some(tx),
                     None,
                     cancel_clone,
-                    false,
+                    is_batch,
                 )
             });
 
@@ -151,7 +157,7 @@ impl Transcoder for FfmpegTranscoder {
                 None,
                 None,
                 cancel_flag,
-                false,
+                is_batch,
             )
         }
     }

@@ -732,6 +732,81 @@ impl DvdRipperApp {
         }
     }
 
+    /// Resets per-episode/per-title ripping telemetry (elapsed timer, ETA, progress bar, FPS, and speed).
+    pub fn reset_episode_rip_telemetry(&mut self) {
+        self.start_time = None;
+        self.eta_seconds = None;
+        self.progress_percent = 0.0;
+        self.fps = "N/A".to_string();
+        self.speed = "N/A".to_string();
+    }
+
+    /// Computes a stable per-episode/per-title remaining time estimate in seconds.
+    fn compute_episode_eta_seconds(&self, percent: f64, speed_str: &str) -> Option<f64> {
+        if percent <= 0.01 {
+            return None;
+        }
+        let fraction = (percent / 100.0).clamp(0.001, 1.0);
+        if fraction >= 1.0 {
+            return Some(0.0);
+        }
+
+        let speed_mult = speed_str
+            .trim()
+            .trim_end_matches('x')
+            .trim()
+            .parse::<f64>()
+            .ok()
+            .filter(|&s| s > 0.05 && s <= 100.0);
+
+        let active_duration_secs = if self.is_tv_mode {
+            self.current_ripping_title
+                .and_then(|t| {
+                    self.detected_episodes
+                        .iter()
+                        .find(|ep| ep.title_num == t && !self.completed_episodes.contains(&ep.title_num))
+                        .or_else(|| self.detected_episodes.iter().find(|ep| ep.title_num == t))
+                        .map(|ep| ep.duration_secs)
+                })
+                .or(self.expected_runtime_secs)
+        } else {
+            self.expected_runtime_secs
+        }
+        .filter(|&d| d > 0.0);
+
+        let speed_eta = match (active_duration_secs, speed_mult) {
+            (Some(dur), Some(spd)) => Some((dur * (1.0 - fraction)) / spd),
+            _ => None,
+        };
+
+        let elapsed_eta = self.start_time.map(|start| {
+            let elapsed = start.elapsed().as_secs_f64();
+            (1.0 - fraction) * (elapsed / fraction)
+        });
+
+        // During the initial 0..5% of an episode, elapsed wall-clock time includes DVD drive spin-up/seek
+        // latency, which can inflate (elapsed / fraction) to hundreds of minutes. Prefer live speed-based ETA.
+        if percent < 5.0
+            && let Some(s_eta) = speed_eta
+        {
+            return Some(s_eta);
+        }
+
+        match (elapsed_eta, speed_eta) {
+            (Some(e_eta), Some(s_eta)) => {
+                // Guard against stale or seek-spiked elapsed estimates > 2.5x the speed-derived ETA
+                if e_eta > s_eta * 2.5 && s_eta > 1.0 {
+                    Some(s_eta)
+                } else {
+                    Some(e_eta)
+                }
+            }
+            (Some(e_eta), None) => Some(e_eta),
+            (None, Some(s_eta)) => Some(s_eta),
+            (None, None) => None,
+        }
+    }
+
     pub fn start_ripping(&mut self) {
         if self.is_ripping {
             return;
@@ -752,12 +827,9 @@ impl DvdRipperApp {
         );
 
         self.is_ripping = true;
-        self.progress_percent = 0.0;
-        self.fps = "N/A".to_string();
-        self.speed = "N/A".to_string();
+        self.current_ripping_title = None;
+        self.reset_episode_rip_telemetry();
         self.status_message = "Starting ripping process...".to_string();
-        self.start_time = Some(Instant::now());
-        self.eta_seconds = None;
 
         let filtered_episodes = if let Some(end_ep) = self.end_episode {
             self.detected_episodes
@@ -775,6 +847,7 @@ impl DvdRipperApp {
             is_iso: self.iso_mode,
             is_tv: self.is_tv_mode,
             all_episodes: self.all_episodes,
+            transcode: self.transcode,
             film_name: self.film_name_opt(),
             film_year: self.film_year.trim().parse::<u32>().ok(),
             season: self.season_number,
@@ -964,7 +1037,17 @@ impl DvdRipperApp {
                     );
                 }
                 ProgressEvent::TvEpisodeStarted { title_num } => {
+                    self.reset_episode_rip_telemetry();
                     self.current_ripping_title = Some(title_num);
+                    if let Some(ep) = self
+                        .detected_episodes
+                        .iter()
+                        .find(|e| e.title_num == title_num && !self.completed_episodes.contains(&e.title_num))
+                        .or_else(|| self.detected_episodes.iter().find(|e| e.title_num == title_num))
+                    {
+                        self.status_message =
+                            format!("Starting episode: {} (Title #{})...", ep.formatted_name, title_num);
+                    }
                 }
                 ProgressEvent::TvEpisodeCompleted {
                     title_num,
@@ -974,6 +1057,7 @@ impl DvdRipperApp {
                     if self.current_ripping_title == Some(title_num) {
                         self.current_ripping_title = None;
                     }
+                    self.reset_episode_rip_telemetry();
                 }
                 ProgressEvent::BenchmarkFinished(report) => {
                     self.detecting = false;
@@ -1031,22 +1115,31 @@ impl DvdRipperApp {
                     if !self.is_ripping {
                         continue;
                     }
+                    if percent <= 0.0 {
+                        self.reset_episode_rip_telemetry();
+                        self.fps = fps;
+                        self.speed = speed;
+                        continue;
+                    }
+                    if percent >= 100.0 {
+                        self.progress_percent = 1.0;
+                        self.fps = fps;
+                        self.speed = speed;
+                        self.eta_seconds = Some(0.0);
+                        self.start_time = None;
+                        self.status_message = "Ripping in progress... (100.0%)".to_string();
+                        continue;
+                    }
+
                     self.progress_percent = (percent as f32) / 100.0;
                     self.fps = fps;
-                    self.speed = speed;
+                    self.speed = speed.clone();
 
                     if self.start_time.is_none() {
                         self.start_time = Some(Instant::now());
                     }
 
-                    if percent > 0.01
-                        && let Some(start) = self.start_time
-                    {
-                        let elapsed = start.elapsed().as_secs_f64();
-                        let fraction = (percent / 100.0).clamp(0.001, 1.0);
-                        let eta = (1.0 - fraction) * (elapsed / fraction);
-                        self.eta_seconds = Some(eta);
-                    }
+                    self.eta_seconds = self.compute_episode_eta_seconds(percent, &speed);
 
                     let pct_formatted = if percent < 1.0 {
                         format!("{:.2}%", percent)
@@ -1563,5 +1656,78 @@ mod tests {
         app.update_detected_episode_names();
         assert_eq!(app.end_episode, Some(6));
         assert!(app.completed_episodes.is_empty());
+    }
+
+    #[test]
+    fn test_tv_episode_transition_resets_eta_and_progress() {
+        let mut app = DvdRipperApp::default();
+        app.is_ripping = true;
+        app.is_tv_mode = true;
+        app.film_name = "Fawlty Towers".to_string();
+        app.season_number = 1;
+        app.detected_episodes = vec![
+            crate::domain::entities::disc::TvEpisodeInfo {
+                title_num: 1,
+                episode_num: 1,
+                formatted_name: "Fawlty Towers - S01E01".to_string(),
+                duration_secs: 1800.0,
+            },
+            crate::domain::entities::disc::TvEpisodeInfo {
+                title_num: 2,
+                episode_num: 2,
+                formatted_name: "Fawlty Towers - S01E02".to_string(),
+                duration_secs: 1800.0,
+            },
+        ];
+
+        // 1. Episode 1 starts and has been ripping for 25 minutes (1500s elapsed)
+        let _ = app
+            .event_tx
+            .send(ProgressEvent::TvEpisodeStarted { title_num: 1 });
+        app.process_events();
+        app.start_time = Some(Instant::now() - std::time::Duration::from_secs(1500));
+
+        let _ = app.event_tx.send(ProgressEvent::Progress {
+            percent: 95.0,
+            fps: "30.0".to_string(),
+            speed: "1.2x".to_string(),
+        });
+        app.process_events();
+        assert!(app.eta_seconds.is_some());
+
+        // 2. Episode 1 reaches 100% and completes
+        let _ = app.event_tx.send(ProgressEvent::Progress {
+            percent: 100.0,
+            fps: "N/A".to_string(),
+            speed: "N/A".to_string(),
+        });
+        let _ = app.event_tx.send(ProgressEvent::TvEpisodeCompleted {
+            title_num: 1,
+            output_path: PathBuf::from("C:\\Out\\Fawlty Towers - S01E01.mp4"),
+        });
+        app.process_events();
+        assert!(app.start_time.is_none());
+        assert!(app.eta_seconds.is_none());
+        assert_eq!(app.progress_percent, 0.0);
+
+        // 3. Episode 2 starts and emits its first early progress event (0.5%)
+        let _ = app
+            .event_tx
+            .send(ProgressEvent::TvEpisodeStarted { title_num: 2 });
+        let _ = app.event_tx.send(ProgressEvent::Progress {
+            percent: 0.5,
+            fps: "30.0".to_string(),
+            speed: "1.2x".to_string(),
+        });
+        app.process_events();
+
+        assert_eq!(app.current_ripping_title, Some(2));
+        let ep2_eta = app.eta_seconds.expect("Episode 2 should have a valid ETA");
+        // 1800s episode at 1.2x speed should have an ETA of ~1492s (~25 mins), never 600 mins (36000s)
+        assert!(
+            ep2_eta > 1000.0 && ep2_eta < 2500.0,
+            "Expected realistic Episode 2 ETA (~1492s), got {:.1}s",
+            ep2_eta
+        );
     }
 }
