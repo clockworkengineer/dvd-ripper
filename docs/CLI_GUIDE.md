@@ -47,6 +47,9 @@ By default, launching `dvd-ripper` without arguments opens the graphical desktop
 | `--mkv` | `false` | Force Matroska (`.mkv`) output container format instead of MP4 (`.mp4`). |
 | `--iso` | `false` | Create a 1:1 sector-by-sector archival ISO image dump directly from optical disc. |
 | `--ignore-errors` | `false` | Enable fault-tolerant demuxing to bypass surface scratches and copy-protection bad sectors. |
+| `--engine <ENGINE>` | `auto` | Transcoding/remuxing engine: `auto` (smart fallback cascade), `ffmpeg` (native demuxer), `native` (pure Rust IFO cell extractor), `handbrake` (HandBrakeCLI), or `makemkv` (MakeMKV robot mode). |
+| `--handbrake-path <PATH>`| `HandBrakeCLI` | Custom executable path to `HandBrakeCLI` binary. |
+| `--makemkv-path <PATH>` | `makemkvcon` | Custom executable path to `makemkvcon` binary. |
 
 ---
 
@@ -150,6 +153,19 @@ dvd-ripper --input D:\ --iso --out-dir "E:\ISO_Backups"
 ```bash
 dvd-ripper --input D:\ --search "The Matrix" --ocr --ocr-lang eng --sub-external-srt
 ```
+
+### 8. Pure Rust Native IFO Extraction (Bypasses FFmpeg Demuxer Bugs)
+```bash
+dvd-ripper --cli D: --engine native --search "Gladiator"
+```
+
+### 9. Lossless MakeMKV Robot Mode Extraction (AACS/CSS Hardware Decryption)
+```bash
+dvd-ripper --cli D: --engine makemkv --out-dir "D:\Films"
+```
+
+For detailed engine architecture and benchmark comparisons, see:  
+👉 **[Alternative Ripping Engines Guide](RIPPING_ENGINES.md)** and **[Copy Protection & Bad Sectors Guide](COPY_PROTECTION_AND_BAD_SECTORS.md)**.
 
 ---
 

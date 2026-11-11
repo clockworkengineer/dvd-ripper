@@ -31,6 +31,14 @@ out_dir = "Films"
 # Secondary fallback directory if primary storage drops below min_free_gb
 # fallback_out_dir = "E:\\BackupMedia"
 
+# --- Transcoding & Remuxing Engines ---
+# Transcoding engine selection: "auto", "ffmpeg", "native", "handbrake", or "makemkv"
+engine = "auto"
+# Custom binary executable path for HandBrakeCLI
+handbrake_path = "HandBrakeCLI"
+# Custom binary executable path for MakeMKV (makemkvcon)
+makemkv_path = "makemkvcon"
+
 # --- Video Encoding & Containers ---
 # Preferred video codec: "h264", "hevc", "av1", or "copy"
 codec = "h264"

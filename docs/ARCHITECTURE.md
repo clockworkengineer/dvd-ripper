@@ -49,8 +49,9 @@ graph TD
     end
 
     subgraph Infrastructure_Layer ["4. Infrastructure Adapters (Driven)"]
+        EnginesInfra["Transcoder Engines: Native IFO, HandBrake, MakeMKV, Fallback"]
         FFmpegInfra["FFmpeg Builder & Process Runner"]
-        OpticalInfra["Win32 / Linux ISO-9660 Reader"]
+        OpticalInfra["Win32 / Linux ISO-9660 Reader & Binary IFO Parser"]
         MetadataInfra["OMDb / IMDb HTTP Client"]
         StorageInfra["Disk Space Guard & JSON History"]
         NotifyInfra["MQTT 3.1.1 & Webhooks"]
@@ -90,8 +91,13 @@ graph TD
 - **`ports/`**: Abstract interfaces (`Transcoder`, `DriveDetector`, `DiscInspector`, `TrayController`, `MetadataProvider`, `HistoryRepository`, `DiskSpaceGuard`, `Notifier`, `FileDialogService`).
 
 ### 3.4 Infrastructure Adapters (`src/infrastructure/`)
+- **`engines/`**:
+  - `native_cell_extractor.rs`: Pure Rust 2048-byte sector Program Chain (`VTS_PGCITI`) extractor with `.BUP` backup table support and bad sector fault recovery.
+  - `handbrake.rs`: HandBrakeCLI adapter leveraging `libdvdnav` virtual machine navigation and hardware decombing.
+  - `makemkv.rs`: MakeMKV robot-mode adapter (`makemkvcon`) with drive bus key extraction (AACS/CSS/BD+) for lossless MKV remuxing.
+  - `fallback.rs`: Composite priority cascade orchestrator (`AutoFallbackTranscoder`).
 - **`ffmpeg/`**: Modular FFmpeg command assembly (`builder.rs`), process management (`process_runner.rs`), and output progress parsing (`progress_parser.rs`).
-- **`optical/`**: Platform-specific optical drive readers (Windows Win32 API, Linux sysfs, ISO-9660 Sector 16 volume descriptor reader).
+- **`optical/`**: Platform-specific optical drive readers (Windows Win32 API, Linux sysfs, ISO-9660 Sector 16 volume descriptor reader, sub-10ms binary `ifo_parser.rs`).
 - **`metadata/`**: Online metadata fetching via OMDb and TMDb APIs with persistent local fingerprint caching (`fingerprints.json`).
 - **`storage/`**: Enterprise disk space guard checks and thread-safe JSON history repository (`ripping_history.json`).
 - **`notifications/`**: Home Assistant MQTT 3.1.1 auto-discovery telemetry and HTTP webhooks (Discord, Telegram, Ntfy, Gotify, Slack).
@@ -117,10 +123,12 @@ For full details, see [`docs/MEDIA_ORGANIZATION.md`](MEDIA_ORGANIZATION.md).
 
 ## 5. Testing & Verification
 
-The codebase contains **163 automated unit and integration tests** covering:
+The codebase contains **376 automated unit and integration contract tests** achieving **>82.85% line coverage** across 33,500+ lines of code:
 - Pure domain heuristic validation (PAL speedup calculations, cluster ranking, duration tolerances).
-- In-memory mock tests for application use cases (`RipSingleTitleUseCase`, `RipTvBatchUseCase`).
-- Cooperative cancellation propagation and graceful cleanup.
+- In-memory mock tests for application use cases (`RipSingleTitleUseCase`, `RipTvBatchUseCase`, `DumpIsoUseCase`).
+- Reusable test doubles in `domain::ports::testing` (`InMemoryHistoryRepository`, `RecordingNotifier`, `FixedDiskSpaceGuard`, `RecordingProgressObserver`).
+- Cooperative cancellation propagation and child process teardown (`ChildGuard`).
+- Transcoder engine adapters (Native IFO, HandBrake, MakeMKV, Fallback).
 - Video filter graph generation (`bwdif`, `yadif`, `hqdn3d`).
 - Hardware acceleration encoder selection (NVENC, VAAPI, QSV).
 - ISO-9660 disc fingerprinting and volume label parsing.
@@ -138,6 +146,9 @@ cargo test
 
 | Guide | File Path | Focus Area |
 |---|---|---|
+| **Ripping Engines** | [`docs/RIPPING_ENGINES.md`](RIPPING_ENGINES.md) | FFmpeg, Native IFO, HandBrake, MakeMKV, & Auto-Fallback |
+| **Copy Protection & Recovery** | [`docs/COPY_PROTECTION_AND_BAD_SECTORS.md`](COPY_PROTECTION_AND_BAD_SECTORS.md) | CSS, ARccOS bad sectors, .BUP recovery, & sector rescue |
+| **Software Quality Attributes** | [`docs/SOFTWARE_LIBRARY_ATTRIBUTES.md`](SOFTWARE_LIBRARY_ATTRIBUTES.md) | 10 Library Attributes: Security, Performance, Zero-Alloc |
 | **SOLID Architecture** | [`docs/SOLID_ARCHITECTURE.md`](SOLID_ARCHITECTURE.md) | Deep dive into SRP, OCP, LSP, ISP, DIP, heuristics, & mocks |
 | **Media Organization** | [`docs/MEDIA_ORGANIZATION.md`](MEDIA_ORGANIZATION.md) | Folder conventions, sibling resolution, Plex/Jellyfin, & sidecars |
 | **Developer Guide** | [`docs/DEVELOPER_GUIDE.md`](DEVELOPER_GUIDE.md) | Onboarding, coding standards, adding use cases & adapters |

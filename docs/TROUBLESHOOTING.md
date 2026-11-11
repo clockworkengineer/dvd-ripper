@@ -42,25 +42,42 @@ For full cross-platform instructions, see **[FFmpeg & libdvdcss Installation Gui
 
 ---
 
-### Symptom: Ripping hangs or produces I/O Errors at specific chapters
-Commercial DVDs use Content Scramble System (CSS), CPPM, or deliberate bad sector structure (ArccOS / Macrovision) to block digital extraction.
-
-### Diagnostic Command
-Run structural copy protection analysis:
-
-```bash
-dvd-ripper --input D:\ --check-protection
-```
-
-### Diagnostic Output Example
+### Symptom: FFmpeg exits with `Invalid IFO for title 0 (VIDEO_TS.IFO)`
+On commercial discs with Sony ARccOS or corrupted root tables, FFmpeg's `libdvdread` demuxer aborts with:
 ```text
---- [Disc Copy Protection Diagnostic Report] ---
-  • Total VOB Video Objects on disc: 12
-  • Total IFO Metadata Files on disc: 4
-  • Primary DVD Volume Label: KILL_BILL_VOL2
-  • Disc Structural Health: 12 VOBs accessible, 4 IFO headers verified.
-------------------------------------------------
+[in#0] libdvdread: Invalid IFO for title 0 (VIDEO_TS.IFO).
+[in#0] libdvdread: Invalid IFO for title 0 (VIDEO_TS.BUP).
+[in#0] Error opening input: Generic error in an external library
 ```
+
+### Solutions:
+1. **Rely on Auto-Fallback (`--engine auto`)**:
+   `dvd-ripper` automatically catches FFmpeg demuxer errors and triggers fallback to the pure Rust **Native IFO Extractor** (`native_ifo`), which reads `.BUP` backup tables and directly parses title sets without touching the corrupted root table:
+   ```text
+   [Auto Engine Fallback] Primary engine encountered an error. Falling back to engine 'native_ifo' (2/2)...
+   ```
+2. **Force Native IFO Extractor via CLI or GUI**:
+   ```bash
+   dvd-ripper --cli D: --engine native --search "Movie Title"
+   ```
+3. **Use MakeMKV for Heavily Encrypted Discs**:
+   ```bash
+   dvd-ripper --cli D: --engine makemkv
+   ```
+
+---
+
+### Symptom: Ripping hangs or produces I/O Errors at specific chapters (e.g. stops at 62.8%)
+Commercial DVDs use deliberate bad sector structures (Sony ARccOS / Macrovision RipGuard) positioned in unreferenced gaps between chapters to cause digital read head locks.
+
+### Solutions:
+1. **Switch to Native IFO Engine (`--engine native`)**:
+   The native extractor only extracts logical sectors explicitly referenced by the Program Chain (`VTS_PGCITI`), completely jumping over unreferenced bad sector traps.
+2. **Enable Scratched Disc Fault Tolerance**:
+   ```bash
+   dvd-ripper --cli D: --ignore-errors
+   ```
+3. See **[Copy Protection, Bad Sectors, and Disc Recovery Guide](COPY_PROTECTION_AND_BAD_SECTORS.md)** for in-depth diagnostic details.
 
 ---
 

@@ -69,6 +69,12 @@ Clicking the **`ℹ️ About`** button in the top-right header opens the applica
   - Clicking **Select** populates the title, year, genre, director, cast, plot summary, and fetches high-resolution poster artwork.
 
 ### 3.3 Transcoding & Video Filter Quality Suite
+- **Transcoding Engine Selector**:
+  - **Auto Fallback (Recommended)**: Automatically tries FFmpeg first. If an invalid IFO, demuxer crash, or copy protection bad sector is encountered, it seamlessly falls back to the Native Rust IFO Cell Extractor, HandBrakeCLI, or MakeMKV.
+  - **FFmpeg (`ffmpeg`)**: Full filter pipeline with motion-adaptive deinterlacing, 3D denoising, crop detection, and GPU hardware acceleration.
+  - **Native IFO Extractor (`native`)**: Pure Rust sector cell extractor that reads DVD Program Chains (`VTS_PGCITI`) directly, bypassing FFmpeg demuxer bugs and ARccOS bad-sector traps with `.BUP` backup table support.
+  - **HandBrakeCLI (`handbrake`)**: Advanced transcoding using HandBrake's native `libdvdnav` menu navigation and motion-adaptive decombing.
+  - **MakeMKV (`makemkv`)**: Bit-for-bit lossless robot-mode remuxing into Matroska (`.mkv`) with optical drive hardware bus key decryption (AACS, BD+, CSS).
 - **Transcode Toggle (`--transcode`)**: Enable to re-encode video streams using `libx264`, `libx265`, or `libsvtav1`. Leave unchecked for fast, lossless remuxing (`-c copy`).
 - **MKV Container (`--mkv`)**: Force output into a Matroska (`.mkv`) container format instead of MP4 (`.mp4`).
 - **Video Codec Selector**: Choose between `h264`, `hevc`, `av1`, or `copy`.

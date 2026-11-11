@@ -1,6 +1,6 @@
 # Testing & Code Coverage Engineering Guide - `dvd-ripper`
 
-`dvd-ripper` enforces comprehensive automated testing across domain, application, infrastructure, and presentation layers. As of **v0.3.0**, the suite contains **321 passing unit and integration tests** achieving **83.15% line coverage** across the entire workspace.
+`dvd-ripper` enforces comprehensive automated testing across domain, application, infrastructure, and presentation layers. As of **v0.3.0**, the suite contains **376 passing unit and integration contract tests** achieving **82.85% line coverage** across 33,578 lines of code in the entire workspace.
 
 ---
 
@@ -12,27 +12,31 @@ The test suite is structured around Clean Architecture layers to ensure fast, is
 graph TD
     DomainTests["Pure Domain Unit Tests<br/>(Entities, Heuristics, Speedup)"]
     AppTests["Application Use Case Tests<br/>(RipSingleTitle, RipTvBatch, DrivePool)"]
+    EngineTests["Transcoder Engine Tests<br/>(Native IFO, HandBrake, MakeMKV, Fallback)"]
     InfraTests["Infrastructure Adapter Tests<br/>(FFmpeg Builders, Storage, MQTT, HTTP)"]
     PresentationTests["Presentation & Route Tests<br/>(REST API, SSE, GUI State, CLI Runner)"]
-    IntegrationTests["Integration Tests<br/>(tests/cli_tests.rs)"]
+    IntegrationTests["Contract & Integration Tests<br/>(tests/lsp_contract_tests.rs, tests/cli_tests.rs)"]
 
-    DomainTests -->|0ms external IO| FastExec["Sub-second Unit Suite"]
+    DomainTests -->|0ms external IO| FastExec["Deterministic Test Suite"]
     AppTests -->|In-memory Ports| FastExec
+    EngineTests -->|Synthetic IFO / CLI Scaffolding| FastExec
     InfraTests -->|Mock Sockets & Batches| FastExec
     PresentationTests -->|In-memory Requests| FastExec
+    IntegrationTests -->|LSP Contract Verification| FastExec
 ```
 
 ### Coverage by Core Module:
-- **`domain::entities::*` & `domain::heuristics::*`**: 97% – 100%
-- **`src/config.rs`**: 97.22%
-- **`src/ocr.rs`**: 92.93%
-- **`src/cli.rs`**: 92.45%
-- **`src/queue.rs`**: 92.00%
-- **`src/dvd.rs`**: 88.31%
-- **`src/imdb.rs`**: 86.42%
-- **`src/utils.rs`**: 84.51%
-- **`src/iso.rs`**: 81.04%
-- **`src/api.rs`**: 73.54%
+- **`infrastructure::engines::fallback`**: **100.00%**
+- **`domain::ports::testing`**: **97.90%**
+- **`domain::entities::*` & `domain::heuristics::*`**: **97% – 100%**
+- **`src/infrastructure/optical/ifo_parser.rs`**: **90.41%**
+- **`src/infrastructure/ffmpeg/thumbnail.rs`**: **87.76%**
+- **`src/infrastructure/engines/native_cell_extractor.rs`**: **85.34%**
+- **`src/infrastructure/engines/makemkv.rs`**: **78.49%**
+- **`src/infrastructure/engines/handbrake.rs`**: **78.43%**
+- **`src/gui/tabs/rip_tab.rs`**: **75.14%**
+- **`src/daemon.rs`**: **77.20%**
+- **`src/gui/controller.rs`**: **70.21%**
 
 ---
 

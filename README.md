@@ -14,6 +14,13 @@ A fast, portable DVD backup utility written in Rust featuring both a **Portable 
 
 ## 🌟 Key Features
 
+- **Multi-Engine Ripping Suite & Auto-Fallback**: Dynamic support for 4 extraction engines (`--engine auto|ffmpeg|native|handbrake|makemkv`):
+  - **FFmpeg**: Standard transcoding with hardware acceleration and audio/video filters.
+  - **Native Rust IFO Extractor**: Direct 2048-byte sector Program Chain (`VTS_PGCITI`) extraction in pure Rust with `.BUP` backup recovery, completely bypassing FFmpeg demuxer bugs.
+  - **HandBrakeCLI**: High-efficiency AV1/HEVC encoding and motion-adaptive decombing via `libdvdnav`.
+  - **MakeMKV Robot Mode**: Lossless bit-for-bit remuxing to `.mkv` with optical drive bus key decryption (AACS, BD+, CSS).
+  - **Auto-Fallback Priority Cascade**: Intelligent automatic recovery ($\text{FFmpeg} \to \text{Native IFO} \to \text{HandBrake} \to \text{MakeMKV}$) on bad-sector or demuxer errors.
+- **Sony ARccOS & Copy-Protection Bad Sector Resilience**: Automatically detects damaged or intentionally corrupted root `VIDEO_TS.IFO` structures, recovering via `.BUP` backup tables or direct `VTS_xx_0` title probing, with sector-by-sector stepping across unreferenced gap traps.
 - **1:1 Archival ISO Disc Dump**: Bit-exact optical disc imaging (`--iso`) with sector-by-sector copying, dynamic progress tracking, and zero quality loss.
 - **Multi-Disc TV Box Set Auto-Stitching**: Automatically calculates cumulative episode numbering (`S01E01–E04` -> `S01E05–E08`) across multi-disc TV show season box sets (`--auto-boxset`) using persistent local state tracking (`~/.dvd-ripper/boxsets.json`).
 - **Video Deinterlacing & Denoising Quality Suite**: Eliminates motion comb artifacts on 480i/576i DVD streams using motion-adaptive deinterlacing (`--deinterlace`, `--deinterlace-algo bwdif|yadif|w3fdif`) and 3D spatial/temporal noise reduction (`--denoise hqdn3d`).
@@ -346,6 +353,9 @@ src/
 
 Detailed user guides and technical architecture documents are available in the [`docs/`](docs) directory:
 
+- 🚀 **[Alternative Ripping Engines Guide](docs/RIPPING_ENGINES.md)**: Deep-dive into FFmpeg, Native IFO Extractor, HandBrakeCLI, MakeMKV, and the Auto-Fallback cascade.
+- 🛡️ **[Copy Protection & Bad Sectors Guide](docs/COPY_PROTECTION_AND_BAD_SECTORS.md)**: Overcoming CSS, Sony ARccOS bad-sector traps, Disney decoy titles, and `.BUP` backup recovery.
+- 💎 **[Software Library Quality Attributes](docs/SOFTWARE_LIBRARY_ATTRIBUTES.md)**: Concrete implementation of the 10 core attributes: Security (SSRF/Traversal), Performance, Zero-Allocation, Reliability, & Portability.
 - 🏛️ **[SOLID Architecture Guide](docs/SOLID_ARCHITECTURE.md)**: Deep-dive into SRP, OCP, LSP, ISP, DIP, heuristics, & mock architectures.
 - 📁 **[Media Organization Guide](docs/MEDIA_ORGANIZATION.md)**: Plex/Jellyfin folder standards, sibling resolution, NFO & artwork sidecars.
 - 📖 **[CLI User Manual](docs/CLI_GUIDE.md)**: Command-line syntax, modes, filters, and usage examples.
@@ -354,7 +364,7 @@ Detailed user guides and technical architecture documents are available in the [
 - 🖴 **[Multi-Drive Pool Guide](docs/MULTI_DRIVE_POOL.md)**: Multi-drive concurrent optical pooling, hardware topologies, and queue coordination.
 - 📊 **[Prometheus & Health Monitoring](docs/PROMETHEUS_AND_MONITORING.md)**: Prometheus metric dictionary (`/metrics`), scraping config, Grafana dashboards, & health probes.
 - 🔤 **[Subtitle Extraction & OCR Guide](docs/OCR_SUBTITLES.md)**: On-the-fly Tesseract OCR transcription from DVD bitmap overlays to universal `.srt` text sidecars.
-- 🧪 **[Testing & Code Coverage Guide](docs/TESTING_AND_COVERAGE.md)**: 321-test suite architecture, LLVM source code coverage (83.15%), and mock isolation patterns.
+- 🧪 **[Testing & Code Coverage Guide](docs/TESTING_AND_COVERAGE.md)**: 376-test suite architecture, LLVM source code coverage (82.85%), and mock isolation patterns.
 - 📦 **[Installer & Service Guide](docs/INSTALLER_AND_SERVICE_GUIDE.md)**: `dvd-ripper-installer` CLI, systemd service setup, and udev rules.
 - 📜 **[Ripping History & Logging](docs/RIPPING_HISTORY_AND_LOGGING.md)**: JSON backup database schema, audit trails, and history management.
 - 📺 **[TV Series Box Set Guide](docs/TV_BOXSET_GUIDE.md)**: Multi-disc TV show season auto-stitching and cumulative episode tracking.
@@ -371,11 +381,11 @@ Detailed user guides and technical architecture documents are available in the [
 
 ## 🧪 Testing
 
-Run the full test suite (**321 unit and integration tests**):
+Run the full test suite (**376 unit and integration contract tests**):
 ```bash
 cargo test
 ```
-All unit tests use RAII temporary directory guards and in-memory mock adapters to ensure test files leave zero footprint on disk.
+All unit tests use RAII temporary directory guards and in-memory mock adapters to ensure test files leave zero footprint on disk. Code coverage is verified with `cargo-llvm-cov` (**82.85% line coverage**).
 
 ---
 
