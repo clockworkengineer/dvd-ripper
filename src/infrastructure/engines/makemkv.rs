@@ -195,5 +195,53 @@ mod tests {
         let pct = MakeMkvTranscoder::parse_progress_line(line);
         assert!(pct.is_some());
         assert!((pct.unwrap() - 50.0).abs() < 0.1);
+
+        // Invalid cases
+        assert!(MakeMkvTranscoder::parse_progress_line("MSG:5004,0,0").is_none());
+        assert!(MakeMkvTranscoder::parse_progress_line("PRGV:").is_none());
+        assert!(MakeMkvTranscoder::parse_progress_line("PRGV:abc,def").is_none());
+        assert!(MakeMkvTranscoder::parse_progress_line("PRGV:10,0").is_none());
+    }
+
+    #[test]
+    fn test_makemkv_is_available_nonexistent() {
+        assert!(!MakeMkvTranscoder::is_available("nonexistent_makemkvcon_xyz_1234"));
+    }
+
+    #[test]
+    fn test_makemkv_transcode_nonexistent_binary() {
+        let transcoder = MakeMkvTranscoder::new("nonexistent_makemkvcon_xyz_1234");
+        let tmp = std::env::temp_dir().join(format!("mmkv_test_{}", std::process::id()));
+        let out_file = tmp.join("out.mkv");
+        let job = TranscodeJob {
+            source_dvd: Path::new("D:\\"),
+            output_path: &out_file,
+            title_number: 1,
+            display_title: "Title 1",
+            expected_duration_secs: Some(3600.0),
+        };
+
+        let res = transcoder.transcode(&job, None, None);
+        assert!(res.is_err());
+        assert!(res.unwrap_err().to_string().contains("Failed to spawn makemkvcon"));
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn test_makemkv_transcode_iso_source_arg() {
+        let transcoder = MakeMkvTranscoder::new("nonexistent_makemkvcon_xyz_1234");
+        let tmp = std::env::temp_dir().join(format!("mmkv_iso_test_{}", std::process::id()));
+        let out_file = tmp.join("out.mkv");
+        let job = TranscodeJob {
+            source_dvd: Path::new("C:\\movies\\sample.iso"),
+            output_path: &out_file,
+            title_number: 0,
+            display_title: "Main",
+            expected_duration_secs: None,
+        };
+
+        let res = transcoder.transcode(&job, None, None);
+        assert!(res.is_err());
+        let _ = std::fs::remove_dir_all(&tmp);
     }
 }

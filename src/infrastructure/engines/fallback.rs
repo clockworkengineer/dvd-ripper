@@ -92,3 +92,116 @@ impl Transcoder for AutoFallbackTranscoder {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::Path;
+    use crate::domain::ports::testing::RecordingProgressObserver;
+
+    struct DummyEngine {
+        fail: bool,
+        cancel: bool,
+    }
+
+    impl Transcoder for DummyEngine {
+        fn transcode(
+            &self,
+            _job: &TranscodeJob,
+            _observer: Option<&dyn ProgressObserver>,
+            _cancel_flag: Option<Arc<AtomicBool>>,
+        ) -> Result<()> {
+            if self.cancel {
+                return Err(anyhow!("operation cancelled by user"));
+            }
+            if self.fail {
+                return Err(anyhow!("demux error: bad sector"));
+            }
+            Ok(())
+        }
+    }
+
+    fn sample_job() -> TranscodeJob<'static> {
+        TranscodeJob {
+            source_dvd: Path::new("D:\\"),
+            output_path: Path::new("out.mkv"),
+            title_number: 1,
+            display_title: "Title 1",
+            expected_duration_secs: Some(3600.0),
+        }
+    }
+
+    #[test]
+    fn test_fallback_empty_engines() {
+        let fallback = AutoFallbackTranscoder::new(vec![]);
+        let job = sample_job();
+        let res = fallback.transcode(&job, None, None);
+        assert!(res.is_err());
+        assert!(res.unwrap_err().to_string().contains("No transcoding engines registered"));
+    }
+
+    #[test]
+    fn test_fallback_first_succeeds() {
+        let e1 = Arc::new(DummyEngine { fail: false, cancel: false });
+        let e2 = Arc::new(DummyEngine { fail: true, cancel: false });
+        let fallback = AutoFallbackTranscoder::new(vec![("engine1", e1), ("engine2", e2)]);
+
+        let job = sample_job();
+        let obs = RecordingProgressObserver::new();
+        assert!(fallback.transcode(&job, Some(&obs), None).is_ok());
+        assert!(obs.logs().is_empty());
+    }
+
+    #[test]
+    fn test_fallback_first_fails_second_succeeds() {
+        let e1 = Arc::new(DummyEngine { fail: true, cancel: false });
+        let e2 = Arc::new(DummyEngine { fail: false, cancel: false });
+        let fallback = AutoFallbackTranscoder::new(vec![("engine1", e1), ("engine2", e2)]);
+
+        let job = sample_job();
+        let obs = RecordingProgressObserver::new();
+        assert!(fallback.transcode(&job, Some(&obs), None).is_ok());
+        let logs = obs.logs();
+        assert_eq!(logs.len(), 2);
+        assert!(logs[0].contains("Engine 'engine1' failed"));
+        assert!(logs[1].contains("Falling back to engine 'engine2'"));
+    }
+
+    #[test]
+    fn test_fallback_all_fail() {
+        let e1 = Arc::new(DummyEngine { fail: true, cancel: false });
+        let e2 = Arc::new(DummyEngine { fail: true, cancel: false });
+        let fallback = AutoFallbackTranscoder::new(vec![("engine1", e1), ("engine2", e2)]);
+
+        let job = sample_job();
+        let obs = RecordingProgressObserver::new();
+        let res = fallback.transcode(&job, Some(&obs), None);
+        assert!(res.is_err());
+        assert!(res.unwrap_err().to_string().contains("bad sector"));
+    }
+
+    #[test]
+    fn test_fallback_cancellation_pre_flag() {
+        let e1 = Arc::new(DummyEngine { fail: false, cancel: false });
+        let fallback = AutoFallbackTranscoder::new(vec![("engine1", e1)]);
+
+        let job = sample_job();
+        let flag = Arc::new(AtomicBool::new(true));
+        let res = fallback.transcode(&job, None, Some(flag));
+        assert!(res.is_err());
+        assert!(res.unwrap_err().to_string().contains("cancelled by user"));
+    }
+
+    #[test]
+    fn test_fallback_cancellation_from_sub_engine_aborts_fallback() {
+        let e1 = Arc::new(DummyEngine { fail: false, cancel: true });
+        let e2 = Arc::new(DummyEngine { fail: false, cancel: false });
+        let fallback = AutoFallbackTranscoder::new(vec![("engine1", e1), ("engine2", e2)]);
+
+        let job = sample_job();
+        let res = fallback.transcode(&job, None, None);
+        assert!(res.is_err());
+        assert!(res.unwrap_err().to_string().contains("cancelled by user"));
+    }
+}
+
+

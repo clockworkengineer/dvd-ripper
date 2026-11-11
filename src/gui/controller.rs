@@ -906,4 +906,93 @@ mod tests {
         std::thread::sleep(std::time::Duration::from_millis(150));
         while let Some(_ev) = controller.poll_event() {}
     }
+
+    #[test]
+    fn test_gui_controller_start_ripping_titles_and_engines_fail_gracefully() {
+        let container = Arc::new(AppContainer::build_production("ffmpeg"));
+        let mut controller = GuiApplicationController::new(container);
+
+        // 1. Movie rip with HandBrake engine
+        let spec_hb = RipTaskSpecification {
+            drive: "Z:\\NonExistentDrive".to_string(),
+            out_dir: "C:\\Out".to_string(),
+            is_iso: false,
+            is_tv: false,
+            all_episodes: false,
+            transcode: true,
+            film_name: Some("HandBrake Movie".to_string()),
+            film_year: Some(2020),
+            season: 1,
+            start_episode: 1,
+            title_number: 1,
+            preset: "fast".to_string(),
+            engine: "handbrake".to_string(),
+            handbrake_path: "HandBrakeCLI".to_string(),
+            makemkv_path: "makemkvcon".to_string(),
+            ffmpeg_path: "ffmpeg".to_string(),
+            expected_runtime_secs: Some(3600.0),
+            detected_episodes: Vec::new(),
+            poster_bytes: None,
+            encoding_options: crate::cli::EncodingOptions::default(),
+        };
+        controller.start_ripping(spec_hb);
+
+        // 2. TV rip with MakeMKV engine
+        let spec_mmkv = RipTaskSpecification {
+            drive: "Z:\\NonExistentDrive".to_string(),
+            out_dir: "C:\\Out".to_string(),
+            is_iso: false,
+            is_tv: true,
+            all_episodes: true,
+            transcode: false,
+            film_name: Some("Show Name".to_string()),
+            film_year: None,
+            season: 1,
+            start_episode: 1,
+            title_number: 1,
+            preset: "fast".to_string(),
+            engine: "makemkv".to_string(),
+            handbrake_path: "HandBrakeCLI".to_string(),
+            makemkv_path: "makemkvcon".to_string(),
+            ffmpeg_path: "ffmpeg".to_string(),
+            expected_runtime_secs: None,
+            detected_episodes: vec![crate::domain::entities::disc::TvEpisodeInfo {
+                title_num: 1,
+                episode_num: 1,
+                duration_secs: 2700.0,
+                formatted_name: "Pilot".to_string(),
+            }],
+            poster_bytes: None,
+            encoding_options: crate::cli::EncodingOptions::default(),
+        };
+        controller.start_ripping(spec_mmkv);
+
+        // 3. Native IFO engine
+        let spec_native = RipTaskSpecification {
+            drive: "Z:\\NonExistentDrive".to_string(),
+            out_dir: "C:\\Out".to_string(),
+            is_iso: false,
+            is_tv: false,
+            all_episodes: false,
+            transcode: false,
+            film_name: Some("Native Movie".to_string()),
+            film_year: None,
+            season: 1,
+            start_episode: 1,
+            title_number: 1,
+            preset: "fast".to_string(),
+            engine: "native".to_string(),
+            handbrake_path: "HandBrakeCLI".to_string(),
+            makemkv_path: "makemkvcon".to_string(),
+            ffmpeg_path: "ffmpeg".to_string(),
+            expected_runtime_secs: None,
+            detected_episodes: Vec::new(),
+            poster_bytes: None,
+            encoding_options: crate::cli::EncodingOptions::default(),
+        };
+        controller.start_ripping(spec_native);
+
+        std::thread::sleep(std::time::Duration::from_millis(200));
+        while let Some(_ev) = controller.poll_event() {}
+    }
 }

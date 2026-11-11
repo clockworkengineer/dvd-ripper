@@ -248,6 +248,7 @@ impl Transcoder for HandBrakeTranscoder {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::Path;
 
     #[test]
     fn test_parse_handbrake_progress() {
@@ -258,5 +259,118 @@ mod tests {
         assert!((pct - 45.23).abs() < 0.001);
         assert_eq!(fps, "120.50");
         assert!(speed.contains("00h05m12s"));
+
+        // Non-progress line
+        assert!(HandBrakeTranscoder::parse_progress_line("Scanning title 1...").is_none());
+        assert!(HandBrakeTranscoder::parse_progress_line("Encoding:").is_none());
+    }
+
+    #[test]
+    fn test_handbrake_is_available_nonexistent() {
+        assert!(!HandBrakeTranscoder::is_available("nonexistent_handbrake_xyz_1234"));
+    }
+
+    #[test]
+    fn test_handbrake_build_command_permutations() {
+        let options_h265 = TranscodeOptions {
+            codec: "hevc".to_string(),
+            crf: Some(18),
+            preset: "ultrafast".to_string(),
+            deinterlace: true,
+            all_audio: true,
+            subtitles: true,
+            ..Default::default()
+        };
+        let hb = HandBrakeTranscoder::new("HandBrakeCLI", options_h265);
+        let job = TranscodeJob {
+            source_dvd: Path::new("D:\\"),
+            output_path: Path::new("out.mkv"),
+            title_number: 1,
+            display_title: "Title 1",
+            expected_duration_secs: Some(3600.0),
+        };
+
+        let cmd = hb.build_command(&job, Some((1, 4)));
+        let args: Vec<String> = cmd
+            .get_args()
+            .map(|s| s.to_string_lossy().into_owned())
+            .collect();
+
+        assert!(args.contains(&"-e".to_string()));
+        assert!(args.contains(&"x265".to_string()));
+        assert!(args.contains(&"-q".to_string()));
+        assert!(args.contains(&"18".to_string()));
+        assert!(args.contains(&"--encoder-preset".to_string()));
+        assert!(args.contains(&"veryfast".to_string()));
+        assert!(args.contains(&"--comb-detect".to_string()));
+        assert!(args.contains(&"--decomb".to_string()));
+        assert!(args.contains(&"--all-audio".to_string()));
+        assert!(args.contains(&"--all-subtitles".to_string()));
+        assert!(args.contains(&"-c".to_string()));
+        assert!(args.contains(&"1-4".to_string()));
+        assert!(args.contains(&"-t".to_string()));
+        assert!(args.contains(&"1".to_string()));
+
+        // Test title 0 -> main-feature, av1 codec, slow preset
+        let options_av1 = TranscodeOptions {
+            codec: "av1".to_string(),
+            crf: None,
+            preset: "veryslow".to_string(),
+            deinterlace: false,
+            all_audio: false,
+            subtitles: false,
+            ..Default::default()
+        };
+        let hb_av1 = HandBrakeTranscoder::new("HandBrakeCLI", options_av1);
+        let job_main = TranscodeJob {
+            source_dvd: Path::new("D:\\"),
+            output_path: Path::new("out.mkv"),
+            title_number: 0,
+            display_title: "Main",
+            expected_duration_secs: None,
+        };
+        let cmd_main = hb_av1.build_command(&job_main, None);
+        let args_main: Vec<String> = cmd_main
+            .get_args()
+            .map(|s| s.to_string_lossy().into_owned())
+            .collect();
+        assert!(args_main.contains(&"--main-feature".to_string()));
+        assert!(args_main.contains(&"svt_av1".to_string()));
+        assert!(args_main.contains(&"slow".to_string()));
+        assert!(args_main.contains(&"-a".to_string()));
+
+        // Test mpeg2 codec
+        let options_mpeg2 = TranscodeOptions {
+            codec: "mpeg2".to_string(),
+            crf: None,
+            preset: "faster".to_string(),
+            deinterlace: false,
+            all_audio: false,
+            subtitles: false,
+            ..Default::default()
+        };
+        let hb_mpeg2 = HandBrakeTranscoder::new("HandBrakeCLI", options_mpeg2);
+        let cmd_mpeg2 = hb_mpeg2.build_command(&job_main, None);
+        let args_mpeg2: Vec<String> = cmd_mpeg2
+            .get_args()
+            .map(|s| s.to_string_lossy().into_owned())
+            .collect();
+        assert!(args_mpeg2.contains(&"mpeg2".to_string()));
+        assert!(args_mpeg2.contains(&"fast".to_string()));
+    }
+
+    #[test]
+    fn test_handbrake_transcode_nonexistent_binary() {
+        let hb = HandBrakeTranscoder::new("nonexistent_hb_bin_xyz", TranscodeOptions::default());
+        let job = TranscodeJob {
+            source_dvd: Path::new("D:\\"),
+            output_path: Path::new("out.mkv"),
+            title_number: 1,
+            display_title: "Title 1",
+            expected_duration_secs: Some(3600.0),
+        };
+        let res = hb.transcode(&job, None, None);
+        assert!(res.is_err());
+        assert!(res.unwrap_err().to_string().contains("Failed to spawn HandBrakeCLI"));
     }
 }

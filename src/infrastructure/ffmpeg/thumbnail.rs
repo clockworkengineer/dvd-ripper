@@ -121,5 +121,28 @@ mod tests {
             Path::new("dummy_out.jpg"),
         );
         assert!(res.is_err());
+
+        // probe_stream_details with nonexistent path returns default empty details
+        let details = prober.probe_stream_details(Path::new("Z:\\DefinitelyNonExistent"), 1);
+        assert_eq!(details.title_num, 1);
+        assert!(details.audio_streams.is_empty());
+
+        // predict_optimal_crf with nonexistent path returns default CRF
+        let (crf, ssim) = prober.predict_optimal_crf(
+            Path::new("Z:\\DefinitelyNonExistent"),
+            1,
+            "x264",
+            0.98,
+        );
+        assert!(crf > 0);
+        assert!(ssim >= 0.0);
+
+        // detect_auto_crop with nonexistent path returns None
+        let crop = prober.detect_auto_crop(Path::new("Z:\\DefinitelyNonExistent"), 1);
+        assert!(crop.is_none());
+
+        // detect_forced_subtitle with nonexistent path (no subtitle streams) returns None
+        let sub = prober.detect_forced_subtitle(Path::new("Z:\\DefinitelyNonExistent"), 1, "en");
+        assert!(sub.is_none());
     }
 }

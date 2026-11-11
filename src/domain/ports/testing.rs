@@ -219,3 +219,107 @@ impl ProgressObserver for RecordingProgressObserver {
             .push(line.to_string());
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_in_memory_history_repository() {
+        let repo = InMemoryHistoryRepository::new();
+        assert!(repo.records().is_empty());
+        assert!(repo.load_history(None).is_empty());
+
+        let record = RipRecord::new("Test Movie", "Movie", "C:\\out\\movie.mkv", "Success");
+        repo.append_record(&record, None).unwrap();
+
+        let loaded = repo.load_history(None);
+        assert_eq!(loaded.len(), 1);
+        assert_eq!(loaded[0].title, "Test Movie");
+
+        repo.clear_history(None).unwrap();
+        assert!(repo.records().is_empty());
+    }
+
+    #[test]
+    fn test_recording_notifier_all_events() {
+        let notifier = RecordingNotifier::new();
+
+        notifier
+            .send(&NotificationEvent::RipStarted {
+                title: "Movie A",
+                drive: "D:\\",
+            })
+            .unwrap();
+
+        notifier
+            .send(&NotificationEvent::RipProgress {
+                title: "Movie A",
+                percent: 45.5,
+            })
+            .unwrap();
+
+        notifier
+            .send(&NotificationEvent::RipSuccess {
+                title: "Movie A",
+                output_file: "movie_a.mkv",
+                duration_secs: 7200.0,
+            })
+            .unwrap();
+
+        notifier
+            .send(&NotificationEvent::RipFailed {
+                title: "Movie A",
+                error_message: "Disk error",
+            })
+            .unwrap();
+
+        notifier
+            .send(&NotificationEvent::RipCancelled { title: "Movie A" })
+            .unwrap();
+
+        let events = notifier.events();
+        assert_eq!(events.len(), 5);
+        assert_eq!(events[0].kind, "RipStarted");
+        assert_eq!(events[0].detail, "D:\\");
+        assert_eq!(events[1].kind, "RipProgress");
+        assert_eq!(events[1].detail, "45.5");
+        assert_eq!(events[2].kind, "RipSuccess");
+        assert_eq!(events[2].detail, "movie_a.mkv");
+        assert_eq!(events[3].kind, "RipFailed");
+        assert_eq!(events[3].detail, "Disk error");
+        assert_eq!(events[4].kind, "RipCancelled");
+        assert_eq!(events[4].detail, "");
+    }
+
+    #[test]
+    fn test_fixed_disk_space_guard() {
+        let guard_default = FixedDiskSpaceGuard::default();
+        assert_eq!(guard_default.available_gb, 500);
+
+        let guard = FixedDiskSpaceGuard::new(20);
+        let path = Path::new("C:\\");
+        assert!(guard.check_free_space(path, 15).is_ok());
+        let err = guard.check_free_space(path, 25).unwrap_err();
+        assert!(err.to_string().contains("Insufficient disk space"));
+    }
+
+    #[test]
+    fn test_recording_progress_observer() {
+        let observer = RecordingProgressObserver::new();
+        assert!(observer.progress_updates().is_empty());
+        assert!(observer.logs().is_empty());
+
+        observer.on_progress(50.0, "30.0", "1.5x");
+        observer.on_log("Processing sector 1234...");
+
+        let updates = observer.progress_updates();
+        assert_eq!(updates.len(), 1);
+        assert_eq!(updates[0], (50.0, "30.0".to_string(), "1.5x".to_string()));
+
+        let logs = observer.logs();
+        assert_eq!(logs.len(), 1);
+        assert_eq!(logs[0], "Processing sector 1234...");
+    }
+}
+

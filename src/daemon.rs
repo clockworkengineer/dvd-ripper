@@ -362,14 +362,14 @@ mod tests {
         args_manual.mqtt_broker = Some("127.0.0.1:11883".to_string());
         args_manual.auto_rip = false;
 
-        process_detected_disc("D:\\", "TEST_DISC_MANUAL", &args_manual, &container);
+        process_detected_disc("Z:\\fake_daemon_disc", "TEST_DISC_MANUAL", &args_manual, &container);
 
         // 2. Auto rip mode with match
         let mut args_auto = Args::default();
         args_auto.auto_rip = true;
-        process_detected_disc("D:\\", "Aliens", &args_auto, &container);
+        process_detected_disc("Z:\\fake_daemon_disc", "Aliens", &args_auto, &container);
 
         // 3. Auto rip mode with no match
-        process_detected_disc("D:\\", "xyznonexistentdisc999888", &args_auto, &container);
+        process_detected_disc("Z:\\fake_daemon_disc", "xyznonexistentdisc999888", &args_auto, &container);
     }
 }

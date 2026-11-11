@@ -534,3 +534,131 @@ pub fn probe_title_details_ifo(dvd_path: &Path, title_num: u32) -> Option<TitleS
     })
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_ifo_parser_resolve_vts_ttn_fallbacks() {
+        assert_eq!(resolve_vts_ttn_to_pgcn(&[], 0), 1);
+        assert_eq!(resolve_vts_ttn_to_pgcn(&[0u8; 10], 2), 2);
+
+        // Valid data length but zero ptt_srpt_sec
+        let mut data = vec![0u8; 300];
+        assert_eq!(resolve_vts_ttn_to_pgcn(&data, 3), 3);
+
+        // ptt_srpt_sec points past data length
+        data[0xC8..0xCC].copy_from_slice(&100u32.to_be_bytes());
+        assert_eq!(resolve_vts_ttn_to_pgcn(&data, 4), 4);
+    }
+
+    #[test]
+    fn test_ifo_parser_probe_nonexistent_paths() {
+        let fake_path = Path::new("Z:\\nonexistent_dvd_path_xyz");
+        assert!(probe_dvd_titles_ifo(fake_path).is_none());
+        assert!(probe_dvd_cell_topologies_ifo(fake_path).is_none());
+        assert!(probe_title_details_ifo(fake_path, 0).is_none());
+        assert!(probe_title_details_ifo(fake_path, 1).is_none());
+    }
+
+    #[test]
+    fn test_ifo_parser_synthetic_full_parsing() {
+        let tmp = std::env::temp_dir().join(format!("ifo_test_synth_{}", std::process::id()));
+        let video_ts = tmp.join("VIDEO_TS");
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&video_ts).unwrap();
+
+        // 1. VIDEO_TS.IFO
+        let mut vmg = vec![0u8; 4096];
+        vmg[0xc4..0xc8].copy_from_slice(&1u32.to_be_bytes());
+        vmg[2048..2050].copy_from_slice(&1u16.to_be_bytes()); // 1 title
+        let entry = 2048 + 8;
+        vmg[entry + 1] = 2; // 2 angles
+        vmg[entry + 2] = 0;
+        vmg[entry + 3] = 2; // 2 chapters
+        vmg[entry + 6] = 1; // VTS 1
+        vmg[entry + 7] = 1; // TTN 1
+        std::fs::write(video_ts.join("VIDEO_TS.IFO"), &vmg).unwrap();
+
+        // 2. VTS_01_0.IFO
+        let mut vts = vec![0u8; 8192];
+        // Attributes
+        vts[0x200] = 0x10 | 0x0C; // PAL (0x10), 16:9 (0x0C)
+        vts[0x202..0x204].copy_from_slice(&1u16.to_be_bytes()); // 1 audio stream
+        vts[0x204] = 0x00; // AC3
+        vts[0x205] = 5; // 6 channels (5.1)
+        vts[0x206] = b'e';
+        vts[0x207] = b'n';
+
+        vts[0x254..0x256].copy_from_slice(&1u16.to_be_bytes()); // 1 sub stream
+        vts[0x258] = b'e';
+        vts[0x259] = b'n';
+        vts[0x25B] = 9; // Forced
+
+        // PTT_SRPT at sector 1 (offset 2048)
+        vts[0xC8..0xCC].copy_from_slice(&1u32.to_be_bytes());
+        let ptt = 2048;
+        vts[ptt..ptt + 2].copy_from_slice(&1u16.to_be_bytes());
+        vts[ptt + 8..ptt + 12].copy_from_slice(&12u32.to_be_bytes());
+        vts[ptt + 12..ptt + 14].copy_from_slice(&1u16.to_be_bytes()); // PGCN 1
+
+        // PGCITI at sector 2 (offset 4096)
+        vts[0xCC..0xD0].copy_from_slice(&2u32.to_be_bytes());
+        let pgciti = 4096;
+        vts[pgciti..pgciti + 2].copy_from_slice(&1u16.to_be_bytes());
+        let ptr = pgciti + 8;
+        vts[ptr + 4..ptr + 8].copy_from_slice(&16u32.to_be_bytes());
+        let pgc = pgciti + 16;
+        vts[pgc + 2] = 2; // 2 programs
+        vts[pgc + 3] = 2; // 2 cells
+        vts[pgc + 4] = 0x01; // 1 hour
+        vts[pgc + 5] = 0x30; // 30 mins
+        vts[pgc + 6] = 0x00; // 0 secs
+
+        let pg_map_rel: u16 = 0xEC;
+        let c_pbit_rel: u16 = 0xF0;
+        vts[pgc + 0xE6..pgc + 0xE8].copy_from_slice(&pg_map_rel.to_be_bytes());
+        vts[pgc + 0xE8..pgc + 0xEA].copy_from_slice(&c_pbit_rel.to_be_bytes());
+        vts[pgc + 0xEC] = 1;
+        vts[pgc + 0xED] = 2;
+
+        let c1 = pgc + (c_pbit_rel as usize);
+        vts[c1 + 4] = 0x00;
+        vts[c1 + 5] = 0x45; // 45 min
+        vts[c1 + 6] = 0x00;
+        vts[c1 + 8..c1 + 12].copy_from_slice(&100u32.to_be_bytes());
+        vts[c1 + 16..c1 + 20].copy_from_slice(&200u32.to_be_bytes());
+
+        let c2 = c1 + 24;
+        vts[c2 + 4] = 0x00;
+        vts[c2 + 5] = 0x45; // 45 min
+        vts[c2 + 6] = 0x00;
+        vts[c2 + 8..c2 + 12].copy_from_slice(&201u32.to_be_bytes());
+        vts[c2 + 16..c2 + 20].copy_from_slice(&300u32.to_be_bytes());
+
+        std::fs::write(video_ts.join("VTS_01_0.IFO"), &vts).unwrap();
+
+        let titles = probe_dvd_titles_ifo(&tmp).unwrap();
+        assert_eq!(titles.len(), 1);
+        assert_eq!(titles[0].duration_secs, 5400.0);
+
+        let topologies = probe_dvd_cell_topologies_ifo(&tmp).unwrap();
+        assert_eq!(topologies.len(), 1);
+        assert_eq!(topologies[0].angle_count, 2);
+        assert_eq!(topologies[0].cell_sectors.len(), 2);
+
+        let details = probe_title_details_ifo(&tmp, 1).unwrap();
+        assert_eq!(details.title_num, 1);
+        assert_eq!(details.duration_secs, 5400.0);
+        assert_eq!(details.resolution, Some((720, 576)));
+        assert_eq!(details.aspect_ratio.as_deref(), Some("16:9"));
+        assert_eq!(details.audio_streams.len(), 1);
+        assert_eq!(details.audio_streams[0].codec, "ac3");
+        assert_eq!(details.subtitle_streams.len(), 1);
+        assert!(details.subtitle_streams[0].forced);
+        assert_eq!(details.chapters.len(), 2);
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+}
+

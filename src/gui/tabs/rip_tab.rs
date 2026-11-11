@@ -533,7 +533,61 @@ mod tests {
                     || {},
                 );
 
-                // 2. Advanced mode + ISO mode + busy
+                // 2. Advanced mode + non-ISO transcode mode (renders all advanced video/audio/sub/OCR options)
+                simple_mode = false;
+                iso_mode = false;
+                transcode = true;
+                dual_audio = true;
+                subtitles = true;
+                ocr = true;
+                render_rip_tab(
+                    ui,
+                    &mut simple_mode,
+                    &mut input_drive,
+                    &mut film_name,
+                    &mut film_year,
+                    &mut out_dir,
+                    &recent_out_dirs,
+                    &mut title_number,
+                    &mut iso_mode,
+                    &mut mkv,
+                    &mut transcode,
+                    &mut profile,
+                    &mut codec,
+                    &mut preset,
+                    &mut deinterlace,
+                    &mut deinterlace_algo,
+                    &mut denoise,
+                    &mut hwaccel_fallback,
+                    &mut all_audio,
+                    &mut normalize_audio,
+                    &mut norm_target,
+                    &mut dual_audio,
+                    &mut audio_lang,
+                    &mut subtitles,
+                    &mut sub_lang,
+                    &mut sub_format,
+                    &mut sub_forced_only,
+                    &mut sub_external_srt,
+                    &mut ocr,
+                    &mut ocr_lang,
+                    None,
+                    "8.7",
+                    "Sci-Fi",
+                    "A hacker discovers reality...",
+                    "Lana Wachowski",
+                    "Keanu Reeves",
+                    &title_thumbnails,
+                    false,
+                    || {},
+                    || {},
+                    || {},
+                    |_| {},
+                    || {},
+                    || {},
+                );
+
+                // 3. Advanced mode + ISO mode + busy
                 simple_mode = false;
                 iso_mode = true;
                 render_rip_tab(

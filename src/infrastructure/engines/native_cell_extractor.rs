@@ -605,5 +605,71 @@ mod tests {
 
         let _ = std::fs::remove_dir_all(&tmp);
     }
+
+    #[test]
+    fn test_native_cell_plan_edge_cases() {
+        assert!(build_native_cell_plan(Path::new("Z:\\nonexistent"), 0, None).is_none());
+        assert!(build_native_cell_plan(Path::new("Z:\\nonexistent"), 1, None).is_none());
+
+        // Corrupt small IFO
+        let tmp = std::env::temp_dir().join(format!("ifo_corrupt_{}", std::process::id()));
+        let video_ts = tmp.join("VIDEO_TS");
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&video_ts).unwrap();
+        std::fs::write(video_ts.join("VIDEO_TS.IFO"), [0u8; 50]).unwrap();
+        assert!(build_native_cell_plan(&tmp, 1, None).is_none());
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn test_extract_pgc_cells_empty_and_cancelled() {
+        let empty_plan = NativeCellPlan {
+            vtsn: 1,
+            pgcn: 1,
+            cell_sectors: vec![],
+            total_sectors: 0,
+            duration_secs: 0.0,
+        };
+        let out = std::env::temp_dir().join("empty_out.mpg");
+        let res = extract_pgc_cells_to_file(Path::new("."), &empty_plan, &out, None, None);
+        assert!(res.is_err());
+        assert!(res.unwrap_err().to_string().contains("No VTS_01_1..9.VOB files found"));
+
+        // Test cancel flag with valid dummy VOB
+        let tmp = std::env::temp_dir().join(format!("vob_cancel_test_{}", std::process::id()));
+        let video_ts = tmp.join("VIDEO_TS");
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&video_ts).unwrap();
+        std::fs::write(video_ts.join("VTS_01_1.VOB"), [0u8; 4096]).unwrap();
+
+        let plan_with_cells = NativeCellPlan {
+            vtsn: 1,
+            pgcn: 1,
+            cell_sectors: vec![(0, 1)],
+            total_sectors: 2,
+            duration_secs: 10.0,
+        };
+        let flag = Arc::new(AtomicBool::new(true));
+        let cancel_out = tmp.join("cancel_out.mpg");
+        let res_cancel = extract_pgc_cells_to_file(&tmp, &plan_with_cells, &cancel_out, None, Some(&flag));
+        assert!(res_cancel.is_err());
+        assert!(res_cancel.unwrap_err().to_string().contains("cancelled by user"));
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn test_native_ifo_transcoder_construction_and_transcode_err() {
+        let transcoder = NativeIfoTranscoder::new("ffmpeg", TranscodeOptions::default());
+        let job = TranscodeJob {
+            source_dvd: Path::new("Z:\\nonexistent_dvd_source"),
+            output_path: Path::new("out.mkv"),
+            title_number: 1,
+            display_title: "Title 1",
+            expected_duration_secs: Some(3600.0),
+        };
+        let res = transcoder.transcode(&job, None, None);
+        assert!(res.is_err());
+        assert!(res.unwrap_err().to_string().contains("could not locate valid PGC cell table"));
+    }
 }
 
