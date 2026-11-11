@@ -4,7 +4,7 @@
 //! `VTS_PTT_SRPT` title-to-PGC mappings, cell playback sector topologies (`C_PBIT`),
 //! and audio/subtitle/chapter metadata without spawning FFmpeg subprocesses.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use crate::domain::entities::disc::{
     AudioStreamInfo, Chapter, SubtitleStreamInfo, TitleStreamDetails,
@@ -54,87 +54,140 @@ pub fn resolve_vts_ttn_to_pgcn(vts_data: &[u8], vts_ttn: u8) -> usize {
     if pgcn == 0 { fallback } else { pgcn }
 }
 
+/// Finds and reads the binary contents of an IFO table (or its backup .BUP table).
+pub fn find_dvd_table_data(dvd_path: &Path, base_name: &str) -> Option<(PathBuf, Vec<u8>)> {
+    let subdirs = [
+        dvd_path.join("VIDEO_TS"),
+        dvd_path.join("video_ts"),
+        dvd_path.to_path_buf(),
+    ];
+    let file_variants = [
+        format!("{}.IFO", base_name),
+        format!("{}.BUP", base_name),
+        format!("{}.ifo", base_name.to_lowercase()),
+        format!("{}.bup", base_name.to_lowercase()),
+        format!("{}.ifo", base_name),
+        format!("{}.bup", base_name),
+    ];
+
+    for dir in &subdirs {
+        for name in &file_variants {
+            let p = dir.join(name);
+            if let Ok(data) = std::fs::read(&p)
+                && data.len() >= 0xC8
+            {
+                return Some((p, data));
+            }
+        }
+    }
+    None
+}
+
 /// Ultra-fast DVD title probing by directly reading DVD-Video IFO structures (`VIDEO_TS.IFO` and `VTS_xx_0.IFO`).
 /// Returns titles and exact durations in <10ms without launching FFmpeg subprocesses.
 pub fn probe_dvd_titles_ifo(dvd_path: &Path) -> Option<Vec<DvdTitleInfo>> {
-    let candidates = [
-        dvd_path.join("VIDEO_TS").join("VIDEO_TS.IFO"),
-        dvd_path.join("video_ts").join("video_ts.ifo"),
-        dvd_path.join("VIDEO_TS").join("video_ts.ifo"),
-        dvd_path.join("video_ts").join("VIDEO_TS.IFO"),
-        dvd_path.join("VIDEO_TS.IFO"),
-        dvd_path.join("video_ts.ifo"),
-    ];
+    if let Some((ifo_path, data)) = find_dvd_table_data(dvd_path, "VIDEO_TS") {
+        let sector_offset = u32::from_be_bytes([data[0xc4], data[0xc5], data[0xc6], data[0xc7]]);
+        let byte_offset = (sector_offset as usize) * 2048;
+        if byte_offset + 8 <= data.len() {
+            let nr_titles = u16::from_be_bytes([data[byte_offset], data[byte_offset + 1]]) as usize;
+            if nr_titles > 0 && byte_offset + 8 + nr_titles * 12 <= data.len() {
+                let ifo_dir = ifo_path.parent().unwrap_or(dvd_path);
+                let mut titles = Vec::with_capacity(nr_titles);
 
-    let ifo_path = candidates.into_iter().find(|p| p.exists())?;
-    let data = std::fs::read(&ifo_path).ok()?;
-    if data.len() < 0xC8 {
-        return None;
-    }
+                for t in 0..nr_titles {
+                    let entry_off = byte_offset + 8 + t * 12;
+                    let vtsn = data[entry_off + 6];
+                    let vts_ttn = data[entry_off + 7];
 
-    let sector_offset = u32::from_be_bytes([data[0xc4], data[0xc5], data[0xc6], data[0xc7]]);
-    let byte_offset = (sector_offset as usize) * 2048;
-    if byte_offset + 8 > data.len() {
-        return None;
-    }
+                    let mut duration_secs = 0.0;
+                    let base_vts = format!("VTS_{:02}_0", vtsn);
+                    if let Some((_, vts_data)) = find_dvd_table_data(ifo_dir, &base_vts)
+                        .or_else(|| find_dvd_table_data(dvd_path, &base_vts))
+                        && vts_data.len() > 0xCC + 4
+                    {
+                        let pgciti_sec = u32::from_be_bytes([
+                                vts_data[0xCC],
+                                vts_data[0xCD],
+                                vts_data[0xCE],
+                                vts_data[0xCF],
+                            ]);
+                            let pgciti_off = (pgciti_sec as usize) * 2048;
+                            let pgcn = resolve_vts_ttn_to_pgcn(&vts_data, vts_ttn);
+                            if vts_ttn > 0 && pgciti_off + 8 + pgcn * 8 <= vts_data.len() {
+                                let pgc_entry_off = pgciti_off + 8 + (pgcn - 1) * 8;
+                                let pgc_start_rel = u32::from_be_bytes([
+                                    vts_data[pgc_entry_off + 4],
+                                    vts_data[pgc_entry_off + 5],
+                                    vts_data[pgc_entry_off + 6],
+                                    vts_data[pgc_entry_off + 7],
+                                ]);
+                                let pgc_off = pgciti_off + (pgc_start_rel as usize);
+                                if pgc_off + 8 <= vts_data.len() {
+                                    let h_bcd = vts_data[pgc_off + 4];
+                                    let m_bcd = vts_data[pgc_off + 5];
+                                    let s_bcd = vts_data[pgc_off + 6];
+                                    let h = (((h_bcd >> 4) * 10) + (h_bcd & 0x0F)) as f64;
+                                    let m = (((m_bcd >> 4) * 10) + (m_bcd & 0x0F)) as f64;
+                                    let s = (((s_bcd >> 4) * 10) + (s_bcd & 0x0F)) as f64;
+                                    duration_secs = h * 3600.0 + m * 60.0 + s;
+                                }
+                            }
+                        }
 
-    let nr_titles = u16::from_be_bytes([data[byte_offset], data[byte_offset + 1]]) as usize;
-    if nr_titles == 0 || byte_offset + 8 + nr_titles * 12 > data.len() {
-        return None;
-    }
-
-    let ifo_dir = ifo_path.parent().unwrap_or(dvd_path);
-    let mut titles = Vec::with_capacity(nr_titles);
-
-    for t in 0..nr_titles {
-        let entry_off = byte_offset + 8 + t * 12;
-        let vtsn = data[entry_off + 6];
-        let vts_ttn = data[entry_off + 7];
-
-        let mut duration_secs = 0.0;
-        let vts_candidates = [
-            ifo_dir.join(format!("VTS_{:02}_0.IFO", vtsn)),
-            ifo_dir.join(format!("vts_{:02}_0.ifo", vtsn)),
-            ifo_dir.join(format!("VTS_{:02}_0.ifo", vtsn)),
-        ];
-
-        if let Some(vts_path) = vts_candidates.into_iter().find(|p| p.exists())
-            && let Ok(vts_data) = std::fs::read(&vts_path)
-            && vts_data.len() > 0xCC + 4
-        {
-            let pgciti_sec = u32::from_be_bytes([
-                vts_data[0xCC],
-                vts_data[0xCD],
-                vts_data[0xCE],
-                vts_data[0xCF],
-            ]);
-            let pgciti_off = (pgciti_sec as usize) * 2048;
-            let pgcn = resolve_vts_ttn_to_pgcn(&vts_data, vts_ttn);
-            if vts_ttn > 0 && pgciti_off + 8 + pgcn * 8 <= vts_data.len() {
-                let pgc_entry_off = pgciti_off + 8 + (pgcn - 1) * 8;
-                let pgc_start_rel = u32::from_be_bytes([
-                    vts_data[pgc_entry_off + 4],
-                    vts_data[pgc_entry_off + 5],
-                    vts_data[pgc_entry_off + 6],
-                    vts_data[pgc_entry_off + 7],
-                ]);
-                let pgc_off = pgciti_off + (pgc_start_rel as usize);
-                if pgc_off + 8 <= vts_data.len() {
-                    let h_bcd = vts_data[pgc_off + 4];
-                    let m_bcd = vts_data[pgc_off + 5];
-                    let s_bcd = vts_data[pgc_off + 6];
-                    let h = (((h_bcd >> 4) * 10) + (h_bcd & 0x0F)) as f64;
-                    let m = (((m_bcd >> 4) * 10) + (m_bcd & 0x0F)) as f64;
-                    let s = (((s_bcd >> 4) * 10) + (s_bcd & 0x0F)) as f64;
-                    duration_secs = h * 3600.0 + m * 60.0 + s;
+                    titles.push(DvdTitleInfo {
+                        title_num: (t + 1) as u32,
+                        duration_secs,
+                    });
                 }
+
+                return Some(titles);
             }
         }
+    }
 
-        titles.push(DvdTitleInfo {
-            title_num: (t + 1) as u32,
-            duration_secs,
-        });
+    // Direct VTS scan fallback if VIDEO_TS.IFO/BUP is corrupt (ARccOS / Sony / Disney copy protection):
+    let mut titles = Vec::new();
+    for vtsn in 1..=99u8 {
+        let base_vts = format!("VTS_{:02}_0", vtsn);
+        if let Some((_, vts_data)) = find_dvd_table_data(dvd_path, &base_vts) {
+            let mut duration_secs = 0.0;
+            if vts_data.len() > 0xCC + 4 {
+                let pgciti_sec = u32::from_be_bytes([
+                    vts_data[0xCC],
+                    vts_data[0xCD],
+                    vts_data[0xCE],
+                    vts_data[0xCF],
+                ]);
+                let pgciti_off = (pgciti_sec as usize) * 2048;
+                let pgcn = resolve_vts_ttn_to_pgcn(&vts_data, 1);
+                if pgciti_off + 8 + pgcn * 8 <= vts_data.len() {
+                    let pgc_entry_off = pgciti_off + 8 + (pgcn - 1) * 8;
+                    let pgc_start_rel = u32::from_be_bytes([
+                        vts_data[pgc_entry_off + 4],
+                        vts_data[pgc_entry_off + 5],
+                        vts_data[pgc_entry_off + 6],
+                        vts_data[pgc_entry_off + 7],
+                    ]);
+                    let pgc_off = pgciti_off + (pgc_start_rel as usize);
+                    if pgc_off + 8 <= vts_data.len() {
+                        let h_bcd = vts_data[pgc_off + 4];
+                        let m_bcd = vts_data[pgc_off + 5];
+                        let s_bcd = vts_data[pgc_off + 6];
+                        let h = (((h_bcd >> 4) * 10) + (h_bcd & 0x0F)) as f64;
+                        let m = (((m_bcd >> 4) * 10) + (m_bcd & 0x0F)) as f64;
+                        let s = (((s_bcd >> 4) * 10) + (s_bcd & 0x0F)) as f64;
+                        duration_secs = h * 3600.0 + m * 60.0 + s;
+                    }
+                }
+            }
+            titles.push(DvdTitleInfo {
+                title_num: vtsn as u32,
+                duration_secs,
+            });
+        } else if vtsn > 1 {
+            break;
+        }
     }
 
     if titles.is_empty() {
@@ -147,20 +200,7 @@ pub fn probe_dvd_titles_ifo(dvd_path: &Path) -> Option<Vec<DvdTitleInfo>> {
 /// Parses binary `VIDEO_TS.IFO` and `VTS_xx_0.IFO` Cell Playback Tables (`C_PBIT`) to build
 /// [`TitleCellTopology`] entries for structural fake-title de-obfuscation.
 pub fn probe_dvd_cell_topologies_ifo(dvd_path: &Path) -> Option<Vec<TitleCellTopology>> {
-    let candidates = [
-        dvd_path.join("VIDEO_TS").join("VIDEO_TS.IFO"),
-        dvd_path.join("video_ts").join("video_ts.ifo"),
-        dvd_path.join("VIDEO_TS").join("video_ts.ifo"),
-        dvd_path.join("video_ts").join("VIDEO_TS.IFO"),
-        dvd_path.join("VIDEO_TS.IFO"),
-        dvd_path.join("video_ts.ifo"),
-    ];
-
-    let ifo_path = candidates.into_iter().find(|p| p.exists())?;
-    let data = std::fs::read(&ifo_path).ok()?;
-    if data.len() < 0xC8 {
-        return None;
-    }
+    let (ifo_path, data) = find_dvd_table_data(dvd_path, "VIDEO_TS")?;
 
     let sector_offset = u32::from_be_bytes([data[0xc4], data[0xc5], data[0xc6], data[0xc7]]);
     let byte_offset = (sector_offset as usize) * 2048;
@@ -184,15 +224,10 @@ pub fn probe_dvd_cell_topologies_ifo(dvd_path: &Path) -> Option<Vec<TitleCellTop
 
         let mut duration_secs = 0.0;
         let mut cell_sectors = Vec::new();
-        let vts_candidates = [
-            ifo_dir.join(format!("VTS_{:02}_0.IFO", vtsn)),
-            ifo_dir.join(format!("vts_{:02}_0.ifo", vtsn)),
-            ifo_dir.join(format!("VTS_{:02}_0.ifo", vtsn)),
-        ];
+        let base_vts = format!("VTS_{:02}_0", vtsn);
 
-        if let Some(vts_path) = vts_candidates.into_iter().find(|p| p.exists())
-            && let Ok(vts_data) = std::fs::read(&vts_path)
-            && vts_data.len() > 0xCC + 4
+        if let Some((_, vts_data)) = find_dvd_table_data(ifo_dir, &base_vts)
+            .or_else(|| find_dvd_table_data(dvd_path, &base_vts))
         {
             let pgciti_sec = u32::from_be_bytes([
                 vts_data[0xCC],
@@ -272,48 +307,40 @@ pub fn probe_title_details_ifo(dvd_path: &Path, title_num: u32) -> Option<TitleS
         return None;
     }
 
-    let candidates = [
-        dvd_path.join("VIDEO_TS").join("VIDEO_TS.IFO"),
-        dvd_path.join("video_ts").join("video_ts.ifo"),
-        dvd_path.join("VIDEO_TS").join("video_ts.ifo"),
-        dvd_path.join("video_ts").join("VIDEO_TS.IFO"),
-        dvd_path.join("VIDEO_TS.IFO"),
-        dvd_path.join("video_ts.ifo"),
-    ];
+    let mut vtsn = title_num.clamp(1, 99) as u8;
+    let mut vts_ttn = 1u8;
+    let mut angles = 1u8;
+    let mut num_chapters = 1u32;
+    let mut ifo_dir_opt: Option<PathBuf> = None;
 
-    let ifo_path = candidates.into_iter().find(|p| p.exists())?;
-    let data = std::fs::read(&ifo_path).ok()?;
-    if data.len() < 0xC8 {
-        return None;
+    if let Some((ifo_path, data)) = find_dvd_table_data(dvd_path, "VIDEO_TS") {
+        let sector_offset = u32::from_be_bytes([data[0xc4], data[0xc5], data[0xc6], data[0xc7]]);
+        let byte_offset = (sector_offset as usize) * 2048;
+        if byte_offset + 8 <= data.len() {
+            let nr_titles = u16::from_be_bytes([data[byte_offset], data[byte_offset + 1]]) as usize;
+            if let Some(idx) = (title_num as usize).checked_sub(1)
+                && idx < nr_titles
+                && byte_offset + 8 + (idx + 1) * 12 <= data.len()
+            {
+                let entry_off = byte_offset + 8 + idx * 12;
+                angles = data[entry_off + 1].max(1);
+                num_chapters = u16::from_be_bytes([data[entry_off + 2], data[entry_off + 3]]) as u32;
+                vtsn = data[entry_off + 6];
+                vts_ttn = data[entry_off + 7];
+                ifo_dir_opt = ifo_path.parent().map(|p| p.to_path_buf());
+            }
+        }
     }
 
-    let sector_offset = u32::from_be_bytes([data[0xc4], data[0xc5], data[0xc6], data[0xc7]]);
-    let byte_offset = (sector_offset as usize) * 2048;
-    if byte_offset + 8 > data.len() {
-        return None;
-    }
+    let base_vts = format!("VTS_{:02}_0", vtsn);
+    let vts_data = if let Some(ref ifo_dir) = ifo_dir_opt {
+        find_dvd_table_data(ifo_dir, &base_vts)
+            .or_else(|| find_dvd_table_data(dvd_path, &base_vts))
+            .map(|(_, d)| d)?
+    } else {
+        find_dvd_table_data(dvd_path, &base_vts).map(|(_, d)| d)?
+    };
 
-    let nr_titles = u16::from_be_bytes([data[byte_offset], data[byte_offset + 1]]) as usize;
-    let idx = (title_num as usize).checked_sub(1)?;
-    if idx >= nr_titles || byte_offset + 8 + nr_titles * 12 > data.len() {
-        return None;
-    }
-
-    let entry_off = byte_offset + 8 + idx * 12;
-    let angles = data[entry_off + 1].max(1);
-    let num_chapters = u16::from_be_bytes([data[entry_off + 2], data[entry_off + 3]]) as u32;
-    let vtsn = data[entry_off + 6];
-    let vts_ttn = data[entry_off + 7];
-
-    let ifo_dir = ifo_path.parent().unwrap_or(dvd_path);
-    let vts_candidates = [
-        ifo_dir.join(format!("VTS_{:02}_0.IFO", vtsn)),
-        ifo_dir.join(format!("vts_{:02}_0.ifo", vtsn)),
-        ifo_dir.join(format!("VTS_{:02}_0.ifo", vtsn)),
-    ];
-
-    let vts_path = vts_candidates.into_iter().find(|p| p.exists())?;
-    let vts_data = std::fs::read(&vts_path).ok()?;
     if vts_data.len() < 0x300 {
         return None;
     }
@@ -657,6 +684,45 @@ mod tests {
         assert_eq!(details.subtitle_streams.len(), 1);
         assert!(details.subtitle_streams[0].forced);
         assert_eq!(details.chapters.len(), 2);
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn test_ifo_parser_bup_backup_and_direct_vts_fallback() {
+        let tmp = std::env::temp_dir().join(format!("ifo_test_bup_{}", std::process::id()));
+        let video_ts = tmp.join("VIDEO_TS");
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&video_ts).unwrap();
+
+        // Corrupt VIDEO_TS.IFO (e.g. Sony ARccOS bad sectors)
+        std::fs::write(video_ts.join("VIDEO_TS.IFO"), [0u8; 128]).unwrap();
+
+        // Valid VTS_01_0.BUP (backup table)
+        let mut vts = vec![0u8; 4096];
+        vts[0x200] = 0x10 | 0x0C; // PAL, 16:9
+        vts[0xCC..0xD0].copy_from_slice(&1u32.to_be_bytes()); // PGCITI sector 1
+        let pgciti = 2048;
+        vts[pgciti..pgciti + 2].copy_from_slice(&1u16.to_be_bytes());
+        let ptr = pgciti + 8;
+        vts[ptr + 4..ptr + 8].copy_from_slice(&16u32.to_be_bytes());
+        let pgc = pgciti + 16;
+        vts[pgc + 2] = 1;
+        vts[pgc + 3] = 1;
+        vts[pgc + 4] = 0x01; // 1 hr
+        vts[pgc + 5] = 0x15; // 15 min
+        vts[pgc + 6] = 0x00;
+        std::fs::write(video_ts.join("VTS_01_0.BUP"), &vts).unwrap();
+
+        // Direct VTS probing should succeed even with corrupt VIDEO_TS.IFO!
+        let titles = probe_dvd_titles_ifo(&tmp).unwrap();
+        assert_eq!(titles.len(), 1);
+        assert_eq!(titles[0].duration_secs, 4500.0);
+
+        let details = probe_title_details_ifo(&tmp, 1).unwrap();
+        assert_eq!(details.title_num, 1);
+        assert_eq!(details.duration_secs, 4500.0);
+        assert_eq!(details.resolution, Some((720, 576)));
 
         let _ = std::fs::remove_dir_all(&tmp);
     }

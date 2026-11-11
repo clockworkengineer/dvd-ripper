@@ -51,48 +51,84 @@ pub fn build_native_cell_plan(
         return None;
     }
 
-    let candidates = [
-        dvd_path.join("VIDEO_TS").join("VIDEO_TS.IFO"),
-        dvd_path.join("video_ts").join("video_ts.ifo"),
-        dvd_path.join("VIDEO_TS").join("video_ts.ifo"),
-        dvd_path.join("video_ts").join("VIDEO_TS.IFO"),
-        dvd_path.join("VIDEO_TS.IFO"),
-        dvd_path.join("video_ts.ifo"),
+    let ifo_dirs = [
+        dvd_path.join("VIDEO_TS"),
+        dvd_path.join("video_ts"),
+        dvd_path.to_path_buf(),
     ];
 
-    let ifo_path = candidates.into_iter().find(|p| p.exists())?;
-    let data = std::fs::read(&ifo_path).ok()?;
-    if data.len() < 0xC8 {
-        return None;
-    }
-
-    let sector_offset = u32::from_be_bytes([data[0xc4], data[0xc5], data[0xc6], data[0xc7]]);
-    let byte_offset = (sector_offset as usize) * 2048;
-    if byte_offset + 8 > data.len() {
-        return None;
-    }
-
-    let nr_titles = u16::from_be_bytes([data[byte_offset], data[byte_offset + 1]]) as usize;
-    let idx = (title_num as usize).checked_sub(1)?;
-    if idx >= nr_titles || byte_offset + 8 + nr_titles * 12 > data.len() {
-        return None;
-    }
-
-    let entry_off = byte_offset + 8 + idx * 12;
-    let vtsn = data[entry_off + 6];
-    let vts_ttn = data[entry_off + 7];
-    if vtsn == 0 || vts_ttn == 0 {
-        return None;
-    }
-
-    let ifo_dir = ifo_path.parent().unwrap_or(dvd_path);
-    let vts_candidates = [
-        ifo_dir.join(format!("VTS_{:02}_0.IFO", vtsn)),
-        ifo_dir.join(format!("vts_{:02}_0.ifo", vtsn)),
-        ifo_dir.join(format!("VTS_{:02}_0.ifo", vtsn)),
+    let vmg_candidates = [
+        "VIDEO_TS.IFO",
+        "VIDEO_TS.BUP",
+        "video_ts.ifo",
+        "video_ts.bup",
+        "VIDEO_TS.ifo",
+        "VIDEO_TS.bup",
     ];
-    let vts_path = vts_candidates.into_iter().find(|p| p.exists())?;
-    let vts_data = std::fs::read(&vts_path).ok()?;
+
+    let mut vtsn_ttn = None;
+    let mut resolved_ifo_dir = dvd_path.to_path_buf();
+
+    for dir in &ifo_dirs {
+        for name in &vmg_candidates {
+            let candidate = dir.join(name);
+            if let Ok(data) = std::fs::read(&candidate)
+                && data.len() >= 0xC8
+            {
+                let sector_offset = u32::from_be_bytes([data[0xc4], data[0xc5], data[0xc6], data[0xc7]]);
+                let byte_offset = (sector_offset as usize) * 2048;
+                if byte_offset + 8 <= data.len() {
+                    let nr_titles = u16::from_be_bytes([data[byte_offset], data[byte_offset + 1]]) as usize;
+                    if let Some(idx) = (title_num as usize).checked_sub(1)
+                        && idx < nr_titles
+                        && byte_offset + 8 + (idx + 1) * 12 <= data.len()
+                    {
+                        let entry_off = byte_offset + 8 + idx * 12;
+                        let vtsn = data[entry_off + 6];
+                        let vts_ttn = data[entry_off + 7];
+                        if vtsn > 0 && vts_ttn > 0 {
+                            vtsn_ttn = Some((vtsn, vts_ttn));
+                            resolved_ifo_dir = dir.clone();
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+        if vtsn_ttn.is_some() {
+            break;
+        }
+    }
+
+    // Direct fallback for copy-protected or bad-sector root IFOs (e.g. Sony ARccOS / Disney):
+    // Map title_num directly to VTS_xx_0.IFO (title 1 -> VTS 1, etc.)
+    let (vtsn, vts_ttn) = vtsn_ttn.unwrap_or_else(|| (title_num.clamp(1, 99) as u8, 1));
+
+    let vts_names = [
+        format!("VTS_{:02}_0.IFO", vtsn),
+        format!("VTS_{:02}_0.BUP", vtsn),
+        format!("vts_{:02}_0.ifo", vtsn),
+        format!("vts_{:02}_0.bup", vtsn),
+        format!("VTS_{:02}_0.ifo", vtsn),
+        format!("VTS_{:02}_0.bup", vtsn),
+    ];
+
+    let mut vts_data_opt = None;
+    for dir in &[&resolved_ifo_dir, &dvd_path.join("VIDEO_TS"), &dvd_path.join("video_ts"), &dvd_path.to_path_buf()] {
+        for name in &vts_names {
+            let p = dir.join(name);
+            if let Ok(d) = std::fs::read(&p)
+                && d.len() > 0xCF
+            {
+                vts_data_opt = Some(d);
+                break;
+            }
+        }
+        if vts_data_opt.is_some() {
+            break;
+        }
+    }
+    let vts_data = vts_data_opt?;
     if vts_data.len() <= 0xCF {
         return None;
     }
