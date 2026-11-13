@@ -126,7 +126,7 @@ impl AcousticSupervisor for ScsiSpeedController {
                 // CDROM_SELECT_SPEED = 0x5322
                 const CDROM_SELECT_SPEED: u64 = 0x5322;
                 unsafe {
-                    let res = libc::ioctl(file.as_raw_fd(), CDROM_SELECT_SPEED, target_x);
+                    let res = libc::ioctl(file.as_raw_fd(), CDROM_SELECT_SPEED as _, target_x);
                     if res == 0 {
                         println!(
                             "[Optical Supervisor] Applied acoustic profile '{}' ({}x speed) to {}",
