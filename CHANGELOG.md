@@ -10,6 +10,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.4.0] - 2026-11-13
 
 ### Added
+- **Configurable Media Taxonomies & Custom Subfolder Routing**:
+  - Made Films and TV destination subfolders fully configurable via `--films-dir` and `--tv-dir` CLI flags, `films_dir` and `tv_dir` configuration settings, and the Desktop GUI Settings tab.
+  - Sibling directory auto-resolution dynamically recognizes custom folder names (e.g. `Movies` and `Series`) without creating nested duplicate directories.
+  - Added live dynamic destination path preview badge to Desktop GUI Rip tab.
+  - Elevated path resolution and hierarchy formatting to pure domain logic (`src/domain/naming.rs`) conforming to Single Responsibility Principle.
 - **7 Architectural Supremacy Pillars**:
   - **Optical Drive Acoustic & Thermal Supervisor**: Active SCSI speed negotiation (`IOCTL_CDROM_SET_SPEED`) with 3 profile tiers (`Silent` 4x whisper-quiet, `Balanced` 8x standard, `Turbo` 16x+ maximum) and laser focus-coil thermal rest intervals to prevent optical pickup burnout on damaged discs.
   - **Single-Pass Dual-Output Engine (`StreamTee`)**: Concurrent stream multiplexer writing both a bit-for-bit archival master (`.mkv`/`.iso`) and a lightweight transcoded streaming file (`.mp4`) simultaneously in a single read pass, cutting optical drive wear and laser exposure by 50%.
@@ -21,8 +26,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Full DRY Architectural Refactoring**:
   - Unified rip lifecycle recording and notification dispatch via extracted `record_and_notify_outcome`.
   - Consolidated duplicate traits (`HistoryStorage`, `MediaServerNotifierPort`) and standardized NFO generation across use cases.
+- **Engineering Documentation & Theoretical Foundations**:
+  - Published 4 new comprehensive engineering guides: `CUSTOM_MEDIA_TAXONOMY_AND_NAMING.md`, `MENCODER_AND_LEGACY_CODEC_STUDY.md`, `SECURITY_AND_PATH_TRAVERSAL.md`, and `CROSS_PLATFORM_OPTICAL_IO.md`.
+  - Added comprehensive Settings Tab documentation to `GUI_GUIDE.md`.
 - **Enterprise Test Expansion**:
-  - Expanded test suite to **406 unit tests + 20 doc-tests** with 0 warnings under strict `-D warnings`.
+  - Expanded test suite to **409 unit tests + 20 doc-tests** with 0 warnings under strict `-D warnings`.
 
 ## [0.3.0] - 2026-11-03
 

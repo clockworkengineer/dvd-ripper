@@ -19,7 +19,7 @@ If launching from a terminal or script where command-line flags might be present
 
 ## 2. Interface Overview & Tab Navigation
 
-The desktop interface is organized into **6 core workflow sections and tab views**:
+The desktop interface is organized into **7 core workflow sections and tab views**:
 
 ```text
 ┌────────────────────────────────────────────────────────────────────────┐
@@ -33,6 +33,7 @@ The desktop interface is organized into **6 core workflow sections and tab views
 │ 4. Audio & Subs:  [✓] All Audio   [✓] Subtitles    Format: [ dvdsub ▾ ] │
 │ 5. Controls:      [🔍 Scan Disc]  [▶ Start Rip]    [⏹ Cancel]           │
 ├────────────────────────────────────────────────────────────────────────┤
+│ Target Path: 📁 C:\Media\Films\Kill Bill (2003)\Kill Bill (2003).mp4  │
 │ Progress: [=====================>                  ] 45.2% (28.5 fps) │
 │ Console:  [16:04:12] [INFO] FFmpeg demuxer initialized...              │
 └────────────────────────────────────────────────────────────────────────┘
@@ -59,7 +60,8 @@ Clicking the **`ℹ️ About`** button in the top-right header opens the applica
   - **`📂 Browse...`**: Opens the system-native folder picker dialog.
   - **`↗ Open`**: Immediately launches Windows File Explorer or the Linux desktop file manager in the active output folder.
   - **`↺ Reset`**: Restores the output folder setting to the OS default Videos directory.
-  - **Routing Caption**: An informational indicator displays: `ℹ Films are saved to /Films and TV Shows to /TV within this directory`. TV series rips automatically resolve to a sibling `TV` folder if `Films` is selected.
+  - **Routing Caption**: An informational indicator displays: `ℹ Films are saved to /Films and TV Shows to /TV within this directory` (or custom names configured in Settings). TV series rips automatically resolve to a sibling `TV` folder if `Films` is selected.
+  - **Dynamic Output Path Preview**: A prominent status badge displays the exact resolved destination path in real time as the movie title, year, or container settings are edited (e.g. `📁 Output: C:\Media\Films\Kill Bill (2003)\Kill Bill (2003).mp4`).
 
 ### 3.2 Movie Metadata & Candidate Search Modal
 - **Movie Title & Release Year**: Enter the title name and release year for Plex/Jellyfin naming compatibility.
@@ -146,3 +148,50 @@ Browse persistent historical ripping records from `ripping_history.json`:
 - View past completed, cancelled, or failed rip jobs.
 - Displays timestamps, target movie titles, runtime duration, output file paths, and file size in megabytes.
 - Includes **Clear History Log** button.
+
+---
+
+## 7. ⚙️ Global Settings & Preferences Tab
+
+The **Settings Tab** provides centralized configuration for engine preferences, binary overrides, custom media taxonomy, and audio mastering profiles. All modifications are automatically persisted to `~/.dvd-ripper/config.toml`.
+
+```text
+┌────────────────────────────────────────────────────────────────────────┐
+│ ⚙️ Global Settings & Configuration                                      │
+├────────────────────────────────────────────────────────────────────────┤
+│ 1. Engine & Binary Overrides:                                          │
+│    Primary Engine: [ auto ▾ ]                                          │
+│    FFmpeg Path:      [ C:\ffmpeg\bin\ffmpeg.exe                      ] │
+│    HandBrake Path:   [ C:\HandBrake\HandBrakeCLI.exe                 ] │
+│    MakeMKV Path:     [ C:\Program Files (x86)\MakeMKV\makemkvcon64.exe] │
+│ 2. Storage & Media Taxonomy:                                           │
+│    Base Output Dir:  [ C:\Media                                      ] │
+│    Films Subfolder:  [ Movies              ]  (Default: Films)         │
+│    TV Subfolder:     [ Series              ]  (Default: TV)            │
+│    Taxonomy Preview: ℹ Films: C:\Media\Movies | TV: C:\Media\Series    │
+│ 3. Audio & EBU R128 Loudness Targets:                                  │
+│    Integrated Target LUFS: [-23.0 LUFS ] (Broadcast Standard)          │
+│    True Peak Max:          [-1.5 dBFS  ] (Inter-sample peak safety)    │
+│    Loudness Range LRA:     [ 11.0 LU   ] (Dynamic range envelope)      │
+│ 4. System Maintenance:                                                 │
+│    [↺ Reset to Defaults]                                               │
+└────────────────────────────────────────────────────────────────────────┘
+```
+
+### 7.1 Engine & Binary Path Configuration
+- **Primary Engine**: Choose the default extraction pipeline (`auto`, `ffmpeg`, `native`, `handbrake`, or `makemkv`).
+- **Binary Overrides**: Explicitly specify absolute filesystem paths for external CLI tools when they are not located in the system `PATH`. Paths containing spaces or UNC network shares are fully supported.
+
+### 7.2 Media Taxonomy & Folder Customization
+- **Base Output Directory (`out_dir`)**: The root root library destination.
+- **Films Subfolder Name (`films_dir`)**: Name of the movie destination subfolder (defaults to `"Films"`). Users preferring Plex or Jellyfin conventions can configure `"Movies"`, `"Cinema"`, or any localized folder name.
+- **TV Subfolder Name (`tv_dir`)**: Name of the television series subfolder (defaults to `"TV"`). Users can customize this to `"TV Shows"`, `"Series"`, or `"Anime"`.
+- **Sibling Directory Harmonization**: Sibling folder auto-correction honors these custom names bidirectionally.
+
+### 7.3 Audio Loudness & Mastering Standards
+- **EBU R128 Integrated Target (`target_lufs`)**: Configurable slider from `-24.0 LUFS` (EBU R128 television) to `-14.0 LUFS` (Spotify / YouTube web target). Default is `-23.0 LUFS`.
+- **True Peak Threshold (`true_peak`)**: Limits maximum inter-sample peaks between `-2.0 dBFS` and `-0.5 dBFS` (default: `-1.5 dBFS`) to avoid DAC clipping during lossy compression.
+- **Loudness Range Envelope (`loudness_range`)**: Sets target LRA between `7.0 LU` and `20.0 LU` (default: `11.0 LU`).
+
+### 7.4 Reset to Factory Defaults
+- Clicking **`↺ Reset to Defaults`** restores all engine paths, taxonomy folder names, and audio loudness parameters to their factory defaults while preserving rip history and boxset progress.

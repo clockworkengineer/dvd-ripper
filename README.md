@@ -8,7 +8,7 @@
 
 A fast, portable DVD backup utility written in Rust featuring both a **Portable Native Desktop GUI** (powered by [`eframe`/`egui`](https://github.com/emilk/egui)) and a full **Command Line Interface (CLI)**.
 
-`dvd-ripper` uses FFmpeg's native `dvdvideo` demuxer to rip titles directly from optical DVD drives. It automatically retrieves volume labels, queries online database APIs (OMDb / IMDb) to identify movies & TV series, displays high-resolution poster thumbnails and plot summaries, automatically detects multi-episode TV series discs, structures output directories into named movie (`Films/`) or TV series (`TV/Show Name (Year)/Season SS/`) folders, and provides real-time progress bars and live log streaming.
+`dvd-ripper` uses FFmpeg's native `dvdvideo` demuxer to rip titles directly from optical DVD drives. It automatically retrieves volume labels, queries online database APIs (OMDb / IMDb) to identify movies & TV series, displays high-resolution poster thumbnails and plot summaries, automatically detects multi-episode TV series discs, structures output directories into configurable movie (`Films/`, `Movies/`) or TV series (`TV/`, `Series/`) hierarchies, and provides real-time progress bars and live log streaming.
 
 ---
 
@@ -64,14 +64,14 @@ For detailed platform-specific installation instructions (macOS Homebrew, Linux 
 
 ## 📁 Output Destination Directories
 
-By default, ripped files are output to a sensible user video library location (`%USERPROFILE%\Videos\DVD Rips` on Windows, `~/Videos/DVD Rips` on Linux/macOS) using a clean, Plex/Jellyfin-compatible media hierarchy:
+By default, ripped files are output to a sensible user video library location (`%USERPROFILE%\Videos\DVD Rips` on Windows, `~/Videos/DVD Rips` on Linux/macOS) using a clean, Plex/Jellyfin-compatible media hierarchy. Subfolder names default to `Films` and `TV`, and are fully customizable via `--films-dir`, `--tv-dir`, `config.toml`, or the desktop GUI Settings tab:
 
 ### 1. Default Directory Structure
-- **Movies**: Saved into **`Films/`** (or `<out_dir>/Films/`).
+- **Movies**: Saved into **`Films/`** (or `<out_dir>/<films-dir>/`).
   - **Path**: `Films/<Movie Title> (<Year>)/<Movie Title> (<Year>).<ext>`
   - **Example**: `Films/Kill Bill Vol. 2 (2004)/Kill Bill Vol. 2 (2004).mpg` (or `.mp4` if re-encoded).
 
-- **TV Series**: Saved into **`TV/`** when TV mode (`--tv`) is enabled.
+- **TV Series**: Saved into **`TV/`** (or `<out_dir>/<tv-dir>/`) when TV mode (`--tv`) is enabled.
   - **Path**: `TV/<Show Name> (<Year>)/Season <NN>/<Show Name> - S<NN>E<NN>.<ext>`
   - **Example**: `TV/The Office (2005)/Season 01/The Office - S01E01.mpg`
 
@@ -80,6 +80,7 @@ The destination resolution engine intelligently routes media without creating aw
 - Pointing `--out-dir` to `D:\Media` outputs films to `D:\Media\Films` and TV series to `D:\Media\TV`.
 - Pointing `--out-dir` to `D:\Media\Films` keeps films in `D:\Media\Films` and **automatically routes TV series to sibling folder `D:\Media\TV`**.
 - Pointing `--out-dir` to `D:\Media\TV` keeps TV series in `D:\Media\TV` and **automatically routes films to sibling folder `D:\Media\Films`**.
+- When custom subfolder names are used (e.g. `--films-dir "Movies" --tv-dir "Series"`), sibling resolution automatically harmonizes between `Movies` and `Series`.
 
 ### 3. Explicit File Override (`-o` / `--output`)
 ```bash
@@ -88,7 +89,7 @@ dvd-ripper --cli D: -o "D:\Backups\MyMovie.mp4" --transcode
 *When `-o` is explicitly provided, the specified path is directly honored.*
 
 For full details on folder naming and media server sidecar files, see:  
-👉 **[`docs/MEDIA_ORGANIZATION.md`](docs/MEDIA_ORGANIZATION.md)**
+👉 **[`docs/MEDIA_ORGANIZATION.md`](docs/MEDIA_ORGANIZATION.md)** and **[`docs/CUSTOM_MEDIA_TAXONOMY_AND_NAMING.md`](docs/CUSTOM_MEDIA_TAXONOMY_AND_NAMING.md)**
 
 ---
 
@@ -366,17 +367,21 @@ Detailed user guides and technical architecture documents are available in the [
 - 📜 **[Disc Rosetta Stone Registry Guide](docs/DISC_ROSETTA_STONE_REGISTRY.md)**: Deterministic 128-bit optical volume fingerprinting, canonical metadata lookup, and instant decoy playlist bypass.
 - 📱 **[Web Dashboard & Remote Controller Guide](docs/WEB_DASHBOARD_AND_REMOTE_CONTROL.md)**: Zero-dependency embedded web interface, mobile controls, SSE telemetry, and remote speed switching.
 - 🚀 **[Alternative Ripping Engines Guide](docs/RIPPING_ENGINES.md)**: Deep-dive into FFmpeg, Native IFO Extractor, HandBrakeCLI, MakeMKV, and the Auto-Fallback cascade.
+- 🎞️ **[MEncoder & Legacy Codec Evaluation](docs/MENCODER_AND_LEGACY_CODEC_STUDY.md)**: Technical post-mortem, 3:2 pulldown history, and modern alternative architectures.
+- 🖴 **[Optical I/O & Bus Operations Guide](docs/CROSS_PLATFORM_OPTICAL_IO.md)**: Win32 SCSI Pass-Through, Linux ioctls, RipLock avoidance, and drive motor controls.
 - 🛡️ **[Copy Protection & Bad Sectors Guide](docs/COPY_PROTECTION_AND_BAD_SECTORS.md)**: Overcoming CSS, Sony ARccOS bad-sector traps, Disney decoy titles, and `.BUP` backup recovery.
 - 💎 **[Software Library Quality Attributes](docs/SOFTWARE_LIBRARY_ATTRIBUTES.md)**: Concrete implementation of the 10 core attributes: Security (SSRF/Traversal), Performance, Zero-Allocation, Reliability, & Portability.
+- 🔒 **[Security & Path Traversal Prevention](docs/SECURITY_AND_PATH_TRAVERSAL.md)**: Hardened filename sanitization, CLI argument boundary safety, and secure NFO XML generation.
 - 🏛️ **[SOLID Architecture Guide](docs/SOLID_ARCHITECTURE.md)**: Deep-dive into SRP, OCP, LSP, ISP, DIP, heuristics, & mock architectures.
 - 📁 **[Media Organization Guide](docs/MEDIA_ORGANIZATION.md)**: Plex/Jellyfin folder standards, sibling resolution, NFO & artwork sidecars.
+- 🗂️ **[Custom Media Taxonomy Guide](docs/CUSTOM_MEDIA_TAXONOMY_AND_NAMING.md)**: Configurable Films and TV directories, sibling routing math, and CLI/API integration.
 - 📖 **[CLI User Manual](docs/CLI_GUIDE.md)**: Command-line syntax, modes, filters, and usage examples.
 - 💻 **[Desktop GUI Guide](docs/GUI_GUIDE.md)**: Desktop immediate-mode GUI interface (`eframe`/`egui`), tab controls, search modal, and benchmarks.
 - 🤖 **[Daemon Appliance Guide](docs/DAEMON_APPLIANCE_MODE.md)**: Headless multi-drive watcher, Home Assistant MQTT telemetry, and webhooks.
 - 🖴 **[Multi-Drive Pool Guide](docs/MULTI_DRIVE_POOL.md)**: Multi-drive concurrent optical pooling, hardware topologies, and queue coordination.
 - 📊 **[Prometheus & Health Monitoring](docs/PROMETHEUS_AND_MONITORING.md)**: Prometheus metric dictionary (`/metrics`), scraping config, Grafana dashboards, & health probes.
 - 🔤 **[Subtitle Extraction & OCR Guide](docs/OCR_SUBTITLES.md)**: On-the-fly Tesseract OCR transcription from DVD bitmap overlays to universal `.srt` text sidecars.
-- 🧪 **[Testing & Code Coverage Guide](docs/TESTING_AND_COVERAGE.md)**: 406-test suite architecture, LLVM source code coverage, and mock isolation patterns.
+- 🧪 **[Testing & Code Coverage Guide](docs/TESTING_AND_COVERAGE.md)**: 409-test suite architecture, LLVM source code coverage, and mock isolation patterns.
 - 📦 **[Installer & Service Guide](docs/INSTALLER_AND_SERVICE_GUIDE.md)**: `dvd-ripper-installer` CLI, systemd service setup, and udev rules.
 - 📜 **[Ripping History & Logging](docs/RIPPING_HISTORY_AND_LOGGING.md)**: JSON backup database schema, audit trails, and history management.
 - 📺 **[TV Series Box Set Guide](docs/TV_BOXSET_GUIDE.md)**: Multi-disc TV show season auto-stitching and cumulative episode tracking.
@@ -393,7 +398,7 @@ Detailed user guides and technical architecture documents are available in the [
 
 ## 🧪 Testing
 
-Run the full test suite (**406 unit and integration contract tests + 20 doc-tests**):
+Run the full test suite (**409 unit and integration contract tests + 20 doc-tests**):
 ```bash
 cargo test
 ```

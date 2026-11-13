@@ -96,3 +96,24 @@ Or manually delete/edit `~/.dvd-ripper/boxsets.json`:
   }
 ]
 ```
+
+---
+
+## 5. Custom TV Directory Taxonomy (`--tv-dir`)
+
+By default, TV series are organized into the `TV/` subfolder of your base media library directory. You can customize this subfolder name (e.g. `Series`, `TV Shows`, or localized language names) using the `--tv-dir` CLI flag or GUI settings:
+
+```bash
+dvd-ripper --input D:\ --tv --season 1 --auto-boxset --all-episodes \
+  --search "The Office" --out-dir "C:\Media" --tv-dir "Series"
+```
+
+The resulting folder structure seamlessly routes into your custom directory:
+```text
+C:\Media\Series\The Office (2005)\Season 01\The Office - S01E01.mp4
+C:\Media\Series\The Office (2005)\Season 01\The Office - S01E02.mp4
+C:\Media\Series\The Office (2005)\Season 01\The Office - S01E03.mp4
+C:\Media\Series\The Office (2005)\Season 01\The Office - S01E04.mp4
+```
+
+For more details on sibling folder resolution and media taxonomy, see [`docs/CUSTOM_MEDIA_TAXONOMY_AND_NAMING.md`](CUSTOM_MEDIA_TAXONOMY_AND_NAMING.md).

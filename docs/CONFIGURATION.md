@@ -154,6 +154,8 @@ post_script = "/usr/local/bin/post_rip_handler.sh"
 | `--input <PATH>` | `-i` | Input optical DVD drive path or ISO directory | `"auto"` / `"D:\"` |
 | `--output <PATH>` | `-o` | Custom destination file path | `None` |
 | `--out-dir <PATH>` | `-d` | Custom output folder directory | `"Films"` / `"TV"` |
+| `--films-dir <NAME>` | | Configurable subfolder name for movie rips | `"Films"` |
+| `--tv-dir <NAME>` | | Configurable subfolder name for TV series rips | `"TV"` |
 | `--config <PATH>` | `-c` | Custom TOML configuration file path | `dvd-ripper.toml` |
 | `--codec <CODEC>` | | Video codec choice (`h264`, `hevc`, `av1`, `copy`) | `"h264"` |
 | `--profile <PRESET>` | | Transcoding profile (`standard`, `archival`, `plex`, `mobile`) | `"standard"` |

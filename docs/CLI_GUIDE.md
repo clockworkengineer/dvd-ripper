@@ -169,8 +169,13 @@ dvd-ripper --cli D: --engine native --search "Gladiator"
 dvd-ripper --cli D: --engine makemkv --out-dir "D:\Films"
 ```
 
+### 10. Custom Media Taxonomy (Movies & Series Subfolders)
+```bash
+dvd-ripper --input D:\ --search "The Matrix" --out-dir "C:\Media" --films-dir "Movies" --tv-dir "Series"
+```
+
 For detailed engine architecture and benchmark comparisons, see:  
-👉 **[Alternative Ripping Engines Guide](RIPPING_ENGINES.md)** and **[Copy Protection & Bad Sectors Guide](COPY_PROTECTION_AND_BAD_SECTORS.md)**.
+👉 **[Alternative Ripping Engines Guide](RIPPING_ENGINES.md)**, **[Custom Media Taxonomy Guide](CUSTOM_MEDIA_TAXONOMY_AND_NAMING.md)**, and **[Copy Protection & Bad Sectors Guide](COPY_PROTECTION_AND_BAD_SECTORS.md)**.
 
 ---
 

@@ -124,3 +124,14 @@ In the desktop GUI:
 3. Select **Auto Fallback**, **Native IFO Extractor**, **HandBrakeCLI**, or **MakeMKV**.
 4. Configure paths in the **Settings** tab if executables are installed in custom non-system directories.
 
+---
+
+## 4. Evaluation of Legacy Engines (MEncoder, transcode, dvdbackup)
+
+During the engine architectural evaluation, historical CLI utilities including `mencoder` (MPlayer project), `transcode`, and `dvdbackup` were scrutinized for potential inclusion as fallback backends.
+
+While `mencoder` pioneered early 3:2 pulldown IVTC (`ivtc`, `pullup`), its single-threaded MPEG demuxer, lack of modern container support (Matroska/MP4 with HEVC/AV1), and vulnerability to ARccOS intentionally corrupt sector traps make it obsolete for contemporary workloads.
+
+For a comprehensive historical post-mortem, code comparisons, and technical analysis, see:  
+👉 **[`docs/MENCODER_AND_LEGACY_CODEC_STUDY.md`](MENCODER_AND_LEGACY_CODEC_STUDY.md)**.
+

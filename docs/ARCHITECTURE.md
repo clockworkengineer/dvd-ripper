@@ -108,25 +108,25 @@ graph TD
 
 ---
 
-## 4. Media Output Organization
+## 4. Media Output Organization & Domain Naming
 
-Output paths are automatically separated into clean, media-server-compliant hierarchies:
-- **Films**: `<out_dir>/Films/<Movie Title (Year)>/<Movie Title (Year)>.<ext>`
-- **TV Series**: `<out_dir>/TV/<Show Name (Year)>/Season <SS>/<Show Name - S<SS>E<EE>>.<ext>`
+Output paths are automatically separated into clean, media-server-compliant hierarchies governed by pure domain naming logic (`src/domain/naming.rs` and re-exported in `src/ffmpeg.rs`):
+- **Films**: `<out_dir>/<films_dir>/<Movie Title (Year)>/<Movie Title (Year)>.<ext>` (default subfolder: `Films`)
+- **TV Series**: `<out_dir>/<tv_dir>/<Show Name (Year)>/Season <SS>/<Show Name - S<SS>E<EE>>.<ext>` (default subfolder: `TV`)
 
-### Sibling Root Auto-Resolution
-The path resolution engine (`src/ffmpeg.rs: resolve_films_root`, `resolve_tv_root`) intelligently handles custom destination directories:
-- If `out_dir` ends in `Films`, TV series are automatically saved in the sibling `TV` folder.
-- If `out_dir` ends in `TV`, films are automatically saved in the sibling `Films` folder.
-- Redundant nesting (such as `Films/Films`) is systematically prevented.
+### Sibling Root Auto-Resolution & Custom Taxonomies
+The path resolution engine (`resolve_films_root_with_tv`, `resolve_tv_root_with_films`, `resolve_films_root_custom`, `resolve_tv_root_custom`) intelligently handles custom destination directories and user-defined subfolder names:
+- If `out_dir` ends in the TV subfolder (`TV`, `Series`, `TV Shows`), films are automatically routed into the configured films folder (`Films`, `Movies`, etc.) under the common parent directory.
+- If `out_dir` ends in the films subfolder (`Films`, `Movies`, `Cinema`), TV series are automatically routed into the configured TV folder under the common parent directory.
+- Redundant nesting (such as `Movies/Movies` or `Films/Films`) is systematically prevented.
 
-For full details, see [`docs/MEDIA_ORGANIZATION.md`](MEDIA_ORGANIZATION.md).
+For full details, see [`docs/MEDIA_ORGANIZATION.md`](MEDIA_ORGANIZATION.md) and [`docs/CUSTOM_MEDIA_TAXONOMY_AND_NAMING.md`](CUSTOM_MEDIA_TAXONOMY_AND_NAMING.md).
 
 ---
 
 ## 5. Testing & Verification
 
-The codebase contains **376 automated unit and integration contract tests** achieving **>82.85% line coverage** across 33,500+ lines of code:
+The codebase contains **409 automated unit and integration contract tests** plus **20 documentation tests** achieving **>83% line coverage** across 34,000+ lines of code:
 - Pure domain heuristic validation (PAL speedup calculations, cluster ranking, duration tolerances).
 - In-memory mock tests for application use cases (`RipSingleTitleUseCase`, `RipTvBatchUseCase`, `DumpIsoUseCase`).
 - Reusable test doubles in `domain::ports::testing` (`InMemoryHistoryRepository`, `RecordingNotifier`, `FixedDiskSpaceGuard`, `RecordingProgressObserver`).
@@ -150,10 +150,15 @@ cargo test
 | Guide | File Path | Focus Area |
 |---|---|---|
 | **Ripping Engines** | [`docs/RIPPING_ENGINES.md`](RIPPING_ENGINES.md) | FFmpeg, Native IFO, HandBrake, MakeMKV, & Auto-Fallback |
+| **MEncoder & Legacy Codecs** | [`docs/MENCODER_AND_LEGACY_CODEC_STUDY.md`](MENCODER_AND_LEGACY_CODEC_STUDY.md) | Technical post-mortem, 3:2 pulldown history, & modern alternatives |
+| **Optical I/O & Bus Operations** | [`docs/CROSS_PLATFORM_OPTICAL_IO.md`](CROSS_PLATFORM_OPTICAL_IO.md) | Win32 SCSI Pass-Through, Linux ioctls, RipLock, & tray controls |
 | **Copy Protection & Recovery** | [`docs/COPY_PROTECTION_AND_BAD_SECTORS.md`](COPY_PROTECTION_AND_BAD_SECTORS.md) | CSS, ARccOS bad sectors, .BUP recovery, & sector rescue |
 | **Software Quality Attributes** | [`docs/SOFTWARE_LIBRARY_ATTRIBUTES.md`](SOFTWARE_LIBRARY_ATTRIBUTES.md) | 10 Library Attributes: Security, Performance, Zero-Alloc |
+| **Security & Sanitization** | [`docs/SECURITY_AND_PATH_TRAVERSAL.md`](SECURITY_AND_PATH_TRAVERSAL.md) | Path traversal prevention, CLI injection safety, & safe XML/NFO |
 | **SOLID Architecture** | [`docs/SOLID_ARCHITECTURE.md`](SOLID_ARCHITECTURE.md) | Deep dive into SRP, OCP, LSP, ISP, DIP, heuristics, & mocks |
+| **Testing & Coverage** | [`docs/TESTING_AND_COVERAGE.md`](TESTING_AND_COVERAGE.md) | 409+ tests, in-memory mocks, doc-tests, & coverage targets |
 | **Media Organization** | [`docs/MEDIA_ORGANIZATION.md`](MEDIA_ORGANIZATION.md) | Folder conventions, sibling resolution, Plex/Jellyfin, & sidecars |
+| **Custom Media Taxonomy** | [`docs/CUSTOM_MEDIA_TAXONOMY_AND_NAMING.md`](CUSTOM_MEDIA_TAXONOMY_AND_NAMING.md) | Configurable Films/TV directories, sibling math, & API integration |
 | **Developer Guide** | [`docs/DEVELOPER_GUIDE.md`](DEVELOPER_GUIDE.md) | Onboarding, coding standards, adding use cases & adapters |
 | **CLI User Manual** | [`docs/CLI_GUIDE.md`](CLI_GUIDE.md) | Flags, syntax, video profiles, and automation examples |
 | **Desktop GUI Guide** | [`docs/GUI_GUIDE.md`](GUI_GUIDE.md) | UI layout, search modal, progress gauges, & cancel flow |

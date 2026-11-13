@@ -75,6 +75,12 @@ SRP decomposition separated these concerns into specialized modules:
 ### 2.2 Application Bootstrapping
 - **`src/main.rs: AppInitializer`**: Isolated from runtime execution. Its only reason to change is changes in configuration precedence (CLI flags vs TOML config vs environment variables).
 
+### 2.3 Pure Domain Media Taxonomy & Path Resolution
+Previously, media output directory calculations and sibling path manipulations were mixed into `src/ffmpeg.rs`.
+- **`src/domain/naming.rs`**: Single responsibility is strictly computing canonical output directory structures, path sanitization, sibling folder conversions (`resolve_films_root_with_tv`, `resolve_tv_root_with_films`), and season/episode formatting.
+- Contains zero file I/O, zero network calls, and zero process executions.
+- `src/ffmpeg.rs` re-exports these functions for backward compatibility while delegating all formatting rules directly to the domain.
+
 ---
 
 ## 3. Open/Closed Principle (OCP)
@@ -151,11 +157,14 @@ pub trait TrayController: Send + Sync {
 
 A client that only needs to eject a disc (e.g., the web REST API tray ejection route) depends only on `TrayController`, not the entire drive reader or probe engine.
 
-### 5.2 Segregated CLI Encoding Configurations
+### 5.2 Segregated CLI & Storage Configurations
 In `src/cli.rs`, the large `Args` struct implements segregated configuration traits:
 - `TranscodeConfig`: codec, profile, preset, crf, hwaccel.
 - `AudioConfig`: all_audio, normalize, norm_target, downmix, dual_audio.
 - `SubtitleConfig`: subtitles, sub_forced_only, sub_lang, sub_external_srt.
+- `StorageConfig`: out_dir, films_dir, tv_dir, min_free_gb, no_overwrite.
+
+Components that only manage filesystem destinations depend exclusively on `StorageConfig` rather than dragging in video transcoding options or subtitle flags.
 
 ---
 
