@@ -18,7 +18,7 @@ When `--api-key <KEY>` is configured via CLI or `api_key = "..."` in `dvd-ripper
    GET /api/queue/list?api_key=YOUR_API_KEY
    ```
 
-*Note: Public endpoints (`/`, `/index.html`, `/api/status`, `/api/openapi.json`, `/metrics`) remain accessible without an API key.*
+*Note: Public endpoints (`/`, `/index.html`, `/dashboard`, `/api/status`, `/api/openapi.json`, `/metrics`) remain accessible without an API key.*
 
 ---
 
@@ -190,6 +190,23 @@ Ejects the optical tray.
 {
   "success": true,
   "message": "Optical tray ejected"
+}
+```
+
+#### `POST /api/acoustic`
+Configures the optical drive's spindle speed and acoustic noise level via SCSI IOCTL commands.
+
+**Query Parameters / JSON Body**:
+- `profile` (string, required): `silent` (4x whisper-quiet), `balanced` (8x standard), or `turbo` (16x+ maximum).
+- `drive` (string, optional): Target optical drive path (e.g. `D:` or `/dev/sr0`).
+
+**Response `200 OK` (JSON)**:
+```json
+{
+  "success": true,
+  "profile": "silent",
+  "drive": "D:",
+  "message": "Drive acoustic profile set to silent"
 }
 ```
 
@@ -398,6 +415,60 @@ dvd_ripper_queued_jobs 2
 # HELP dvd_ripper_progress_percent Current ripping job progress percentage
 # TYPE dvd_ripper_progress_percent gauge
 dvd_ripper_progress_percent 64.5
+```
+
+---
+
+### 2.8 Embedded Web Dashboard & Server-Sent Events (SSE)
+
+#### `GET /` or `GET /dashboard`
+Serves the self-contained HTML5/CSS3/JavaScript responsive web dashboard. Features live pool monitoring, real-time progress bars, acoustic mode buttons (`🔇 Silent`, `⚖️ Balanced`, `🚀 Turbo`), tray ejection, candidate selection, and rip triggering.
+
+#### `GET /api/events`
+Opens a persistent Server-Sent Events (`text/event-stream`) connection streaming real-time status updates every 500ms:
+
+```text
+data: {"status":"Ripping","disc":"THE_MATRIX","current_title":"The Matrix","drive":"D:\\","progress":42.8,"fps":"65.2","speed":"2.6x"}
+```
+
+---
+
+### 2.9 Rich Webhook Notifications (Discord & Telegram)
+
+`dvd-ripper` formats structured notification payloads for external smart-home and homelab endpoints:
+
+#### Discord Rich Embed (`build_discord_rich_embed`)
+Dispatched to `--webhook-url` when configured with a Discord Webhook endpoint:
+```json
+{
+  "username": "DVD Ripper",
+  "avatar_url": "https://raw.githubusercontent.com/clockworkengineer/dvd-ripper/master/assets/icon.png",
+  "embeds": [
+    {
+      "title": "📀 The Matrix (1999)",
+      "description": "Successfully ripped to Films/The Matrix (1999)/The Matrix.mp4",
+      "color": 3066993,
+      "fields": [
+        { "name": "Status", "value": "✅ Success", "inline": true },
+        { "name": "Duration", "value": "2h 16m", "inline": true },
+        { "name": "File Size", "value": "4.2 GB", "inline": true },
+        { "name": "Codec", "value": "hevc", "inline": true }
+      ],
+      "thumbnail": { "url": "https://m.media-amazon.com/images/..." },
+      "footer": { "text": "DVD Ripper Homelab Appliance" }
+    }
+  ]
+}
+```
+
+#### Telegram Bot HTML Payload (`build_telegram_html_payload`)
+```json
+{
+  "chat_id": "123456789",
+  "parse_mode": "HTML",
+  "text": "<b>✅ DVD Ripper</b>\n<b>Title:</b> <code>The Matrix (1999)</code>\n<b>Status:</b> Success\n<b>Duration:</b> 2h 16m",
+  "disable_web_page_preview": false
+}
 ```
 
 ---

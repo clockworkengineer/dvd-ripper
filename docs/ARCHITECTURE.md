@@ -39,23 +39,26 @@ graph TD
         ProbeDisc["ProbeDiscUseCase"]
         RipSingle["RipSingleTitleUseCase"]
         RipBatch["RipTvBatchUseCase"]
+        DualOutput["DualOutputRipUseCase (StreamTee)"]
         DrivePool["DrivePool"]
     end
 
     subgraph Domain_Layer ["3. Core Domain Layer (Pure Rust)"]
         Entities["Entities: Disc, Metadata, Rip, Drive"]
-        Heuristics["Heuristics: PAL Speedup, Cluster Ranking, TV Detection"]
-        Ports["Ports (Traits): Transcoder, Optical, Storage, Metadata, etc."]
+        Heuristics["Heuristics: PAL Speedup, Cluster Ranking, TV Detection, Telecine IVTC"]
+        Ports["Ports (Traits): Transcoder, Optical, Storage, Metadata, AcousticSupervisor, Rosetta, etc."]
     end
 
     subgraph Infrastructure_Layer ["4. Infrastructure Adapters (Driven)"]
         EnginesInfra["Transcoder Engines: Native IFO, HandBrake, MakeMKV, Fallback"]
+        PipelineInfra["Pipeline: StreamTee 128KB Dual-Output Multiplexer"]
         FFmpegInfra["FFmpeg Builder & Process Runner"]
-        OpticalInfra["Win32 / Linux ISO-9660 Reader & Binary IFO Parser"]
-        MetadataInfra["OMDb / IMDb HTTP Client"]
+        OpticalInfra["Win32 / Linux ISO-9660 Reader & SCSI Acoustic Controller"]
+        MetadataInfra["OMDb / IMDb Client & Local Rosetta Stone Registry"]
         StorageInfra["Disk Space Guard & JSON History"]
-        NotifyInfra["MQTT 3.1.1 & Webhooks"]
-        OCRInfra["Tesseract OCR Runner"]
+        NotifyInfra["MQTT 3.1.1 & Rich Webhooks (Discord/Telegram)"]
+        OCRInfra["Tesseract OCR & CLUT Palette Normalizer"]
+        SystemInfra["Autonomous Polling Media Monitor & Dialogs"]
     end
 
     UI_and_Presentation --> AppContainer

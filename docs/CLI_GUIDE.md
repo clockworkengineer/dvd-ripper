@@ -27,6 +27,7 @@ By default, launching `dvd-ripper` without arguments opens the graphical desktop
 | `--daemon` | `false` | Run in background appliance daemon mode with REST API server & Home Assistant integration. |
 | `--check-protection` | `false` | Run copy protection (CSS/CPPM) and bad-sector diagnostic scan on disc. |
 | `--benchmark` | `false` | Run 10-second optical sector read speed throughput test (MB/s) and exit. |
+| `--acoustic-profile <MODE>` | `balanced` | Optical spindle speed negotiation: `silent` (4x whisper-quiet), `balanced` (8x standard), or `turbo` (16x+ maximum). |
 
 ---
 
@@ -41,6 +42,8 @@ By default, launching `dvd-ripper` without arguments opens the graphical desktop
 | `--hwaccel <MODE>` | `copy` | Hardware acceleration mode: `copy` (software), `nvenc` (NVIDIA), `vaapi` (Intel/AMD Linux), `qsv` (Intel QuickSync), `v4l2` (Raspberry Pi). |
 | `--deinterlace` | `false` | Apply motion-adaptive video deinterlacing filter (`-vf bwdif/yadif`) to eliminate comb artifacts. |
 | `--deinterlace-algo <ALGO>`| `bwdif` | Deinterlacing algorithm selection: `bwdif` (best quality), `yadif`, or `w3fdif`. |
+| `--detelecine` | `false` | Cadence-aware inverse telecine (IVTC) via field matching (`fieldmatch,decimate`) to recover native 23.976p film. |
+| `--dual-output` | `false` | Single-pass dual output: concurrently creates bit-for-bit archival master (`.mkv`/`.iso`) and streaming transcode (`.mp4`). |
 | `--denoise` | `false` | Apply 3D spatial/temporal denoising filter (`-vf hqdn3d`) to reduce film grain and analog noise. |
 | `--sub-burnin` | `false` | Hard-burn subtitle text overlay directly onto video frames (`-vf subtitles=...`) for maximum compatibility. |
 | `--tonemap <ALGO>` | *None* | Video SDR tonemapping curve selection (`mobius`, `hable`, `reinhard`) for HDR content conversion. |

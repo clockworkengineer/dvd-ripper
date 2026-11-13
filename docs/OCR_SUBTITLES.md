@@ -128,3 +128,27 @@ classDiagram
 - **Infrastructure Adapter**: `src/infrastructure/ocr/tesseract.rs` coordinates FFmpeg subtitle stream demuxing and Tesseract page segmentation (`--psm 6`).
 - **Test Doubles**: `src/ocr.rs` contains in-memory mock processors for regression testing without external binary dependencies.
 
+---
+
+## 6. Smart Subtitle Palette (CLUT) Normalizer & Text Cleaner
+
+### 6.1 The Pathological Palette Problem
+Commercial DVDs often store corrupted, low-contrast, or completely transparent Color Lookup Tables (CLUT) in `.IFO` files. When converted to VobSub bitmaps, text may render as neon green, pitch black on dark backgrounds, or completely invisible gray-on-gray, leading to catastrophic OCR recognition failure.
+
+### 6.2 Automatic CLUT Palette Normalization
+The `clut_normalizer` (`src/infrastructure/ocr/clut_normalizer.rs`) inspects the 16-color RGB palette in the `.idx` descriptor file:
+- **Luminance Contrast Analysis**: Calculates contrast delta across all 16 entries. If contrast is under 60 or colors are identical, the palette is flagged as pathological.
+- **Broadcast Standard Normalization**: Replaces defective palettes with high-contrast broadcast standard values:
+  - Color 0: Pure Black `#000000` (outline / background)
+  - Color 1: Crisp White `#FFFFFF` (text body)
+  - Color 2: Deep Black `#101010` (contour border)
+  - Color 3: Neutral Gray `#808080` (anti-aliasing transition)
+
+### 6.3 Advanced OCR Text Cleaner
+Tesseract raw output often suffers from standard optical character confusions on bitmap fonts:
+- Pronoun misreads (`l'm` $\to$ `I'm`, `|'ve` $\to$ `I've`, standalone `l` $\to$ `I`).
+- Unicode smart quotes (`“”‘’` $\to$ standard `"` and `'`).
+- Double-hyphens converted to em-dashes (`--` $\to$ `—`).
+- Trailing scan pipe noise (`|`, `~`, `_`) automatically stripped.
+All fixes are applied in-memory before writing the final `.srt` sidecar.
+

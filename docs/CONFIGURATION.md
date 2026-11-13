@@ -34,6 +34,10 @@ out_dir = "Films"
 # --- Transcoding & Remuxing Engines ---
 # Transcoding engine selection: "auto", "ffmpeg", "native", "handbrake", or "makemkv"
 engine = "auto"
+# Single-pass dual output: concurrently creates archival remux (.mkv/.iso) and streaming target (.mp4)
+dual_output = false
+# Optical drive acoustic and spindle speed profile: "silent" (4x), "balanced" (8x), or "turbo" (16x+)
+acoustic_profile = "balanced"
 # Custom binary executable path for HandBrakeCLI
 handbrake_path = "HandBrakeCLI"
 # Custom binary executable path for MakeMKV (makemkvcon)

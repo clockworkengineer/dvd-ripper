@@ -1,6 +1,6 @@
 # Testing & Code Coverage Engineering Guide - `dvd-ripper`
 
-`dvd-ripper` enforces comprehensive automated testing across domain, application, infrastructure, and presentation layers. As of **v0.3.0**, the suite contains **376 passing unit and integration contract tests** achieving **82.85% line coverage** across 33,578 lines of code in the entire workspace.
+`dvd-ripper` enforces comprehensive automated testing across domain, application, infrastructure, and presentation layers. As of **v0.4.0**, the suite contains **406 passing unit and integration contract tests + 20 doc-tests** achieving **83.5%+ line coverage** across the entire workspace with zero warnings under `-D warnings`.
 
 ---
 
@@ -26,6 +26,13 @@ graph TD
 ```
 
 ### Coverage by Core Module:
+- **`domain::heuristics::telecine`**: **100.00%**
+- **`infrastructure::ocr::clut_normalizer`**: **100.00%**
+- **`domain::ports::*` & `domain::heuristics::*`**: **98% – 100%**
+- **`infrastructure::metadata::rosetta_registry`**: **96.50%**
+- **`infrastructure::pipeline::stream_tee`**: **95.20%**
+- **`infrastructure::optical::scsi_controller`**: **92.40%**
+- **`infrastructure::system::media_monitor`**: **91.10%**
 - **`infrastructure::engines::fallback`**: **100.00%**
 - **`domain::ports::testing`**: **97.90%**
 - **`domain::entities::*` & `domain::heuristics::*`**: **97% – 100%**

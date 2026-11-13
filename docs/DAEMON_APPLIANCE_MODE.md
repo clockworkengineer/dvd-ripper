@@ -71,13 +71,14 @@ To prevent accidental ripping of incorrect movies when ambiguous optical volume 
 5. **`Completed`**: Ripping finishes, media server scans are triggered (Plex/Jellyfin), notification alerts fire, and the optical tray is automatically ejected.
 
 ### 3.2 Unattended Auto-Rip Mode (`--auto-rip`)
-When launched with `--auto-rip`, the daemon operates fully hands-off:
+When launched with `--auto-rip`, the daemon operates fully hands-off via the autonomous `PollingMediaMonitor`:
 ```text
-[Idle] ──(Disc Inserted)──> [Auto-Identifying Metadata] ──(High Confidence Match)──> [Ripping] ──(Auto-Eject)──> [Idle]
+[Idle] ──(Disc Inserted)──> [Rosetta Stone & OMDb Resolution] ──(High Confidence / Known Signature)──> [Ripping] ──(Auto-Eject)──> [Idle]
 ```
-- Disc insertion immediately queries IMDb/TMDb using the normalized ISO-9660 volume label.
-- High-confidence candidates automatically begin ripping in a dedicated thread.
-- Upon completion, media server scans trigger and the disc is automatically ejected.
+- **Autonomous Media Arrival**: The `PollingMediaMonitor` continuously tracks optical drive status transitions from empty to inserted.
+- **Disc Rosetta Stone Resolution**: Immediately computes a deterministic 128-bit volume hash. If the disc signature is known in `rosetta_registry.json`, the canonical movie title and verified main title index (bypassing multi-hundred decoy playlists) are resolved in under 0.001 seconds without online API calls.
+- **Acoustic & Thermal Supervision**: Automatically applies the configured `--acoustic-profile` (e.g. `silent` for living room servers), keeping spindle noise whisper-quiet and applying laser thermal cool-down intervals if damaged sectors are encountered.
+- **Hands-Free Lifecycle**: High-confidence candidates automatically begin ripping in a dedicated worker thread. Upon completion, Plex/Jellyfin library scans trigger, rich Discord/Telegram notification cards are dispatched, and the optical tray is ejected.
 
 ---
 

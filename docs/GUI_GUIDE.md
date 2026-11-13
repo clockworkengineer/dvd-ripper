@@ -43,7 +43,7 @@ The desktop interface is organized into **6 core workflow sections and tab views
 ## 2.1 ℹ️ About Box Modal
 
 Clicking the **`ℹ️ About`** button in the top-right header opens the application info dialog displaying:
-- Application version (`v0.3.0`) and description.
+- Application version (`v0.4.0`) and description.
 - Dual open-source licenses (`MIT OR Apache-2.0`).
 - Direct hyperlink to the **[GitHub Repository](https://github.com/clockworkengineer/dvd-ripper)**.
 - Direct hyperlink to **[Buy Me a Coffee](https://buymeacoffee.com/roberttizz1)** support page.
@@ -76,6 +76,12 @@ Clicking the **`ℹ️ About`** button in the top-right header opens the applica
   - **HandBrakeCLI (`handbrake`)**: Advanced transcoding using HandBrake's native `libdvdnav` menu navigation and motion-adaptive decombing.
   - **MakeMKV (`makemkv`)**: Bit-for-bit lossless robot-mode remuxing into Matroska (`.mkv`) with optical drive hardware bus key decryption (AACS, BD+, CSS).
 - **Transcode Toggle (`--transcode`)**: Enable to re-encode video streams using `libx264`, `libx265`, or `libsvtav1`. Leave unchecked for fast, lossless remuxing (`-c copy`).
+- **Single-Pass Dual Output (`--dual-output`)**: Enable to simultaneously generate both a bit-for-bit archival master (`.mkv`/`.iso`) and a lightweight compressed streaming file (`.mp4`) in a single read pass, cutting laser exposure and mechanical wear by 50%.
+- **Drive Acoustic Profile Selector (`--acoustic-profile`)**: Select spindle noise and speed negotiation:
+  - **🔇 Silent**: Throttles spindle to ~4x (~5,540 KB/s) for whisper-quiet living room ripping.
+  - **⚖️ Balanced**: Standard ~8x (~11,080 KB/s) operation.
+  - **🚀 Turbo**: Maximum 16x+ hardware drive capability for fastest possible archival ingest.
+- **Cadence-Aware 3:2 Pulldown IVTC (`--detelecine`)**: Automatically inspects MPEG-2 RFF/TFF flags and applies field matching + frame decimation to eliminate judder and recover pristine 23.976p film.
 - **MKV Container (`--mkv`)**: Force output into a Matroska (`.mkv`) container format instead of MP4 (`.mp4`).
 - **Video Codec Selector**: Choose between `h264`, `hevc`, `av1`, or `copy`.
 - **Profile Presets**: Choose preset profiles (`standard`, `archival`, `plex`, `mobile`).

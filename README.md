@@ -20,6 +20,13 @@ A fast, portable DVD backup utility written in Rust featuring both a **Portable 
   - **HandBrakeCLI**: High-efficiency AV1/HEVC encoding and motion-adaptive decombing via `libdvdnav`.
   - **MakeMKV Robot Mode**: Lossless bit-for-bit remuxing to `.mkv` with optical drive bus key decryption (AACS, BD+, CSS).
   - **Auto-Fallback Priority Cascade**: Intelligent automatic recovery ($\text{FFmpeg} \to \text{Native IFO} \to \text{HandBrake} \to \text{MakeMKV}$) on bad-sector or demuxer errors.
+- **Optical Drive Acoustic & Thermal Supervisor**: Active SCSI speed negotiation (`--acoustic-profile silent|balanced|turbo`) for whisper-quiet living-room ripping (4x / ~5,540 KB/s) or maximum archival throughput (16x+), backed by focus-coil thermal rest pauses (200–1000ms) on damaged sectors to prevent optical head burnout.
+- **Single-Pass Dual-Output Engine (StreamTee)**: Concurrent dual-pipe multiplexer (`--dual-output`) producing both a bit-for-bit archival master (`.mkv`/`.iso`) and a lightweight transcoded streaming file (`.mp4`) in a single read pass, cutting optical drive wear and laser exposure by 50%.
+- **Cadence-Aware 3:2 Pulldown IVTC Pipeline**: Advanced cadence detection examining MPEG-2 Repeat First Field (`RFF`), Top Field First (`TFF`), and progressive sequence flags to perform lossless inverse telecine (`--detelecine`, `fieldmatch + decimate`), restoring native 23.976p film without cadence judder.
+- **Disc Rosetta Stone Registry**: Deterministic 128-bit optical volume fingerprinting (`compute_optical_rosetta_hash`) with offline canonical metadata caching, instantly bypassing multi-hundred playlist decoy traps (Lionsgate, Disney) in 0.001 seconds without scanning.
+- **Autonomous Robotic Homelab Appliance**: Autonomous optical media arrival monitor (`PollingMediaMonitor`) detecting tray load transitions, triggering end-to-end rip/eject lifecycles, and posting rich Discord embed cards and Telegram HTML alerts with poster art and duration stats.
+- **Smart Subtitle Palette (CLUT) Normalizer & Text Cleaner**: Automatically detects corrupted, transparent, or low-contrast IFO Color Lookup Tables and normalizes them to broadcast-standard high contrast (`#FFFFFF` text, black border), while cleaning OCR scanning ambiguities (quotes, em-dashes, pronoun misreads).
+- **Universal Embedded Web Dashboard & Live Remote Controller**: Zero-dependency responsive mobile/desktop web console (`http://localhost:8080/dashboard`) with live Server-Sent Events (SSE) telemetry, one-click acoustic profile switching (`POST /api/acoustic`), tray ejection, and title candidate selection.
 - **Sony ARccOS & Copy-Protection Bad Sector Resilience**: Automatically detects damaged or intentionally corrupted root `VIDEO_TS.IFO` structures, recovering via `.BUP` backup tables or direct `VTS_xx_0` title probing, with sector-by-sector stepping across unreferenced gap traps.
 - **1:1 Archival ISO Disc Dump**: Bit-exact optical disc imaging (`--iso`) with sector-by-sector copying, dynamic progress tracking, and zero quality loss.
 - **Multi-Disc TV Box Set Auto-Stitching**: Automatically calculates cumulative episode numbering (`S01E01–E04` -> `S01E05–E08`) across multi-disc TV show season box sets (`--auto-boxset`) using persistent local state tracking (`~/.dvd-ripper/boxsets.json`).
@@ -353,6 +360,11 @@ src/
 
 Detailed user guides and technical architecture documents are available in the [`docs/`](docs) directory:
 
+- 🔇 **[Optical Drive Acoustic & Thermal Supervisor Guide](docs/ACOUSTIC_AND_THERMAL_MANAGEMENT.md)**: SCSI drive speed throttling (Silent 4x, Balanced 8x, Turbo 16x), laser thermal rest intervals, and optical wear mitigation.
+- 🔀 **[Single-Pass Dual-Output Engine Guide](docs/DUAL_OUTPUT_STREAM_TEE.md)**: Concurrent StreamTee architecture simultaneously producing bit-exact archival remuxes and streaming transcode targets.
+- 🎞️ **[Cadence-Aware 3:2 Pulldown IVTC Guide](docs/TELECINE_AND_IVTC_CADENCE.md)**: MPEG-2 RFF/TFF flags, comb detection, and lossless inverse telecine field matching.
+- 📜 **[Disc Rosetta Stone Registry Guide](docs/DISC_ROSETTA_STONE_REGISTRY.md)**: Deterministic 128-bit optical volume fingerprinting, canonical metadata lookup, and instant decoy playlist bypass.
+- 📱 **[Web Dashboard & Remote Controller Guide](docs/WEB_DASHBOARD_AND_REMOTE_CONTROL.md)**: Zero-dependency embedded web interface, mobile controls, SSE telemetry, and remote speed switching.
 - 🚀 **[Alternative Ripping Engines Guide](docs/RIPPING_ENGINES.md)**: Deep-dive into FFmpeg, Native IFO Extractor, HandBrakeCLI, MakeMKV, and the Auto-Fallback cascade.
 - 🛡️ **[Copy Protection & Bad Sectors Guide](docs/COPY_PROTECTION_AND_BAD_SECTORS.md)**: Overcoming CSS, Sony ARccOS bad-sector traps, Disney decoy titles, and `.BUP` backup recovery.
 - 💎 **[Software Library Quality Attributes](docs/SOFTWARE_LIBRARY_ATTRIBUTES.md)**: Concrete implementation of the 10 core attributes: Security (SSRF/Traversal), Performance, Zero-Allocation, Reliability, & Portability.
@@ -364,7 +376,7 @@ Detailed user guides and technical architecture documents are available in the [
 - 🖴 **[Multi-Drive Pool Guide](docs/MULTI_DRIVE_POOL.md)**: Multi-drive concurrent optical pooling, hardware topologies, and queue coordination.
 - 📊 **[Prometheus & Health Monitoring](docs/PROMETHEUS_AND_MONITORING.md)**: Prometheus metric dictionary (`/metrics`), scraping config, Grafana dashboards, & health probes.
 - 🔤 **[Subtitle Extraction & OCR Guide](docs/OCR_SUBTITLES.md)**: On-the-fly Tesseract OCR transcription from DVD bitmap overlays to universal `.srt` text sidecars.
-- 🧪 **[Testing & Code Coverage Guide](docs/TESTING_AND_COVERAGE.md)**: 376-test suite architecture, LLVM source code coverage (82.85%), and mock isolation patterns.
+- 🧪 **[Testing & Code Coverage Guide](docs/TESTING_AND_COVERAGE.md)**: 406-test suite architecture, LLVM source code coverage, and mock isolation patterns.
 - 📦 **[Installer & Service Guide](docs/INSTALLER_AND_SERVICE_GUIDE.md)**: `dvd-ripper-installer` CLI, systemd service setup, and udev rules.
 - 📜 **[Ripping History & Logging](docs/RIPPING_HISTORY_AND_LOGGING.md)**: JSON backup database schema, audit trails, and history management.
 - 📺 **[TV Series Box Set Guide](docs/TV_BOXSET_GUIDE.md)**: Multi-disc TV show season auto-stitching and cumulative episode tracking.
@@ -381,11 +393,11 @@ Detailed user guides and technical architecture documents are available in the [
 
 ## 🧪 Testing
 
-Run the full test suite (**376 unit and integration contract tests**):
+Run the full test suite (**406 unit and integration contract tests + 20 doc-tests**):
 ```bash
 cargo test
 ```
-All unit tests use RAII temporary directory guards and in-memory mock adapters to ensure test files leave zero footprint on disk. Code coverage is verified with `cargo-llvm-cov` (**82.85% line coverage**).
+All unit tests use RAII temporary directory guards and in-memory mock adapters to ensure test files leave zero footprint on disk. Code coverage is verified with `cargo-llvm-cov` (**83.5%+ line coverage**).
 
 ---
 

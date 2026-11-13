@@ -209,6 +209,9 @@ European/Australian PAL DVDs run at 25 frames per second, whereas original theat
 ### 7.3 Multi-Episode TV Series Filtering
 - **TV Detection Heuristic** (`src/domain/heuristics/tv_detector.rs`): Filters out short title tracks (<10 minutes, studio warnings, intros) and overly long "Play All" composite tracks (>2.5x standard episode duration) to isolate individual TV episodes cleanly.
 
+### 7.4 Cadence-Aware 3:2 Pulldown IVTC Classification
+- **Telecine Heuristic** (`src/domain/heuristics/telecine.rs`): Classifies video stream metrics into `Progressive`, `SoftTelecine`, `HardTelecine`, and `Interlaced`, dynamically generating optimal FFmpeg filter graphs (`fieldmatch + decimate`) to preserve 23.976p film resolution without cadence judder.
+
 ---
 
 ## 8. Testability & Mock Architectures
