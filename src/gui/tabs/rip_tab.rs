@@ -160,9 +160,9 @@ pub fn render_rip_tab(
 
     // 3. Destination Directory Card
     ui.group(|ui| {
-        ui.label(egui::RichText::new("3. Destination Output Directory").strong());
+        ui.label(egui::RichText::new("3. Destination Base Directory").strong());
         ui.horizontal(|ui| {
-            ui.label("Folder:");
+            ui.label("Base Folder:");
             ui.add(egui::TextEdit::singleline(out_dir).desired_width(300.0));
 
             if !recent_out_dirs.is_empty() {
@@ -179,7 +179,7 @@ pub fn render_rip_tab(
 
             if ui
                 .button("📂 Browse...")
-                .on_hover_text("Select custom destination folder")
+                .on_hover_text("Select custom destination base folder")
                 .clicked()
             {
                 on_browse_out_dir();
@@ -195,6 +195,20 @@ pub fn render_rip_tab(
                     crate::utils::open_folder_in_explorer(p);
                 }
             }
+        });
+
+        ui.horizontal(|ui| {
+            let films_dest = crate::ffmpeg::resolve_films_root(out_dir);
+            let tv_dest = crate::ffmpeg::resolve_tv_root(out_dir);
+            ui.label(
+                egui::RichText::new(format!(
+                    "Rips will be saved to: {} (Films) or {} (TV)",
+                    films_dest.display(),
+                    tv_dest.display()
+                ))
+                .weak()
+                .small(),
+            );
         });
 
         super::super::components::disk_guard::render_disk_space_gauge(ui, out_dir, 10);

@@ -788,7 +788,12 @@ impl GuiApplicationController {
             if let Some(saved_path) = last_output_file {
                 let _ = tx.send(ProgressEvent::Success(saved_path));
             } else {
-                let _ = tx.send(ProgressEvent::Success(PathBuf::from(&spec.out_dir)));
+                let fallback = if spec.is_tv {
+                    crate::ffmpeg::resolve_tv_root(&spec.out_dir)
+                } else {
+                    crate::ffmpeg::resolve_films_root(&spec.out_dir)
+                };
+                let _ = tx.send(ProgressEvent::Success(fallback));
             }
         });
     }

@@ -1038,7 +1038,27 @@ impl DvdRipperApp {
         } else {
             "Movie"
         };
-        let record = RipRecord::new(&title, media_type, &self.out_dir, "Cancelled");
+        let cancelled_path = if self.is_tv_mode {
+            let tv_root = crate::ffmpeg::resolve_tv_root(&self.out_dir);
+            tv_root.to_string_lossy().to_string()
+        } else {
+            let films_root = crate::ffmpeg::resolve_films_root(&self.out_dir);
+            if let Some(film_name) = self.film_name_opt() {
+                let year = self.film_year.trim().parse::<u32>().ok();
+                let stem = crate::domain::naming::format_media_stem(Some(&film_name), year, "DVD_Rip");
+                let ext = if self.iso_mode {
+                    "iso"
+                } else if self.mkv {
+                    "mkv"
+                } else {
+                    "mp4"
+                };
+                films_root.join(&stem).join(format!("{}.{}", stem, ext)).to_string_lossy().to_string()
+            } else {
+                films_root.to_string_lossy().to_string()
+            }
+        };
+        let record = RipRecord::new(&title, media_type, &cancelled_path, "Cancelled");
         self.history.insert(0, record);
         let _ = crate::history::save_history(&self.history, None);
     }

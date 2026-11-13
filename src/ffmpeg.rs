@@ -22,64 +22,7 @@ pub fn format_episode_filename(show_name: &str, season: u32, episode: u32) -> St
     crate::utils::format_episode_name(show_name, season, episode)
 }
 
-/// Helper: Checks if the path component is named "films" (case-insensitive)
-fn is_named_films(path: &Path) -> bool {
-    path.file_name()
-        .map(|s| s.to_string_lossy().eq_ignore_ascii_case("films"))
-        .unwrap_or(false)
-}
-
-/// Helper: Checks if the path component is named "tv" or "tv shows" (case-insensitive)
-fn is_named_tv(path: &Path) -> bool {
-    path.file_name()
-        .map(|s| {
-            let lossy = s.to_string_lossy();
-            lossy.eq_ignore_ascii_case("tv") || lossy.eq_ignore_ascii_case("tv shows")
-        })
-        .unwrap_or(false)
-}
-
-/// Resolves the root destination directory for Film/Movie rips.
-/// Defaults to `<out_dir>/Films`. If `out_dir` already ends in `Films`, it is kept as-is.
-/// If `out_dir` ends in `TV`, its parent sibling `/Films` is used.
-pub fn resolve_films_root(out_dir: &str) -> PathBuf {
-    let trimmed = out_dir.trim().trim_end_matches(['/', '\\']);
-    if trimmed.is_empty() || trimmed == "." {
-        return PathBuf::from("Films");
-    }
-    let p = Path::new(trimmed);
-    if is_named_films(p) {
-        p.to_path_buf()
-    } else if is_named_tv(p) {
-        match p.parent() {
-            Some(parent) if !parent.as_os_str().is_empty() => parent.join("Films"),
-            _ => PathBuf::from("Films"),
-        }
-    } else {
-        p.join("Films")
-    }
-}
-
-/// Resolves the root destination directory for TV series rips.
-/// Defaults to `<out_dir>/TV`. If `out_dir` already ends in `TV`, it is kept as-is.
-/// If `out_dir` ends in `Films`, its parent sibling `/TV` is used.
-pub fn resolve_tv_root(out_dir: &str) -> PathBuf {
-    let trimmed = out_dir.trim().trim_end_matches(['/', '\\']);
-    if trimmed.is_empty() || trimmed == "." {
-        return PathBuf::from("TV");
-    }
-    let p = Path::new(trimmed);
-    if is_named_tv(p) {
-        p.to_path_buf()
-    } else if is_named_films(p) {
-        match p.parent() {
-            Some(parent) if !parent.as_os_str().is_empty() => parent.join("TV"),
-            _ => PathBuf::from("TV"),
-        }
-    } else {
-        p.join("TV")
-    }
-}
+pub use crate::domain::naming::{is_named_films, is_named_tv, resolve_films_root, resolve_tv_root};
 
 /// Helper: Ensures parent directories exist and returns absolute path with optional collision incrementing.
 fn ensure_absolute_parent_dir(path: PathBuf, no_overwrite: bool) -> Result<PathBuf> {
@@ -163,9 +106,14 @@ pub fn resolve_output_path(
 
     let films_root = resolve_films_root(&args.out_dir);
 
-    let target_candidate = if let Some(name) = film_name {
+    let target_candidate = if let Some(name) = film_name.map(|s| s.trim()).filter(|s| !s.is_empty()) {
         let clean_name = crate::utils::sanitize_filename(name);
-        let segment = format_title_folder_name(&clean_name, film_year);
+        let clean = if clean_name.is_empty() {
+            "DVD_Rip".to_string()
+        } else {
+            clean_name
+        };
+        let segment = format_title_folder_name(&clean, film_year);
         films_root
             .join(&segment)
             .join(format!("{}.{}", segment, extension))
