@@ -91,3 +91,4 @@ The dashboard is engineered with mobile-first CSS:
 - Large, touch-friendly buttons (`min-height: 44px`) adhering to mobile accessibility standards.
 - Dark mode aesthetic optimized for low-light homelab server closets and living rooms.
 - Zero external CDNs or JavaScript frameworks (no React, Vue, or Tailwind downloads required); the page loads instantaneously even when the server is disconnected from the public internet.
+

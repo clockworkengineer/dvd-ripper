@@ -21,7 +21,7 @@ Save a `dvd-ripper.toml` file in your working directory or in `~/.dvd-ripper/con
 
 ```toml
 # ==============================================================================
-# DVD-RIPPER CONFIGURATION SPECIFICATION (v0.3.0)
+# DVD-RIPPER CONFIGURATION SPECIFICATION (v0.4.0)
 # ==============================================================================
 
 # --- Base Directory & Output Architecture ---

@@ -77,3 +77,4 @@ detelecine = true
 
 ### Desktop GUI
 In the **Main Rip Panel**, check the **Cadence-Aware 3:2 Pulldown IVTC** checkbox.
+

@@ -90,3 +90,4 @@ The registry loads from and persists to:
 - **Linux / macOS**: `~/.dvd-ripper/rosetta_registry.json`
 
 Users can inspect, edit, or contribute learned disc profiles to this JSON file. The registry is initialized at application boot through the `AppContainer` via `with_rosetta_registry`.
+

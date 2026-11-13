@@ -77,3 +77,4 @@ dual_output = true
 
 ### Desktop GUI
 In the **Main Rip Panel**, check the **Single-Pass Dual Output** checkbox next to the Transcode toggle.
+
