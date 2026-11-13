@@ -3,13 +3,12 @@ use anyhow::Result;
  * @file history.rs
  * @brief Persistent history log for completed DVD ripping jobs.
  */
-use std::fs;
 use std::path::{Path, PathBuf};
 
-const HISTORY_FILE: &str = "ripping_history.json";
-
-/// Re-export unified RipRecord entity from the domain layer.
+/// Re-export canonical domain storage port, entities, and infrastructure JSON adapter.
 pub use crate::domain::entities::job::RipRecord;
+pub use crate::domain::ports::storage::HistoryRepository;
+pub use crate::infrastructure::storage::JsonHistoryRepository;
 
 /// Formats a clean user-facing media display title (e.g. "Aliens (1986)" or "The Office - S01E05").
 #[allow(dead_code)]
@@ -27,65 +26,24 @@ pub fn format_media_display_title(
     }
 }
 
-fn resolve_history_path(path: Option<&Path>) -> PathBuf {
-    if let Some(p) = path {
-        PathBuf::from(p)
-    } else {
-        let local = PathBuf::from(HISTORY_FILE);
-        if local.exists() {
-            local
-        } else {
-            crate::utils::get_app_file_path(HISTORY_FILE)
-        }
-    }
-}
-
-/// Trait defining persistent history repository contract (SRP/DIP).
-#[allow(dead_code)]
-pub trait HistoryRepository {
-    fn name(&self) -> &str;
-    fn load(&self) -> Vec<RipRecord>;
-    fn save(&self, records: &[RipRecord]) -> Result<()>;
-}
-
-/// Concrete JSON file history repository implementation.
-#[derive(Debug, Default)]
-pub struct JsonFileHistoryRepository;
-
-impl HistoryRepository for JsonFileHistoryRepository {
-    fn name(&self) -> &str {
-        "JSON File History Repository"
-    }
-
-    fn load(&self) -> Vec<RipRecord> {
-        load_history(None)
-    }
-
-    fn save(&self, records: &[RipRecord]) -> Result<()> {
-        save_history(records, None)
-    }
+pub fn resolve_history_path(path: Option<&Path>) -> PathBuf {
+    JsonHistoryRepository::resolve_history_path(path)
 }
 
 /// Loads history records from disk (default: `ripping_history.json`).
 pub fn load_history(path: Option<&Path>) -> Vec<RipRecord> {
-    let history_path = resolve_history_path(path);
-    crate::utils::load_json_file(&history_path).unwrap_or_default()
+    JsonHistoryRepository::new().load_history(path)
 }
 
 /// Saves history records to disk using atomic file writing.
 pub fn save_history(records: &[RipRecord], path: Option<&Path>) -> Result<()> {
-    let history_path = resolve_history_path(path);
-    crate::utils::save_json_file(&history_path, &records)
+    JsonHistoryRepository::new().save_history(records, path)
 }
 
 /// Clears history file on disk.
 #[allow(dead_code)]
 pub fn clear_history(path: Option<&Path>) -> Result<()> {
-    let history_path = resolve_history_path(path);
-    if history_path.exists() {
-        fs::remove_file(history_path)?;
-    }
-    Ok(())
+    JsonHistoryRepository::new().clear_history(path)
 }
 
 /// Convenience facade to insert a new rip record at the top of history and persist to disk.
@@ -95,9 +53,8 @@ pub fn record_rip_event(
     output_path: &str,
     status: &str,
 ) -> Result<()> {
-    let mut history = load_history(None);
-    history.insert(0, RipRecord::new(title, media_type, output_path, status));
-    save_history(&history, None)
+    let repo = JsonHistoryRepository::new();
+    repo.append_record(&RipRecord::new(title, media_type, output_path, status), None)
 }
 
 /// Purges history records older than max_days retention limit.
@@ -133,6 +90,7 @@ pub fn purge_expired_rip_records(max_days: u64, path: Option<&Path>) -> Result<u
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
 
     struct TestTempDir(PathBuf);
 
@@ -191,7 +149,7 @@ mod tests {
         let default_path = resolve_history_path(None);
         assert_eq!(
             default_path.file_name().and_then(|f| f.to_str()),
-            Some(HISTORY_FILE)
+            Some("ripping_history.json")
         );
         let custom = PathBuf::from("/tmp/custom_history.json");
         assert_eq!(resolve_history_path(Some(&custom)), custom);

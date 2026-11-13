@@ -10,7 +10,7 @@ impl PostProcessor for NfoPostProcessor {
         if ctx.nfo_enabled
             && let Some(ref out_file) = ctx.output_file
         {
-            let _ = crate::utils::generate_nfo_file(
+            let _ = crate::infrastructure::storage::generate_nfo_file_detailed(
                 out_file,
                 &ctx.title,
                 ctx.year,

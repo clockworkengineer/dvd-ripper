@@ -8,17 +8,11 @@ pub struct MediaServerScanPostProcessor;
 impl PostProcessor for MediaServerScanPostProcessor {
     fn process(&self, ctx: &PostProcessContext) -> Result<()> {
         if ctx.media_servers_enabled {
-            if let (Some(url), Some(token)) = (ctx.plex_url.as_deref(), ctx.plex_token.as_deref()) {
-                let _ = crate::utils::trigger_plex_library_scan(url, token);
-            }
-            if let (Some(url), Some(key)) =
-                (ctx.jellyfin_url.as_deref(), ctx.jellyfin_key.as_deref())
-            {
-                let _ = crate::utils::trigger_jellyfin_library_scan(url, key);
-            }
-            if let (Some(url), Some(key)) = (ctx.emby_url.as_deref(), ctx.emby_key.as_deref()) {
-                let _ = crate::utils::trigger_emby_library_scan(url, key);
-            }
+            crate::infrastructure::notifications::media_servers::trigger_media_servers(
+                ctx.plex_url.as_deref().zip(ctx.plex_token.as_deref()),
+                ctx.jellyfin_url.as_deref().zip(ctx.jellyfin_key.as_deref()),
+                ctx.emby_url.as_deref().zip(ctx.emby_key.as_deref()),
+            );
         }
         Ok(())
     }

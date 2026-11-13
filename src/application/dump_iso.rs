@@ -3,10 +3,8 @@
 use anyhow::Result;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::AtomicBool;
 
-use crate::domain::entities::error::DvdError;
-use crate::domain::entities::job::RipRecord;
 use crate::domain::ports::iso_archiver::IsoArchiver;
 use crate::domain::ports::notification::{NotificationEvent, Notifier};
 use crate::domain::ports::storage::{DiskSpaceGuard, HistoryRepository};
@@ -192,64 +190,26 @@ impl DumpIsoUseCase {
             cancel_flag.clone(),
         );
 
-        let out_str = request.output_path.to_string_lossy();
+        let duration_secs = start_time.elapsed().as_secs_f64();
+        let bytes_written = dump_res.as_ref().ok().copied();
 
-        match dump_res {
-            Ok(bytes_written) => {
-                let duration_secs = start_time.elapsed().as_secs_f64();
-                let record = RipRecord::with_details(
-                    &request.display_title,
-                    "ISO Image",
-                    &out_str,
-                    "Completed",
-                    request.volume_label.clone(),
-                    None,
-                    Some(duration_secs),
-                    Some(bytes_written),
-                    Some("copy".to_string()),
-                    None,
-                    None,
-                );
-                let _ = self.history_repo.append_record(&record, None);
+        let outcome_ctx = super::lifecycle::RipOutcomeContext {
+            display_title: &request.display_title,
+            media_type: "ISO Image",
+            output_path: &request.output_path,
+            volume_label: request.volume_label.clone(),
+            year: None,
+            duration_secs,
+            bytes_written,
+            codec: Some("copy".to_string()),
+        };
 
-                let _ = self.notifier.send(&NotificationEvent::RipSuccess {
-                    title: &request.display_title,
-                    output_file: &out_str,
-                    duration_secs,
-                });
-
-                Ok(bytes_written)
-            }
-            Err(e) => {
-                let is_cancelled = cancel_flag
-                    .as_ref()
-                    .is_some_and(|f| f.load(Ordering::SeqCst))
-                    || e.to_string().to_lowercase().contains("cancel");
-
-                if is_cancelled {
-                    let record =
-                        RipRecord::new(&request.display_title, "ISO Image", &out_str, "Cancelled");
-                    let _ = self.history_repo.append_record(&record, None);
-
-                    let _ = self.notifier.send(&NotificationEvent::RipCancelled {
-                        title: &request.display_title,
-                    });
-
-                    Err(DvdError::Cancelled.into())
-                } else {
-                    let err_str = e.to_string();
-                    let record =
-                        RipRecord::new(&request.display_title, "ISO Image", &out_str, "Failed");
-                    let _ = self.history_repo.append_record(&record, None);
-
-                    let _ = self.notifier.send(&NotificationEvent::RipFailed {
-                        title: &request.display_title,
-                        error_message: &err_str,
-                    });
-
-                    Err(e)
-                }
-            }
-        }
+        super::lifecycle::record_and_notify_outcome(
+            dump_res,
+            outcome_ctx,
+            self.history_repo.as_ref(),
+            self.notifier.as_ref(),
+            cancel_flag.as_ref(),
+        )
     }
 }

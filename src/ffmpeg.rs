@@ -1819,24 +1819,12 @@ pub fn run_ffmpeg_with_channel(
         let mut line_bytes = Vec::new();
 
         loop {
-            if let Some(ref flag) = cancel_flag
-                && flag.load(std::sync::atomic::Ordering::SeqCst)
-            {
-                let _ = child.as_mut().kill();
-                let _ = child.as_mut().wait();
-                if absolute_output.exists() {
-                    let _ = std::fs::remove_file(absolute_output);
-                }
-                let msg = "Ripping process cancelled by user.".to_string();
-                if let Some(ref sender) = tx {
-                    let _ = sender.send(ProgressEvent::Error(msg.clone()));
-                }
-                return Err(anyhow!(msg));
-            }
+            let is_cancelled = cancel_flag
+                .as_ref()
+                .is_some_and(|f| f.load(std::sync::atomic::Ordering::SeqCst))
+                || cancel_rx.as_ref().is_some_and(|rx| rx.try_recv().is_ok());
 
-            if let Some(ref rx) = cancel_rx
-                && rx.try_recv().is_ok()
-            {
+            if is_cancelled {
                 let _ = child.as_mut().kill();
                 let _ = child.as_mut().wait();
                 if absolute_output.exists() {

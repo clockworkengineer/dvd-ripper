@@ -17,18 +17,7 @@ pub fn render_benchmark_tab(
         ui.add_space(8.0);
 
         ui.horizontal(|ui| {
-            ui.label("Target Drive:");
-            ui.text_edit_singleline(input_drive);
-
-            let detected = crate::dvd::detect_dvd_drives();
-            egui::ComboBox::from_id_salt("benchmark_drive_select")
-                .selected_text(if input_drive.is_empty() { "auto" } else { input_drive.as_str() })
-                .show_ui(ui, |ui| {
-                    ui.selectable_value(input_drive, "auto".to_string(), "⚡ Auto-Detect");
-                    for d in detected {
-                        ui.selectable_value(input_drive, d.clone(), format!("💿 {}", d));
-                    }
-                });
+            super::super::components::render_drive_selector(ui, "benchmark_drive_select", input_drive);
 
             if ui
                 .add_enabled(!is_busy, egui::Button::new(

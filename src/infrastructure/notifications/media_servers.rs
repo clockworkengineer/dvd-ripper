@@ -1,6 +1,23 @@
 use crate::domain::ports::notification::{NotificationEvent, Notifier};
 use anyhow::Result;
 
+/// Triggers library refresh scans for configured Plex, Jellyfin, and Emby instances.
+pub fn trigger_media_servers(
+    plex: Option<(&str, &str)>,
+    jellyfin: Option<(&str, &str)>,
+    emby: Option<(&str, &str)>,
+) {
+    if let Some((url, token)) = plex {
+        let _ = crate::utils::trigger_plex_library_scan(url, token);
+    }
+    if let Some((url, key)) = jellyfin {
+        let _ = crate::utils::trigger_jellyfin_library_scan(url, key);
+    }
+    if let Some((url, key)) = emby {
+        let _ = crate::utils::trigger_emby_library_scan(url, key);
+    }
+}
+
 /// Triggers library refresh scans for Plex, Jellyfin, and Emby upon rip success.
 #[derive(Debug, Clone, Default)]
 pub struct MediaServerNotifier {
@@ -22,15 +39,11 @@ impl Notifier for MediaServerNotifier {
     fn send(&self, event: &NotificationEvent) -> Result<()> {
         // Only trigger library scans when a rip completes successfully
         if let NotificationEvent::RipSuccess { .. } = event {
-            if let (Some(url), Some(token)) = (&self.plex_url, &self.plex_token) {
-                let _ = crate::utils::trigger_plex_library_scan(url, token);
-            }
-            if let (Some(url), Some(key)) = (&self.jellyfin_url, &self.jellyfin_api_key) {
-                let _ = crate::utils::trigger_jellyfin_library_scan(url, key);
-            }
-            if let (Some(url), Some(key)) = (&self.emby_url, &self.emby_api_key) {
-                let _ = crate::utils::trigger_emby_library_scan(url, key);
-            }
+            trigger_media_servers(
+                self.plex_url.as_deref().zip(self.plex_token.as_deref()),
+                self.jellyfin_url.as_deref().zip(self.jellyfin_api_key.as_deref()),
+                self.emby_url.as_deref().zip(self.emby_api_key.as_deref()),
+            );
         }
         Ok(())
     }

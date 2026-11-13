@@ -2,23 +2,106 @@ use crate::domain::entities::media::FilmMetadata;
 use anyhow::Result;
 use std::path::{Path, PathBuf};
 
+/// Escapes XML special characters for safety in NFO documents.
+pub fn quick_xml_escape(input: &str) -> String {
+    input
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&apos;")
+}
+
 /// Resolves sidecar `.nfo` metadata file path from video output path.
 pub fn resolve_nfo_path(video_path: &Path) -> PathBuf {
-    let parent = video_path.parent().unwrap_or_else(|| Path::new(""));
+    let parent = video_path
+        .parent()
+        .unwrap_or_else(|| Path::new("."));
     let stem = video_path
         .file_stem()
-        .map(|s| s.to_string_lossy().to_string())
-        .unwrap_or_else(|| "output".to_string());
+        .and_then(|s| s.to_str())
+        .unwrap_or("output");
     parent.join(format!("{}.nfo", stem))
 }
 
-/// Generates a Kodi/Jellyfin/Plex compatible XML `.nfo` sidecar file alongside the transcoded video.
+/// Generates a Kodi/Jellyfin/Plex compatible XML `.nfo` sidecar file from fine-grained metadata fields.
+#[allow(clippy::too_many_arguments)]
+pub fn generate_nfo_file_detailed(
+    output_file: &Path,
+    title: &str,
+    year: Option<u32>,
+    plot: Option<&str>,
+    rating: Option<&str>,
+    director: Option<&str>,
+    media_type: &str,
+    tags: Option<&str>,
+) -> Result<()> {
+    if let Some(parent) = output_file.parent() {
+        std::fs::create_dir_all(parent)?;
+        let nfo_path = resolve_nfo_path(output_file);
+
+        let tag = if media_type.to_lowercase().contains("tv") {
+            "tvshow"
+        } else {
+            "movie"
+        };
+        let year_str = year
+            .map(|y| format!("  <year>{}</year>\n", y))
+            .unwrap_or_default();
+        let plot_str = plot
+            .map(|p| format!("  <plot>{}</plot>\n", quick_xml_escape(p)))
+            .unwrap_or_default();
+        let rating_str = rating
+            .map(|r| format!("  <rating>{}</rating>\n", quick_xml_escape(r)))
+            .unwrap_or_default();
+        let director_str = director
+            .map(|d| format!("  <director>{}</director>\n", quick_xml_escape(d)))
+            .unwrap_or_default();
+
+        let tags_str = if let Some(tags_csv) = tags {
+            let mut buf = String::new();
+            for t in tags_csv.split(',') {
+                let clean_t = t.trim();
+                if !clean_t.is_empty() {
+                    buf.push_str(&format!("  <tag>{}</tag>\n", quick_xml_escape(clean_t)));
+                }
+            }
+            buf
+        } else {
+            String::new()
+        };
+
+        let content = format!(
+            "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n\
+             <{tag}>\n\
+             \x20\x20<title>{}</title>\n\
+             {}{}{}{}{}\
+             </{tag}>\n",
+            quick_xml_escape(title),
+            year_str,
+            plot_str,
+            rating_str,
+            director_str,
+            tags_str,
+            tag = tag
+        );
+
+        std::fs::write(&nfo_path, content)?;
+        println!(
+            "[NFO Metadata] Generated sidecar XML: {}",
+            nfo_path.display()
+        );
+    }
+    Ok(())
+}
+
+/// Generates a Kodi/Jellyfin/Plex compatible XML `.nfo` sidecar file alongside the transcoded video from FilmMetadata.
 pub fn generate_nfo_file(
     output_file: &Path,
     metadata: &FilmMetadata,
     media_type: &str,
 ) -> Result<()> {
-    crate::utils::generate_nfo_file(
+    generate_nfo_file_detailed(
         output_file,
         &metadata.title,
         metadata.year,
@@ -43,7 +126,7 @@ mod tests {
         assert_eq!(resolve_nfo_path(p2), PathBuf::from("Show.nfo"));
 
         let p3 = Path::new("");
-        assert_eq!(resolve_nfo_path(p3), PathBuf::from("output.nfo"));
+        assert_eq!(resolve_nfo_path(p3), PathBuf::from(".\\output.nfo"));
     }
 
     #[test]

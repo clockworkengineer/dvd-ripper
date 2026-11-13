@@ -15,7 +15,11 @@ impl JsonHistoryRepository {
         Self
     }
 
-    fn resolve_path(&self, custom: Option<&Path>) -> PathBuf {
+    pub fn resolve_path(&self, custom: Option<&Path>) -> PathBuf {
+        Self::resolve_history_path(custom)
+    }
+
+    pub fn resolve_history_path(custom: Option<&Path>) -> PathBuf {
         if let Some(p) = custom {
             p.to_path_buf()
         } else {
@@ -40,6 +44,11 @@ impl HistoryRepository for JsonHistoryRepository {
         history.insert(0, record.clone());
         let path = self.resolve_path(custom_path);
         crate::utils::save_json_file(&path, &history)
+    }
+
+    fn save_history(&self, records: &[RipRecord], custom_path: Option<&Path>) -> Result<()> {
+        let path = self.resolve_path(custom_path);
+        crate::utils::save_json_file(&path, &records)
     }
 
     fn clear_history(&self, custom_path: Option<&Path>) -> Result<()> {

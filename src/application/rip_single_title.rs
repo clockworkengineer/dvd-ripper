@@ -1,10 +1,8 @@
 use anyhow::Result;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::AtomicBool;
 
-use crate::domain::entities::error::DvdError;
-use crate::domain::entities::job::RipRecord;
 use crate::domain::entities::media::FilmMetadata;
 use crate::domain::ports::notification::{NotificationEvent, Notifier};
 use crate::domain::ports::storage::{DiskSpaceGuard, HistoryRepository};
@@ -226,82 +224,40 @@ impl RipSingleTitleUseCase {
         } else {
             "movie"
         };
-        let out_str = request.output_path.to_string_lossy();
+        let duration_secs = start_time.elapsed().as_secs_f64();
 
-        match transcode_res {
-            Ok(()) => {
-                let duration_secs = start_time.elapsed().as_secs_f64();
-
-                // Generate NFO sidecar if metadata exists
-                if let Some(ref meta) = request.metadata {
-                    let _ = crate::infrastructure::storage::nfo_writer::generate_nfo_file(
-                        &request.output_path,
-                        meta,
-                        if meta.is_series { "tvshow" } else { "movie" },
-                    );
-                }
-
-                // Append record to history
-                let record = RipRecord::with_details(
-                    &request.display_title,
-                    media_type,
-                    &out_str,
-                    "Completed",
-                    None,
-                    request.metadata.as_ref().and_then(|m| m.year),
-                    Some(duration_secs),
-                    std::fs::metadata(&request.output_path)
-                        .ok()
-                        .map(|m| m.len()),
-                    None,
-                    None,
-                    None,
+        if transcode_res.is_ok() {
+            // Generate NFO sidecar if metadata exists
+            if let Some(ref meta) = request.metadata {
+                let _ = crate::infrastructure::storage::nfo_writer::generate_nfo_file(
+                    &request.output_path,
+                    meta,
+                    if meta.is_series { "tvshow" } else { "movie" },
                 );
-                let _ = self.history_repo.append_record(&record, None);
-
-                // Notify success
-                let _ = self.notifier.send(&NotificationEvent::RipSuccess {
-                    title: &request.display_title,
-                    output_file: &out_str,
-                    duration_secs,
-                });
-
-                if let Some(obs) = observer {
-                    obs.on_title_complete(request.title_number, &request.output_path);
-                }
-
-                Ok(())
             }
-            Err(e) => {
-                let is_cancelled = cancel_flag
-                    .as_ref()
-                    .is_some_and(|f| f.load(Ordering::SeqCst))
-                    || e.to_string().to_lowercase().contains("cancel");
 
-                if is_cancelled {
-                    let record =
-                        RipRecord::new(&request.display_title, media_type, &out_str, "Cancelled");
-                    let _ = self.history_repo.append_record(&record, None);
-
-                    let _ = self.notifier.send(&NotificationEvent::RipCancelled {
-                        title: &request.display_title,
-                    });
-
-                    Err(DvdError::Cancelled.into())
-                } else {
-                    let err_str = e.to_string();
-                    let record =
-                        RipRecord::new(&request.display_title, media_type, &out_str, "Failed");
-                    let _ = self.history_repo.append_record(&record, None);
-
-                    let _ = self.notifier.send(&NotificationEvent::RipFailed {
-                        title: &request.display_title,
-                        error_message: &err_str,
-                    });
-
-                    Err(e)
-                }
+            if let Some(obs) = observer {
+                obs.on_title_complete(request.title_number, &request.output_path);
             }
         }
+
+        let outcome_ctx = super::lifecycle::RipOutcomeContext {
+            display_title: &request.display_title,
+            media_type,
+            output_path: &request.output_path,
+            volume_label: None,
+            year: request.metadata.as_ref().and_then(|m| m.year),
+            duration_secs,
+            bytes_written: None,
+            codec: None,
+        };
+
+        super::lifecycle::record_and_notify_outcome(
+            transcode_res,
+            outcome_ctx,
+            self.history_repo.as_ref(),
+            self.notifier.as_ref(),
+            cancel_flag.as_ref(),
+        )
     }
 }

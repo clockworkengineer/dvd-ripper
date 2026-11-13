@@ -41,9 +41,7 @@ pub fn render_drive_status_pill(ui: &mut egui::Ui, state: SystemDriveState) {
 
 /// Formats seconds into MM:SS format.
 pub fn format_mm_ss(total_secs: u64) -> String {
-    let minutes = total_secs / 60;
-    let seconds = total_secs % 60;
-    format!("{:02}:{:02}", minutes, seconds)
+    crate::utils::format_mm_ss(total_secs)
 }
 
 /// Renders the complete telemetry card: progress bar, ETA, elapsed time, fps, and speed.

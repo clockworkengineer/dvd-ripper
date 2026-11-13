@@ -12,6 +12,14 @@ pub trait HistoryRepository: Send + Sync {
         record: &crate::domain::entities::job::RipRecord,
         custom_path: Option<&Path>,
     ) -> Result<()>;
+    fn save_history(
+        &self,
+        records: &[crate::domain::entities::job::RipRecord],
+        custom_path: Option<&Path>,
+    ) -> Result<()> {
+        let _ = (records, custom_path);
+        Ok(())
+    }
     fn clear_history(&self, custom_path: Option<&Path>) -> Result<()>;
 }
 

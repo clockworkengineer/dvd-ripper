@@ -77,18 +77,7 @@ pub fn render_rip_tab(
     ui.group(|ui| {
         ui.label(egui::RichText::new("1. Optical Drive & Disc Source").strong());
         ui.horizontal(|ui| {
-            ui.label("Drive:");
-            ui.text_edit_singleline(input_drive);
-
-            let detected = crate::dvd::detect_dvd_drives();
-            egui::ComboBox::from_id_salt("rip_tab_drive_combo")
-                .selected_text(if input_drive.is_empty() { "auto" } else { input_drive.as_str() })
-                .show_ui(ui, |ui| {
-                    ui.selectable_value(input_drive, "auto".to_string(), "⚡ Auto-Detect");
-                    for d in detected {
-                        ui.selectable_value(input_drive, d.clone(), format!("💿 {}", d));
-                    }
-                });
+            super::super::components::render_drive_selector(ui, "rip_tab_drive_combo", input_drive);
 
             if ui
                 .add_enabled(!is_busy, egui::Button::new("🔍 Detect DVD"))

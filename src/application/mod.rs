@@ -16,6 +16,7 @@
 pub mod cli_runner;
 pub mod drive_pool;
 pub mod dump_iso;
+pub mod lifecycle;
 pub mod probe_disc;
 pub mod rip_single_title;
 pub mod rip_tv_batch;
@@ -23,6 +24,7 @@ pub mod rip_tv_batch;
 pub use cli_runner::{CliApplicationRunner, CliMetadataResolver};
 pub use drive_pool::DrivePool;
 pub use dump_iso::{DumpIsoRequest, DumpIsoRequestBuilder, DumpIsoUseCase};
+pub use lifecycle::{RipOutcomeContext, record_and_notify_outcome};
 pub use probe_disc::{DiscProbeResult, ProbeDiscUseCase};
 pub use rip_single_title::{
     RipSingleTitleRequest, RipSingleTitleRequestBuilder, RipSingleTitleUseCase,

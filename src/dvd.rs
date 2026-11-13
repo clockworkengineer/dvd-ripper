@@ -438,63 +438,6 @@ pub fn close_disc_tray(root_path: &str) -> bool {
     }
 }
 
-/// Dependency Inversion (DIP/SOLID): High-level trait abstraction for drive power management.
-#[allow(dead_code)]
-pub trait DrivePowerController {
-    fn eject(&self, root_path: &str) -> bool;
-    fn spindown(&self, root_path: &str) -> bool;
-    fn close_tray(&self, root_path: &str) -> bool;
-}
-
-pub struct DefaultDrivePowerController;
-impl DrivePowerController for DefaultDrivePowerController {
-    fn eject(&self, root_path: &str) -> bool {
-        eject_disc(root_path)
-    }
-    fn spindown(&self, root_path: &str) -> bool {
-        spindown_drive(root_path)
-    }
-    fn close_tray(&self, root_path: &str) -> bool {
-        close_disc_tray(root_path)
-    }
-}
-
-/// Interface Segregation (ISP/SOLID): Segregated trait for optical drive speed ratings.
-#[allow(dead_code)]
-pub trait SpeedRatingProvider {
-    fn speed_rating(&self, speed_mbps: f64) -> &'static str;
-}
-
-#[derive(Debug, Default)]
-pub struct DefaultSpeedRatingProvider;
-
-impl SpeedRatingProvider for DefaultSpeedRatingProvider {
-    fn speed_rating(&self, speed_mbps: f64) -> &'static str {
-        if speed_mbps >= 15.0 {
-            "12x+ (High Speed)"
-        } else if speed_mbps >= 8.0 {
-            "6x-8x (Standard Speed)"
-        } else {
-            "1x-4x (Low Speed)"
-        }
-    }
-}
-
-/// Dependency Inversion (DIP/SOLID): High-level trait abstraction for disc fingerprint calculation.
-#[allow(dead_code)]
-pub trait DiscFingerprintReader {
-    fn compute_fingerprint(&self, dvd_path: &str) -> String;
-}
-
-#[derive(Debug, Default)]
-pub struct FileSystemDiscFingerprintReader;
-
-impl DiscFingerprintReader for FileSystemDiscFingerprintReader {
-    fn compute_fingerprint(&self, dvd_path: &str) -> String {
-        compute_disc_fingerprint(dvd_path)
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DiscProtectionReport {
     pub has_css_indicators: bool,
@@ -1081,8 +1024,7 @@ mod tests {
         let _ = close_disc_tray("D:\\");
         let _ = spindown_drive("D:\\");
 
-        let reader = FileSystemDiscFingerprintReader;
-        let fp = reader.compute_fingerprint("D:\\");
+        let fp = compute_disc_fingerprint("D:\\");
         assert!(fp.starts_with("disc_"));
 
         let _ = run_drive_benchmark(

@@ -91,21 +91,6 @@ fn try_load_config_file(path: &Path) -> Option<AppConfig> {
     None
 }
 
-/// Liskov Substitution Principle (LSP/SOLID): Trait contract for configuration file persistence.
-#[allow(dead_code)]
-pub trait ConfigRepository {
-    fn load_config(&self, custom_path: Option<&str>) -> AppConfig;
-}
-
-#[derive(Debug, Default)]
-pub struct FileConfigRepository;
-
-impl ConfigRepository for FileConfigRepository {
-    fn load_config(&self, custom_path: Option<&str>) -> AppConfig {
-        load_config(custom_path)
-    }
-}
-
 /// Loads configuration from custom path, ./dvd-ripper.toml, or ~/.dvd-ripper/config.toml
 pub fn load_config(custom_path: Option<&str>) -> AppConfig {
     if let Some(path_str) = custom_path
@@ -153,214 +138,102 @@ pub fn parse_config_toml(content: &str) -> anyhow::Result<AppConfig> {
     Ok(cfg)
 }
 
+macro_rules! merge_str_default {
+    ($args:expr, $config:expr, $field:ident, $default:expr) => {
+        if let Some(ref val) = $config.$field
+            && $args.$field == $default
+        {
+            $args.$field = val.clone();
+        }
+    };
+}
+
+macro_rules! merge_opt {
+    ($args:expr, $config:expr, $field:ident) => {
+        if $args.$field.is_none() && $config.$field.is_some() {
+            $args.$field = $config.$field.clone();
+        }
+    };
+}
+
+macro_rules! merge_bool {
+    ($args:expr, $config:expr, $field:ident) => {
+        if let Some(val) = $config.$field
+            && !$args.$field
+        {
+            $args.$field = val;
+        }
+    };
+}
+
+macro_rules! merge_num_default {
+    ($args:expr, $config:expr, $field:ident, $default:expr) => {
+        if let Some(val) = $config.$field
+            && $args.$field == $default
+        {
+            $args.$field = val;
+        }
+    };
+}
+
 /// Merges loaded TOML config options into CLI Args if CLI flags were omitted.
 pub fn apply_config_defaults(args: &mut Args, config: &AppConfig) {
-    if let Some(ref val) = config.out_dir
-        && args.out_dir == "Films"
-    {
-        args.out_dir = val.clone();
-    }
-    if let Some(ref val) = config.codec
-        && args.codec == "h264"
-    {
-        args.codec = val.clone();
-    }
-    if let Some(ref val) = config.profile
-        && args.profile == "standard"
-    {
-        args.profile = val.clone();
-    }
-    if let Some(ref val) = config.preset
-        && args.preset == "veryfast"
-    {
-        args.preset = val.clone();
-    }
-    if let Some(ref val) = config.engine
-        && args.engine == "auto"
-    {
-        args.engine = val.clone();
-    }
-    if let Some(ref val) = config.handbrake
-        && args.handbrake == "HandBrakeCLI"
-    {
-        args.handbrake = val.clone();
-    }
-    if let Some(ref val) = config.makemkv
-        && args.makemkv == "makemkvcon"
-    {
-        args.makemkv = val.clone();
-    }
-    if args.mqtt_broker.is_none() {
-        args.mqtt_broker = config.mqtt_broker.clone();
-    }
-    if args.webhook_url.is_none() {
-        args.webhook_url = config.webhook_url.clone();
-    }
-    if args.api_key.is_none() {
-        args.api_key = config.api_key.clone();
-    }
-    if args.plex_url.is_none() {
-        args.plex_url = config.plex_url.clone();
-    }
-    if args.plex_token.is_none() {
-        args.plex_token = config.plex_token.clone();
-    }
-    if args.jellyfin_url.is_none() {
-        args.jellyfin_url = config.jellyfin_url.clone();
-    }
-    if args.jellyfin_key.is_none() {
-        args.jellyfin_key = config.jellyfin_key.clone();
-    }
-    if args.emby_url.is_none() {
-        args.emby_url = config.emby_url.clone();
-    }
-    if args.emby_key.is_none() {
-        args.emby_key = config.emby_key.clone();
-    }
-    if args.post_script.is_none() {
-        args.post_script = config.post_script.clone();
-    }
-    if let Some(val) = config.auto_boxset
-        && !args.auto_boxset
-    {
-        args.auto_boxset = val;
-    }
-    if let Some(val) = config.deinterlace
-        && !args.deinterlace
-    {
-        args.deinterlace = val;
-    }
-    if args.deinterlace_algo.is_none() {
-        args.deinterlace_algo = config.deinterlace_algo.clone();
-    }
-    if let Some(val) = config.denoise
-        && !args.denoise
-    {
-        args.denoise = val;
-    }
-    if let Some(val) = config.min_free_gb
-        && args.min_free_gb == 10
-    {
-        args.min_free_gb = val;
-    }
-    if let Some(val) = config.no_eject
-        && !args.no_eject
-    {
-        args.no_eject = val;
-    }
-    if let Some(val) = config.sub_forced_only
-        && !args.sub_forced_only
-    {
-        args.sub_forced_only = val;
-    }
-    if let Some(val) = config.sub_external_srt
-        && !args.sub_external_srt
-    {
-        args.sub_external_srt = val;
-    }
-    if args.audio_track.is_none() {
-        args.audio_track = config.audio_track;
-    }
-    if args.audit_log.is_none() {
-        args.audit_log = config.audit_log.clone();
-    }
-    if let Some(val) = config.spindown
-        && !args.spindown
-    {
-        args.spindown = val;
-    }
-    if let Some(val) = config.sub_default
-        && !args.sub_default
-    {
-        args.sub_default = val;
-    }
-    if args.tags.is_none() {
-        args.tags = config.tags.clone();
-    }
-    if let Some(val) = config.checksum
-        && !args.checksum
-    {
-        args.checksum = val;
-    }
-    if args.fallback_out_dir.is_none() {
-        args.fallback_out_dir = config.fallback_out_dir.clone();
-    }
-    if let Some(val) = config.sub_burnin
-        && !args.sub_burnin
-    {
-        args.sub_burnin = val;
-    }
-    if args.norm_target.is_none() {
-        args.norm_target = config.norm_target;
-    }
-    if args.eject_autoclose.is_none() {
-        args.eject_autoclose = config.eject_autoclose;
-    }
-    if args.label_regex_replace.is_none() {
-        args.label_regex_replace = config.label_regex_replace.clone();
-    }
-    if args.audio_downmix.is_none() {
-        args.audio_downmix = config.audio_downmix.clone();
-    }
-    if args.auto_cleanup_days.is_none() {
-        args.auto_cleanup_days = config.auto_cleanup_days;
-    }
-    if args.drive_pool.is_none() {
-        args.drive_pool = config.drive_pool.clone();
-    }
-    if !args.auto_rip
-        && let Some(auto) = config.auto_rip
-    {
-        args.auto_rip = auto;
-    }
-    if args.tonemap.is_none() {
-        args.tonemap = config.tonemap.clone();
-    }
-    if let Some(val) = config.ocr
-        && !args.ocr
-    {
-        args.ocr = val;
-    }
-    if let Some(ref val) = config.ocr_lang
-        && args.ocr_lang == "eng"
-    {
-        args.ocr_lang = val.clone();
-    }
-    if let Some(ref val) = config.tesseract
-        && args.tesseract == "tesseract"
-    {
-        args.tesseract = val.clone();
-    }
+    merge_str_default!(args, config, out_dir, "Films");
+    merge_str_default!(args, config, codec, "h264");
+    merge_str_default!(args, config, profile, "standard");
+    merge_str_default!(args, config, preset, "veryfast");
+    merge_str_default!(args, config, engine, "auto");
+    merge_str_default!(args, config, handbrake, "HandBrakeCLI");
+    merge_str_default!(args, config, makemkv, "makemkvcon");
+    merge_str_default!(args, config, ocr_lang, "eng");
+    merge_str_default!(args, config, tesseract, "tesseract");
+
+    merge_opt!(args, config, mqtt_broker);
+    merge_opt!(args, config, webhook_url);
+    merge_opt!(args, config, api_key);
+    merge_opt!(args, config, plex_url);
+    merge_opt!(args, config, plex_token);
+    merge_opt!(args, config, jellyfin_url);
+    merge_opt!(args, config, jellyfin_key);
+    merge_opt!(args, config, emby_url);
+    merge_opt!(args, config, emby_key);
+    merge_opt!(args, config, post_script);
+    merge_opt!(args, config, deinterlace_algo);
+    merge_opt!(args, config, audio_track);
+    merge_opt!(args, config, audit_log);
+    merge_opt!(args, config, tags);
+    merge_opt!(args, config, fallback_out_dir);
+    merge_opt!(args, config, norm_target);
+    merge_opt!(args, config, eject_autoclose);
+    merge_opt!(args, config, label_regex_replace);
+    merge_opt!(args, config, audio_downmix);
+    merge_opt!(args, config, auto_cleanup_days);
+    merge_opt!(args, config, drive_pool);
+    merge_opt!(args, config, tonemap);
+    merge_opt!(args, config, crf);
+
+    merge_bool!(args, config, auto_boxset);
+    merge_bool!(args, config, deinterlace);
+    merge_bool!(args, config, denoise);
+    merge_bool!(args, config, no_eject);
+    merge_bool!(args, config, sub_forced_only);
+    merge_bool!(args, config, sub_external_srt);
+    merge_bool!(args, config, spindown);
+    merge_bool!(args, config, sub_default);
+    merge_bool!(args, config, checksum);
+    merge_bool!(args, config, sub_burnin);
+    merge_bool!(args, config, auto_rip);
+    merge_bool!(args, config, ocr);
+    merge_bool!(args, config, iso);
+    merge_bool!(args, config, auto_crop);
+    merge_bool!(args, config, detelecine);
+    merge_bool!(args, config, spool);
+
+    merge_num_default!(args, config, min_free_gb, 10);
+    merge_num_default!(args, config, sector_retries, 2);
+
     if let Some(val) = config.ignore_errors {
         args.ignore_errors = val;
-    }
-    if let Some(val) = config.iso
-        && !args.iso
-    {
-        args.iso = val;
-    }
-    if let Some(val) = config.auto_crop
-        && !args.auto_crop
-    {
-        args.auto_crop = val;
-    }
-    if let Some(val) = config.detelecine
-        && !args.detelecine
-    {
-        args.detelecine = val;
-    }
-    if args.crf.is_none() {
-        args.crf = config.crf;
-    }
-    if let Some(val) = config.spool
-        && !args.spool
-    {
-        args.spool = val;
-    }
-    if let Some(val) = config.sector_retries
-        && args.sector_retries == 2
-    {
-        args.sector_retries = val;
     }
 }
 
@@ -491,10 +364,6 @@ mod tests {
         let loaded = load_config(Some(&temp.to_string_lossy()));
         assert_eq!(loaded.out_dir, Some("C:\\Saved".to_string()));
         assert_eq!(loaded.codec, Some("hevc".to_string()));
-
-        let repo = FileConfigRepository;
-        let repo_cfg = repo.load_config(Some(&temp.to_string_lossy()));
-        assert_eq!(repo_cfg.out_dir, Some("C:\\Saved".to_string()));
 
         let _ = get_default_config_path();
         let _ = std::fs::remove_file(&temp);

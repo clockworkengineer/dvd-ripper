@@ -323,6 +323,13 @@ pub fn format_duration_hhmmss(total_secs: f64) -> String {
     format!("{:02}:{:02}:{:02}", hours, mins, secs)
 }
 
+/// Formats duration seconds into standardized MM:SS format (e.g. 65 -> "01:05", 3665 -> "61:05").
+pub fn format_mm_ss(total_secs: u64) -> String {
+    let mins = total_secs / 60;
+    let secs = total_secs % 60;
+    format!("{:02}:{:02}", mins, secs)
+}
+
 /// Formats floating-point duration seconds into rounded runtime minute text (e.g. 5400.0 -> "90 mins").
 #[allow(dead_code)]
 pub fn format_duration_minutes(total_secs: f64) -> String {
@@ -975,28 +982,11 @@ pub fn trigger_emby_library_scan(url: &str, api_key: &str) -> anyhow::Result<()>
 }
 
 pub fn trigger_media_server_scans(args: &crate::cli::Args) {
-    if let (Some(url), Some(token)) = (args.plex_url.as_deref(), args.plex_token.as_deref()) {
-        let _ = trigger_plex_library_scan(url, token);
-    }
-    if let (Some(url), Some(key)) = (args.jellyfin_url.as_deref(), args.jellyfin_key.as_deref()) {
-        let _ = trigger_jellyfin_library_scan(url, key);
-    }
-    if let (Some(url), Some(key)) = (args.emby_url.as_deref(), args.emby_key.as_deref()) {
-        let _ = trigger_emby_library_scan(url, key);
-    }
-}
-
-/// Dependency Inversion (DIP/SOLID): High-level trait abstraction for media server library scan triggers.
-#[allow(dead_code)]
-pub trait MediaServerNotifier {
-    fn trigger_scans(&self, args: &crate::cli::Args);
-}
-
-pub struct DefaultMediaServerNotifier;
-impl MediaServerNotifier for DefaultMediaServerNotifier {
-    fn trigger_scans(&self, args: &crate::cli::Args) {
-        trigger_media_server_scans(args);
-    }
+    crate::infrastructure::notifications::media_servers::trigger_media_servers(
+        args.plex_url.as_deref().zip(args.plex_token.as_deref()),
+        args.jellyfin_url.as_deref().zip(args.jellyfin_key.as_deref()),
+        args.emby_url.as_deref().zip(args.emby_key.as_deref()),
+    );
 }
 
 /// Resolves sidecar artwork image file path (e.g. "cover.jpg" or "folder.jpg") relative to target directory.
@@ -1005,87 +995,9 @@ pub fn resolve_artwork_path(target_dir: &Path, filename: &str) -> PathBuf {
     target_dir.join(filename)
 }
 
-/// Resolves sidecar `.nfo` metadata file path from video output path.
-pub fn resolve_nfo_path(video_path: &std::path::Path) -> std::path::PathBuf {
-    let parent = video_path
-        .parent()
-        .unwrap_or_else(|| std::path::Path::new("."));
-    let stem = video_path
-        .file_stem()
-        .and_then(|s| s.to_str())
-        .unwrap_or("media");
-    parent.join(format!("{}.nfo", stem))
-}
-
-#[allow(clippy::too_many_arguments)]
-pub fn generate_nfo_file(
-    output_file: &std::path::Path,
-    title: &str,
-    year: Option<u32>,
-    plot: Option<&str>,
-    rating: Option<&str>,
-    director: Option<&str>,
-    media_type: &str,
-    tags: Option<&str>,
-) -> anyhow::Result<()> {
-    if let Some(parent) = output_file.parent() {
-        std::fs::create_dir_all(parent)?;
-        let nfo_path = resolve_nfo_path(output_file);
-
-        let tag = if media_type.to_lowercase().contains("tv") {
-            "tvshow"
-        } else {
-            "movie"
-        };
-        let year_str = year
-            .map(|y| format!("  <year>{}</year>\n", y))
-            .unwrap_or_default();
-        let plot_str = plot
-            .map(|p| format!("  <plot>{}</plot>\n", quick_xml_escape(p)))
-            .unwrap_or_default();
-        let rating_str = rating
-            .map(|r| format!("  <rating>{}</rating>\n", quick_xml_escape(r)))
-            .unwrap_or_default();
-        let director_str = director
-            .map(|d| format!("  <director>{}</director>\n", quick_xml_escape(d)))
-            .unwrap_or_default();
-
-        let tags_str = if let Some(tags_csv) = tags {
-            let mut buf = String::new();
-            for t in tags_csv.split(',') {
-                let clean_t = t.trim();
-                if !clean_t.is_empty() {
-                    buf.push_str(&format!("  <tag>{}</tag>\n", quick_xml_escape(clean_t)));
-                }
-            }
-            buf
-        } else {
-            String::new()
-        };
-
-        let content = format!(
-            "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n\
-             <{tag}>\n\
-             \x20\x20<title>{}</title>\n\
-             {}{}{}{}{}\
-             </{tag}>\n",
-            quick_xml_escape(title),
-            year_str,
-            plot_str,
-            rating_str,
-            director_str,
-            tags_str,
-            tag = tag
-        );
-
-        std::fs::write(&nfo_path, content)?;
-        println!(
-            "[NFO Metadata] Generated sidecar XML: {}",
-            nfo_path.display()
-        );
-    }
-    Ok(())
-}
+pub use crate::infrastructure::storage::nfo_writer::{
+    generate_nfo_file_detailed as generate_nfo_file, resolve_nfo_path,
+};
 
 /// Appends a structured JSON-Lines audit log entry to the specified audit file path.
 pub fn append_audit_log_entry(
@@ -1146,15 +1058,6 @@ pub fn generate_checksum_file(video_path: &Path) -> Result<PathBuf> {
         checksum_path.display()
     );
     Ok(checksum_path)
-}
-
-fn quick_xml_escape(input: &str) -> String {
-    input
-        .replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-        .replace('"', "&quot;")
-        .replace('\'', "&apos;")
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
