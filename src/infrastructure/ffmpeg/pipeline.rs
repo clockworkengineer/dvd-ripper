@@ -77,7 +77,7 @@ pub struct VideoFilterContributor;
 impl FfmpegArgContributor for VideoFilterContributor {
     fn contribute_video_filters(&self, ctx: &TranscodePipelineContext, filters: &mut Vec<String>) {
         if ctx.filters.detelecine {
-            filters.push("fieldmatch,yadif=deint=interlaced,decimate".to_string());
+            filters.push("fieldmatch=order=auto:mode=pc:combmatch=full,yadif=deint=interlaced,decimate=cycle=5".to_string());
         } else if ctx.filters.deinterlace {
             let algo = ctx.filters.deinterlace_algo.as_deref().unwrap_or("bwdif");
             if algo.eq_ignore_ascii_case("yadif") {

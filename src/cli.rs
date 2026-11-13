@@ -375,6 +375,14 @@ pub struct Args {
     /// Automatically classify and extract DVD bonus features & extras into Plex/Jellyfin subfolders (Trailers, Deleted Scenes, Featurettes)
     #[arg(long = "rip-extras")]
     pub rip_extras: bool,
+
+    /// Optical drive acoustic noise and speed profile: silent (4x, homelab/living-room quiet), balanced (8x), turbo (max)
+    #[arg(long = "acoustic-profile", default_value = "balanced")]
+    pub acoustic_profile: String,
+
+    /// Simultaneously write 1:1 bit-for-bit lossless archival master and streamable compressed video in a single disc read pass
+    #[arg(long = "dual-output")]
+    pub dual_output: bool,
 }
 
 impl Default for Args {
@@ -471,6 +479,8 @@ impl Default for Args {
             sector_retries: 2,
             target_size_mb: None,
             rip_extras: false,
+            acoustic_profile: "balanced".to_string(),
+            dual_output: false,
         }
     }
 }
@@ -543,6 +553,10 @@ pub struct EncodingOptions {
     pub target_size_mb: Option<u32>,
     #[serde(default)]
     pub rip_extras: bool,
+    #[serde(default)]
+    pub acoustic_profile: Option<String>,
+    #[serde(default)]
+    pub dual_output: bool,
 }
 
 impl Args {
@@ -604,6 +618,10 @@ impl Args {
         }
         self.target_size_mb = opts.target_size_mb;
         self.rip_extras = opts.rip_extras;
+        if let Some(prof) = opts.acoustic_profile {
+            self.acoustic_profile = prof;
+        }
+        self.dual_output = opts.dual_output;
     }
 }
 
@@ -671,6 +689,8 @@ impl EncodingOptionProvider for Args {
             sector_retries: self.sector_retries,
             target_size_mb: self.target_size_mb,
             rip_extras: self.rip_extras,
+            acoustic_profile: Some(self.acoustic_profile.clone()),
+            dual_output: self.dual_output,
         }
     }
 }

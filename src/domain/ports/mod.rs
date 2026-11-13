@@ -1,3 +1,4 @@
+pub mod acoustic_supervisor;
 pub mod benchmark;
 pub mod dialogs;
 pub mod iso_archiver;
@@ -8,10 +9,12 @@ pub mod ocr;
 pub mod optical_drive;
 pub mod post_processor;
 pub mod queue;
+pub mod rosetta;
 pub mod storage;
 pub mod testing;
 pub mod transcoder;
 
+pub use acoustic_supervisor::{AcousticSupervisor, DriveAcousticProfile};
 pub use benchmark::DriveBenchmarkService;
 pub use dialogs::FileDialogService;
 pub use iso_archiver::IsoArchiver;
@@ -25,6 +28,7 @@ pub use optical_drive::{
 };
 pub use post_processor::{PostProcessContext, PostProcessor};
 pub use queue::{BoxSetRepository, JobQueueRepository};
+pub use rosetta::{RosettaDiscEntry, RosettaEpisodeEntry, RosettaStoneRegistry};
 pub use storage::{DiskSpaceGuard, HistoryRepository};
 pub use testing::{
     FixedDiskSpaceGuard, InMemoryHistoryRepository, RecordedNotification, RecordingNotifier,

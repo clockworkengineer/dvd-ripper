@@ -761,6 +761,12 @@ const EMBEDDED_DASHBOARD_HTML: &str = r#"<!DOCTYPE html>
                     <button class="btn btn-danger" onclick="cancelRip()">⏹ Cancel</button>
                     <button class="btn btn-secondary" onclick="ejectDisc()">⏏ Eject Tray</button>
                 </div>
+                <div style="margin-top: 0.75rem; display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+                    <span class="muted" style="font-size:0.85rem;">Drive Acoustic Profile:</span>
+                    <button class="btn btn-secondary" style="padding:0.3rem 0.6rem; font-size:0.8rem;" onclick="setAcoustic('silent')">🔇 Silent (4x)</button>
+                    <button class="btn btn-secondary" style="padding:0.3rem 0.6rem; font-size:0.8rem;" onclick="setAcoustic('balanced')">⚖️ Balanced (8x)</button>
+                    <button class="btn btn-secondary" style="padding:0.3rem 0.6rem; font-size:0.8rem;" onclick="setAcoustic('turbo')">🚀 Turbo (16x)</button>
+                </div>
             </div>
         </div>
 
@@ -967,6 +973,13 @@ const EMBEDDED_DASHBOARD_HTML: &str = r#"<!DOCTYPE html>
                 alert(data.message || 'Cancelled rip job.');
                 pollStatus();
             }
+        }
+
+        async function setAcoustic(profile, drive) {
+            const url = '/api/acoustic?profile=' + encodeURIComponent(profile) + (drive ? '&drive=' + encodeURIComponent(drive) : '');
+            const res = await fetch(url, { method: 'POST' });
+            const data = await res.json();
+            alert(data.message || ('Drive acoustic profile set to ' + profile));
         }
 
         fetchHistory();
@@ -1188,6 +1201,12 @@ pub const OPENAPI_V3_JSON: &str = r#"{
       "post": {
         "summary": "Eject DVD optical tray",
         "responses": { "200": { "description": "Tray ejection response" } }
+      }
+    },
+    "/api/acoustic": {
+      "post": {
+        "summary": "Configure optical drive acoustic and rotational speed profile (silent/balanced/turbo)",
+        "responses": { "200": { "description": "Acoustic profile status response" } }
       }
     },
     "/api/queue/list": {
@@ -1451,6 +1470,7 @@ fn handle_client(mut stream: TcpStream, drive_path: &str) -> Result<()> {
             || path_str.starts_with("/api/select")
             || path_str.starts_with("/api/rip")
             || path_str.starts_with("/api/cancel")
+            || path_str.starts_with("/api/acoustic")
             || path_str.starts_with("/api/eject"));
 
     if is_json_post_endpoint
@@ -1473,7 +1493,7 @@ fn handle_client(mut stream: TcpStream, drive_path: &str) -> Result<()> {
         return Ok(());
     }
 
-    if method_str == "GET" && (path_str == "/" || path_str == "/index.html") {
+    if method_str == "GET" && (path_str == "/" || path_str == "/index.html" || path_str == "/dashboard") {
         send_http_response(
             &mut stream,
             "200 OK",
@@ -1771,6 +1791,51 @@ fn handle_client(mut stream: TcpStream, drive_path: &str) -> Result<()> {
         let ok = eject_disc(&chosen_drive);
         reset_drive_status(&chosen_drive, "Idle");
         let resp_obj = serde_json::json!({ "success": ok, "drive": chosen_drive });
+        send_http_response(
+            &mut stream,
+            "200 OK",
+            "application/json",
+            &resp_obj.to_string(),
+        )?;
+    } else if method_str == "POST"
+        && (path_str == "/api/acoustic" || path_str.starts_with("/api/acoustic"))
+    {
+        let body_str = extract_body(&req_bytes).unwrap_or_default();
+        let mut target_drive = parse_query_param(&path_str, "drive");
+        let mut profile_str = parse_query_param(&path_str, "profile");
+
+        if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(body_str) {
+            if target_drive.is_none()
+                && let Some(d) = parsed.get("drive").and_then(|v| v.as_str())
+            {
+                target_drive = Some(d.to_string());
+            }
+            if profile_str.is_none()
+                && let Some(p) = parsed.get("profile").and_then(|v| v.as_str())
+            {
+                profile_str = Some(p.to_string());
+            }
+        }
+
+        let chosen_drive = target_drive.unwrap_or_else(|| drive_path.to_string());
+        let chosen_profile_name = profile_str.unwrap_or_else(|| "balanced".to_string());
+
+        let profile = match chosen_profile_name.to_lowercase().as_str() {
+            "silent" => crate::domain::ports::DriveAcousticProfile::Silent,
+            "turbo" => crate::domain::ports::DriveAcousticProfile::Turbo,
+            _ => crate::domain::ports::DriveAcousticProfile::Balanced,
+        };
+
+        use crate::domain::ports::acoustic_supervisor::AcousticSupervisor;
+        let supervisor = crate::infrastructure::optical::ScsiSpeedController::new();
+        let _ = supervisor.apply_profile(std::path::Path::new(&chosen_drive), profile);
+
+        let resp_obj = serde_json::json!({
+            "success": true,
+            "profile": chosen_profile_name,
+            "drive": chosen_drive,
+            "message": format!("Drive acoustic profile set to {}", chosen_profile_name)
+        });
         send_http_response(
             &mut stream,
             "200 OK",
@@ -2902,6 +2967,14 @@ mod tests {
         let json_eject = b"POST /api/eject HTTP/1.1\r\nContent-Type: application/json\r\nContent-Length: 14\r\n\r\n{\"drive\":\"D:\"}";
         let (r_ej, _) = test_handle_client_route(json_eject);
         assert!(r_ej.contains("200 OK"));
+
+        let (r_dash, _) = test_handle_client_route(b"GET /dashboard HTTP/1.1\r\n\r\n");
+        assert!(r_dash.contains("200 OK"));
+        assert!(r_dash.contains("DVD Ripper Embedded Appliance"));
+
+        let (r_ac, _) = test_handle_client_route(b"POST /api/acoustic?profile=silent&drive=D: HTTP/1.1\r\n\r\n");
+        assert!(r_ac.contains("200 OK"));
+        assert!(r_ac.contains("silent"));
 
         let json_cancel = b"POST /api/cancel HTTP/1.1\r\nContent-Type: application/json\r\nContent-Length: 14\r\n\r\n{\"drive\":\"D:\"}";
         let (r_can, _) = test_handle_client_route(json_cancel);

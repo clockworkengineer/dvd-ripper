@@ -21,6 +21,7 @@ pub use crate::domain::entities::{
 
 // Domain Ports
 pub use crate::domain::ports::{
+    acoustic_supervisor::{AcousticSupervisor, DriveAcousticProfile},
     benchmark::DriveBenchmarkService,
     dialogs::FileDialogService,
     media_probe::{StreamProber, ThumbnailExtractor},
@@ -32,6 +33,7 @@ pub use crate::domain::ports::{
         TitleProber, TrayController, TrayOperator,
     },
     post_processor::{PostProcessContext, PostProcessor},
+    rosetta::{RosettaDiscEntry, RosettaEpisodeEntry, RosettaStoneRegistry},
     storage::{DiskSpaceGuard, HistoryRepository},
     testing::{
         FixedDiskSpaceGuard, InMemoryHistoryRepository, RecordedNotification, RecordingNotifier,
@@ -47,12 +49,13 @@ pub use crate::domain::ports::{
 pub use crate::domain::heuristics::{
     ClusterTitleRankingStrategy, DurationClusteringTvStrategy, EpisodeDetectionStrategy,
     LongestTrackStrategy, TitleRankingStrategy, TvDetectionConfig,
+    telecine::{CadenceAnalyzer, FieldOrder, TelecineFilterRecommendation, TelecineMetrics, VideoCadence},
 };
 
 // Application Use Cases & DTOs
 pub use crate::application::{
-    DiscProbeResult, DrivePool, DumpIsoRequest, DumpIsoRequestBuilder, DumpIsoUseCase,
-    ProbeDiscUseCase, RipSingleTitleRequest, RipSingleTitleRequestBuilder, RipSingleTitleUseCase,
+    DiscProbeResult, DrivePool, DualOutputRipRequest, DualOutputRipUseCase, DumpIsoRequest,
+    DumpIsoRequestBuilder, DumpIsoUseCase, ProbeDiscUseCase, RipSingleTitleRequest, RipSingleTitleRequestBuilder, RipSingleTitleUseCase,
     RipTvBatchRequest, RipTvBatchRequestBuilder, RipTvBatchUseCase,
 };
 

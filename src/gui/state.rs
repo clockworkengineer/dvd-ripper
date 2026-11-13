@@ -595,6 +595,8 @@ impl DvdRipperApp {
             sector_retries: 2,
             target_size_mb: None,
             rip_extras: false,
+            acoustic_profile: Some("balanced".to_string()),
+            dual_output: false,
         }
     }
 

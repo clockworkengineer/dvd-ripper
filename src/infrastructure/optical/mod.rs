@@ -2,6 +2,7 @@ pub mod benchmark;
 pub mod ifo_parser;
 pub mod iso_archiver;
 pub mod platform;
+pub mod scsi_controller;
 pub mod windows;
 
 pub use benchmark::FfmpegDriveBenchmarkService;
@@ -10,6 +11,7 @@ pub use ifo_parser::{
     resolve_vts_ttn_to_pgcn,
 };
 pub use iso_archiver::SystemIsoArchiver;
+pub use scsi_controller::ScsiSpeedController;
 pub use windows::{
     PhysicalOpticalDrive, SystemDiscInspector, SystemDriveDetector, SystemTrayController,
 };

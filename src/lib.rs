@@ -71,6 +71,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use crate::cli::Args;
+use crate::domain::ports::acoustic_supervisor::AcousticSupervisor;
 use crate::domain::ports::benchmark::DriveBenchmarkService;
 use crate::domain::ports::dialogs::FileDialogService;
 use crate::domain::ports::iso_archiver::IsoArchiver;
@@ -83,6 +84,7 @@ use crate::domain::ports::ocr::OcrProcessor;
 use crate::domain::ports::optical_drive::{DiscInspector, DriveDetector, TrayController};
 use crate::domain::ports::post_processor::PostProcessor;
 use crate::domain::ports::queue::{BoxSetRepository, JobQueueRepository};
+use crate::domain::ports::rosetta::RosettaStoneRegistry;
 use crate::domain::ports::storage::{DiskSpaceGuard, HistoryRepository};
 use crate::domain::ports::transcoder::Transcoder;
 use crate::dvd::normalize_dvd_path;
@@ -137,6 +139,7 @@ pub struct AppContainer {
     pub drive_detector: Arc<dyn DriveDetector>,
     pub disc_inspector: Arc<dyn DiscInspector>,
     pub tray_controller: Arc<dyn TrayController>,
+    pub acoustic_supervisor: Arc<dyn AcousticSupervisor>,
     pub drive_benchmark: Arc<dyn DriveBenchmarkService>,
     pub thumbnail_extractor: Arc<dyn ThumbnailExtractor>,
     pub stream_prober: Arc<dyn StreamProber>,
@@ -150,6 +153,7 @@ pub struct AppContainer {
     pub boxset_repo: Arc<dyn BoxSetRepository>,
     pub disk_guard: Arc<dyn DiskSpaceGuard>,
     pub dialog_service: Arc<dyn FileDialogService>,
+    pub rosetta_registry: Arc<dyn RosettaStoneRegistry>,
 }
 
 impl AppContainer {
@@ -195,6 +199,7 @@ impl AppContainer {
             drive_detector: Arc::new(crate::infrastructure::optical::SystemDriveDetector::new()),
             disc_inspector: Arc::new(crate::infrastructure::optical::SystemDiscInspector::new()),
             tray_controller,
+            acoustic_supervisor: Arc::new(crate::infrastructure::optical::ScsiSpeedController::new()),
             drive_benchmark: Arc::new(
                 crate::infrastructure::optical::FfmpegDriveBenchmarkService::new(ffmpeg_bin),
             ),
@@ -214,6 +219,9 @@ impl AppContainer {
             boxset_repo: Arc::new(crate::queue::FileBoxSetEpisodeTracker),
             disk_guard: Arc::new(crate::infrastructure::storage::SystemDiskSpaceGuard::new()),
             dialog_service: Arc::new(crate::infrastructure::system::NativeFileDialogService::new()),
+            rosetta_registry: Arc::new(crate::infrastructure::metadata::LocalRosettaRegistry::with_storage(
+                crate::utils::get_app_data_dir().join("rosetta_registry.json"),
+            )),
         }
     }
 
@@ -329,6 +337,7 @@ impl AppContainer {
             drive_detector: Arc::new(crate::infrastructure::optical::SystemDriveDetector::new()),
             disc_inspector: Arc::new(crate::infrastructure::optical::SystemDiscInspector::new()),
             tray_controller,
+            acoustic_supervisor: Arc::new(crate::infrastructure::optical::ScsiSpeedController::new()),
             drive_benchmark: Arc::new(
                 crate::infrastructure::optical::FfmpegDriveBenchmarkService::new(&args.ffmpeg),
             ),
@@ -344,6 +353,9 @@ impl AppContainer {
             boxset_repo: Arc::new(crate::queue::FileBoxSetEpisodeTracker),
             disk_guard: Arc::new(crate::infrastructure::storage::SystemDiskSpaceGuard::new()),
             dialog_service: Arc::new(crate::infrastructure::system::NativeFileDialogService::new()),
+            rosetta_registry: Arc::new(crate::infrastructure::metadata::LocalRosettaRegistry::with_storage(
+                crate::utils::get_app_data_dir().join("rosetta_registry.json"),
+            )),
         }
     }
 
@@ -391,6 +403,17 @@ impl AppContainer {
             self.notifier.clone(),
             self.disk_guard.clone(),
             self.history_repo.clone(),
+        )
+    }
+
+    /// Creates a new [`DualOutputRipUseCase`](application::dual_output_rip::DualOutputRipUseCase)
+    /// for executing simultaneous single-pass Remux + Transcode streams.
+    pub fn dual_output_rip_use_case(&self) -> application::dual_output_rip::DualOutputRipUseCase {
+        application::dual_output_rip::DualOutputRipUseCase::new(
+            self.transcoder.clone(),
+            self.history_repo.clone(),
+            self.notifier.clone(),
+            self.disk_guard.clone(),
         )
     }
 
@@ -486,6 +509,18 @@ impl AppContainerBuilder {
         self
     }
 
+    /// Overrides the [`AcousticSupervisor`] port implementation.
+    pub fn with_acoustic_supervisor(mut self, supervisor: Arc<dyn AcousticSupervisor>) -> Self {
+        self.container.acoustic_supervisor = supervisor;
+        self
+    }
+
+    /// Overrides the [`RosettaStoneRegistry`] port implementation.
+    pub fn with_rosetta_registry(mut self, registry: Arc<dyn RosettaStoneRegistry>) -> Self {
+        self.container.rosetta_registry = registry;
+        self
+    }
+
     /// Consumes the builder and returns the configured [`AppContainer`].
     pub fn build(self) -> AppContainer {
         self.container
@@ -532,6 +567,7 @@ mod tests {
         assert!(Arc::strong_count(&container.drive_detector) >= 1);
         assert!(Arc::strong_count(&container.disc_inspector) >= 1);
         assert!(Arc::strong_count(&container.tray_controller) >= 1);
+        assert!(Arc::strong_count(&container.acoustic_supervisor) >= 1);
         assert!(Arc::strong_count(&container.drive_benchmark) >= 1);
         assert!(Arc::strong_count(&container.thumbnail_extractor) >= 1);
         assert!(Arc::strong_count(&container.ocr_processor) >= 1);
@@ -539,6 +575,7 @@ mod tests {
         assert!(Arc::strong_count(&container.notifier) >= 1);
         assert!(Arc::strong_count(&container.history_repo) >= 1);
         assert!(Arc::strong_count(&container.disk_guard) >= 1);
+        assert!(Arc::strong_count(&container.rosetta_registry) >= 1);
         assert!(Arc::strong_count(&container.dialog_service) >= 1);
     }
 

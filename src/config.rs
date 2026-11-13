@@ -67,6 +67,10 @@ pub struct AppConfig {
     #[serde(default)]
     pub sector_retries: Option<u32>,
     #[serde(default)]
+    pub acoustic_profile: Option<String>,
+    #[serde(default)]
+    pub dual_output: Option<bool>,
+    #[serde(default)]
     pub window_pos_x: Option<f32>,
     #[serde(default)]
     pub window_pos_y: Option<f32>,
@@ -187,6 +191,7 @@ pub fn apply_config_defaults(args: &mut Args, config: &AppConfig) {
     merge_str_default!(args, config, makemkv, "makemkvcon");
     merge_str_default!(args, config, ocr_lang, "eng");
     merge_str_default!(args, config, tesseract, "tesseract");
+    merge_str_default!(args, config, acoustic_profile, "balanced");
 
     merge_opt!(args, config, mqtt_broker);
     merge_opt!(args, config, webhook_url);
@@ -228,6 +233,7 @@ pub fn apply_config_defaults(args: &mut Args, config: &AppConfig) {
     merge_bool!(args, config, auto_crop);
     merge_bool!(args, config, detelecine);
     merge_bool!(args, config, spool);
+    merge_bool!(args, config, dual_output);
 
     merge_num_default!(args, config, min_free_gb, 10);
     merge_num_default!(args, config, sector_retries, 2);
