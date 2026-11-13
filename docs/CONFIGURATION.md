@@ -25,9 +25,13 @@ Save a `dvd-ripper.toml` file in your working directory or in `~/.dvd-ripper/con
 # ==============================================================================
 
 # --- Base Directory & Output Architecture ---
-# Base output directory (movies are routed to /Films and TV series to /TV)
+# Base output directory (movies are routed to films_dir and TV series to tv_dir)
 # Supports sibling auto-resolution (e.g. C:\Media\Films routes TV shows to sibling C:\Media\TV)
 out_dir = "Films"
+# Configurable subfolder name for movie/film rips (default: "Films")
+films_dir = "Films"
+# Configurable subfolder name for TV series rips (default: "TV")
+tv_dir = "TV"
 # Secondary fallback directory if primary storage drops below min_free_gb
 # fallback_out_dir = "E:\\BackupMedia"
 

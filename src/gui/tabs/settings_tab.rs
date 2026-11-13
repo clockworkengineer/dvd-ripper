@@ -8,6 +8,8 @@ use eframe::egui;
 pub fn render_settings_tab(
     ui: &mut egui::Ui,
     out_dir: &mut String,
+    films_dir: &mut String,
+    tv_dir: &mut String,
     codec: &mut String,
     profile: &mut String,
     preset: &mut String,
@@ -76,6 +78,16 @@ pub fn render_settings_tab(
                     if ui.button("📂 Browse...").clicked() {
                         on_browse_out_dir();
                     }
+                });
+
+                ui.horizontal(|ui| {
+                    ui.label("Films Subfolder Name:");
+                    ui.add(egui::TextEdit::singleline(films_dir).desired_width(120.0))
+                        .on_hover_text("Subfolder name for Movie/Film rips within output directory (default: Films)");
+
+                    ui.label("TV Subfolder Name:");
+                    ui.add(egui::TextEdit::singleline(tv_dir).desired_width(120.0))
+                        .on_hover_text("Subfolder name for TV Series rips within output directory (default: TV)");
                 });
 
                 ui.horizontal(|ui| {
@@ -188,6 +200,8 @@ mod tests {
         let _ = ctx.run(Default::default(), |ctx| {
             egui::CentralPanel::default().show(ctx, |ui| {
                 let mut out_dir = "C:\\Videos".to_string();
+                let mut films_dir = "Films".to_string();
+                let mut tv_dir = "TV".to_string();
                 let mut codec = "h264".to_string();
                 let mut profile = "standard".to_string();
                 let mut preset = "slow".to_string();
@@ -206,6 +220,8 @@ mod tests {
                 render_settings_tab(
                     ui,
                     &mut out_dir,
+                    &mut films_dir,
+                    &mut tv_dir,
                     &mut codec,
                     &mut profile,
                     &mut preset,

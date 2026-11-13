@@ -81,13 +81,29 @@ pub struct DiscSelectionSpec {
 }
 
 /// Segregated output file and container naming specification.
-#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct OutputNamingSpec {
     pub out_dir: String,
+    pub films_dir: String,
+    pub tv_dir: String,
     pub explicit_output: Option<String>,
     pub mkv: bool,
     pub iso: bool,
     pub no_overwrite: bool,
+}
+
+impl Default for OutputNamingSpec {
+    fn default() -> Self {
+        Self {
+            out_dir: "Films".to_string(),
+            films_dir: "Films".to_string(),
+            tv_dir: "TV".to_string(),
+            explicit_output: None,
+            mkv: false,
+            iso: false,
+            no_overwrite: false,
+        }
+    }
 }
 
 impl From<&crate::cli::Args> for VideoEncodingSpec {
@@ -167,6 +183,8 @@ impl From<&crate::cli::Args> for OutputNamingSpec {
     fn from(args: &crate::cli::Args) -> Self {
         Self {
             out_dir: args.out_dir.clone(),
+            films_dir: args.films_dir.clone(),
+            tv_dir: args.tv_dir.clone(),
             explicit_output: args.output.clone(),
             mkv: args.mkv,
             iso: args.iso,

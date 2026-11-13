@@ -21,6 +21,8 @@ use crate::ffmpeg::{
 pub struct RipTaskSpecification {
     pub drive: String,
     pub out_dir: String,
+    pub films_dir: String,
+    pub tv_dir: String,
     pub is_iso: bool,
     pub is_tv: bool,
     pub all_episodes: bool,
@@ -382,6 +384,8 @@ impl GuiApplicationController {
             let mut base_args = Args {
                 input: spec.drive.clone(),
                 out_dir: spec.out_dir.clone(),
+                films_dir: spec.films_dir.clone(),
+                tv_dir: spec.tv_dir.clone(),
                 ffmpeg: spec.ffmpeg_path.clone(),
                 handbrake: spec.handbrake_path.clone(),
                 makemkv: spec.makemkv_path.clone(),
@@ -548,6 +552,7 @@ impl GuiApplicationController {
                             show_name,
                             &spec.out_dir,
                         )
+                        .tv_dir(&spec.tv_dir)
                         .season(spec.season)
                         .start_episode(spec.start_episode)
                         .episodes(spec.detected_episodes.clone())
@@ -789,9 +794,9 @@ impl GuiApplicationController {
                 let _ = tx.send(ProgressEvent::Success(saved_path));
             } else {
                 let fallback = if spec.is_tv {
-                    crate::ffmpeg::resolve_tv_root(&spec.out_dir)
+                    crate::ffmpeg::resolve_tv_root_custom(&spec.out_dir, &spec.tv_dir)
                 } else {
-                    crate::ffmpeg::resolve_films_root(&spec.out_dir)
+                    crate::ffmpeg::resolve_films_root_custom(&spec.out_dir, &spec.films_dir)
                 };
                 let _ = tx.send(ProgressEvent::Success(fallback));
             }
@@ -835,6 +840,8 @@ mod tests {
         let spec = RipTaskSpecification {
             drive: "D:\\".to_string(),
             out_dir: "C:\\Out".to_string(),
+            films_dir: "Films".to_string(),
+            tv_dir: "TV".to_string(),
             is_iso: false,
             is_tv: false,
             all_episodes: false,
@@ -886,6 +893,8 @@ mod tests {
         let spec = RipTaskSpecification {
             drive: "Z:\\NonExistentDrive".to_string(),
             out_dir: "C:\\Out".to_string(),
+            films_dir: "Films".to_string(),
+            tv_dir: "TV".to_string(),
             is_iso: true,
             is_tv: false,
             all_episodes: false,
@@ -921,6 +930,8 @@ mod tests {
         let spec_hb = RipTaskSpecification {
             drive: "Z:\\NonExistentDrive".to_string(),
             out_dir: "C:\\Out".to_string(),
+            films_dir: "Films".to_string(),
+            tv_dir: "TV".to_string(),
             is_iso: false,
             is_tv: false,
             all_episodes: false,
@@ -946,6 +957,8 @@ mod tests {
         let spec_mmkv = RipTaskSpecification {
             drive: "Z:\\NonExistentDrive".to_string(),
             out_dir: "C:\\Out".to_string(),
+            films_dir: "Films".to_string(),
+            tv_dir: "TV".to_string(),
             is_iso: false,
             is_tv: true,
             all_episodes: true,
@@ -976,6 +989,8 @@ mod tests {
         let spec_native = RipTaskSpecification {
             drive: "Z:\\NonExistentDrive".to_string(),
             out_dir: "C:\\Out".to_string(),
+            films_dir: "Films".to_string(),
+            tv_dir: "TV".to_string(),
             is_iso: false,
             is_tv: false,
             all_episodes: false,

@@ -67,6 +67,8 @@ pub struct DvdRipperApp {
     pub film_name: String,
     pub film_year: String,
     pub out_dir: String,
+    pub films_dir: String,
+    pub tv_dir: String,
     pub title_number: u32,
     pub transcode: bool,
     pub mkv: bool,
@@ -226,6 +228,8 @@ impl Default for DvdRipperApp {
             film_name: String::new(),
             film_year: String::new(),
             out_dir: default_out,
+            films_dir: cfg.films_dir.clone().unwrap_or_else(|| "Films".to_string()),
+            tv_dir: cfg.tv_dir.clone().unwrap_or_else(|| "TV".to_string()),
             title_number: 0,
             transcode: false,
             mkv: false,
@@ -491,12 +495,16 @@ impl DvdRipperApp {
     pub fn save_current_output_dir_preference(&self) {
         let mut cfg = crate::config::load_config(None);
         cfg.out_dir = Some(self.out_dir.clone());
+        cfg.films_dir = Some(self.films_dir.clone());
+        cfg.tv_dir = Some(self.tv_dir.clone());
         let _ = crate::config::save_default_config(&cfg);
     }
 
     pub fn reset_to_defaults(&mut self) {
         let def = Self::default();
         self.simple_mode = def.simple_mode;
+        self.films_dir = def.films_dir;
+        self.tv_dir = def.tv_dir;
         self.codec = def.codec;
         self.profile = def.profile;
         self.preset = def.preset;
@@ -995,6 +1003,8 @@ impl DvdRipperApp {
         let spec = RipTaskSpecification {
             drive: self.input_drive.clone(),
             out_dir: self.out_dir.clone(),
+            films_dir: self.films_dir.clone(),
+            tv_dir: self.tv_dir.clone(),
             is_iso: self.iso_mode,
             is_tv: self.is_tv_mode,
             all_episodes: self.all_episodes,
@@ -1039,10 +1049,10 @@ impl DvdRipperApp {
             "Movie"
         };
         let cancelled_path = if self.is_tv_mode {
-            let tv_root = crate::ffmpeg::resolve_tv_root(&self.out_dir);
+            let tv_root = crate::ffmpeg::resolve_tv_root_custom(&self.out_dir, &self.tv_dir);
             tv_root.to_string_lossy().to_string()
         } else {
-            let films_root = crate::ffmpeg::resolve_films_root(&self.out_dir);
+            let films_root = crate::ffmpeg::resolve_films_root_custom(&self.out_dir, &self.films_dir);
             if let Some(film_name) = self.film_name_opt() {
                 let year = self.film_year.trim().parse::<u32>().ok();
                 let stem = crate::domain::naming::format_media_stem(Some(&film_name), year, "DVD_Rip");

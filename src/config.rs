@@ -11,6 +11,8 @@ use std::path::Path;
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct AppConfig {
     pub out_dir: Option<String>,
+    pub films_dir: Option<String>,
+    pub tv_dir: Option<String>,
     pub codec: Option<String>,
     pub profile: Option<String>,
     pub preset: Option<String>,
@@ -183,6 +185,8 @@ macro_rules! merge_num_default {
 /// Merges loaded TOML config options into CLI Args if CLI flags were omitted.
 pub fn apply_config_defaults(args: &mut Args, config: &AppConfig) {
     merge_str_default!(args, config, out_dir, "Films");
+    merge_str_default!(args, config, films_dir, "Films");
+    merge_str_default!(args, config, tv_dir, "TV");
     merge_str_default!(args, config, codec, "h264");
     merge_str_default!(args, config, profile, "standard");
     merge_str_default!(args, config, preset, "veryfast");
@@ -270,6 +274,8 @@ mod tests {
         let mut args = Args::default();
         let cfg = AppConfig {
             out_dir: Some("CustomMedia".to_string()),
+            films_dir: Some("Movies".to_string()),
+            tv_dir: Some("Series".to_string()),
             codec: Some("av1".to_string()),
             api_key: Some("test_api_key".to_string()),
             ocr: Some(true),
@@ -280,6 +286,8 @@ mod tests {
 
         apply_config_defaults(&mut args, &cfg);
         assert_eq!(args.out_dir, "CustomMedia");
+        assert_eq!(args.films_dir, "Movies");
+        assert_eq!(args.tv_dir, "Series");
         assert_eq!(args.codec, "av1");
         assert_eq!(args.api_key, Some("test_api_key".to_string()));
         assert!(args.ocr);

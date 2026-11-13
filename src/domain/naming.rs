@@ -32,68 +32,112 @@ pub fn resolve_container_extension(spec: &OutputNamingSpec) -> &'static str {
     }
 }
 
+/// Helper: Checks if the path component matches a given folder name (case-insensitive).
+pub fn is_named_folder(path: &Path, name: &str) -> bool {
+    let clean = name.trim();
+    if clean.is_empty() {
+        return false;
+    }
+    path.file_name()
+        .map(|s| s.to_string_lossy().eq_ignore_ascii_case(clean))
+        .unwrap_or(false)
+}
+
 /// Helper: Checks if the path component is named "films" (case-insensitive).
 pub fn is_named_films(path: &Path) -> bool {
-    path.file_name()
-        .map(|s| s.to_string_lossy().eq_ignore_ascii_case("films"))
-        .unwrap_or(false)
+    is_named_films_custom(path, "Films")
+}
+
+/// Helper: Checks if the path component is named "films" or matches a custom films folder name (case-insensitive).
+pub fn is_named_films_custom(path: &Path, custom_name: &str) -> bool {
+    is_named_folder(path, "films") || is_named_folder(path, custom_name)
 }
 
 /// Helper: Checks if the path component is named "tv" or "tv shows" (case-insensitive).
 pub fn is_named_tv(path: &Path) -> bool {
-    path.file_name()
-        .map(|s| {
-            let lossy = s.to_string_lossy();
-            lossy.eq_ignore_ascii_case("tv") || lossy.eq_ignore_ascii_case("tv shows")
-        })
-        .unwrap_or(false)
+    is_named_tv_custom(path, "TV")
 }
 
-/// Resolves the root destination directory for Film/Movie rips.
-/// Defaults to `<out_dir>/Films`. If `out_dir` already ends in `Films`, it is kept as-is.
-/// If `out_dir` ends in `TV`, its parent sibling `/Films` is used.
+/// Helper: Checks if the path component is named "tv", "tv shows", or matches a custom tv folder name (case-insensitive).
+pub fn is_named_tv_custom(path: &Path, custom_name: &str) -> bool {
+    is_named_folder(path, "tv") || is_named_folder(path, "tv shows") || is_named_folder(path, custom_name)
+}
+
+/// Resolves the root destination directory for Film/Movie rips with custom films and tv subfolder names.
+/// Defaults to `<out_dir>/<films_dir>`. If `out_dir` already ends in the films folder, it is kept as-is.
+/// If `out_dir` ends in the tv folder, its parent sibling `/<films_dir>` is used.
+pub fn resolve_films_root_with_tv(out_dir: &str, films_dir: &str, tv_dir: &str) -> PathBuf {
+    let folder_name = if films_dir.trim().is_empty() {
+        "Films"
+    } else {
+        films_dir.trim()
+    };
+    let trimmed = out_dir.trim().trim_end_matches(['/', '\\']);
+    if trimmed.is_empty() || trimmed == "." {
+        return PathBuf::from(folder_name);
+    }
+    let p = Path::new(trimmed);
+    if is_named_films_custom(p, folder_name) {
+        p.to_path_buf()
+    } else if is_named_tv_custom(p, tv_dir) {
+        match p.parent() {
+            Some(parent) if !parent.as_os_str().is_empty() => parent.join(folder_name),
+            _ => PathBuf::from(folder_name),
+        }
+    } else {
+        p.join(folder_name)
+    }
+}
+
+/// Resolves the root destination directory for Film/Movie rips with a custom films subfolder name.
+pub fn resolve_films_root_custom(out_dir: &str, films_dir: &str) -> PathBuf {
+    resolve_films_root_with_tv(out_dir, films_dir, "TV")
+}
+
+/// Resolves the root destination directory for Film/Movie rips using standard "Films" default.
 pub fn resolve_films_root(out_dir: &str) -> PathBuf {
+    resolve_films_root_custom(out_dir, "Films")
+}
+
+/// Resolves the root destination directory for TV series rips with custom tv and films subfolder names.
+/// Defaults to `<out_dir>/<tv_dir>`. If `out_dir` already ends in the tv folder, it is kept as-is.
+/// If `out_dir` ends in the films folder, its parent sibling `/<tv_dir>` is used.
+pub fn resolve_tv_root_with_films(out_dir: &str, tv_dir: &str, films_dir: &str) -> PathBuf {
+    let folder_name = if tv_dir.trim().is_empty() {
+        "TV"
+    } else {
+        tv_dir.trim()
+    };
     let trimmed = out_dir.trim().trim_end_matches(['/', '\\']);
     if trimmed.is_empty() || trimmed == "." {
-        return PathBuf::from("Films");
+        return PathBuf::from(folder_name);
     }
     let p = Path::new(trimmed);
-    if is_named_films(p) {
+    if is_named_tv_custom(p, folder_name) {
         p.to_path_buf()
-    } else if is_named_tv(p) {
+    } else if is_named_films_custom(p, films_dir) {
         match p.parent() {
-            Some(parent) if !parent.as_os_str().is_empty() => parent.join("Films"),
-            _ => PathBuf::from("Films"),
+            Some(parent) if !parent.as_os_str().is_empty() => parent.join(folder_name),
+            _ => PathBuf::from(folder_name),
         }
     } else {
-        p.join("Films")
+        p.join(folder_name)
     }
 }
 
-/// Resolves the root destination directory for TV series rips.
-/// Defaults to `<out_dir>/TV`. If `out_dir` already ends in `TV`, it is kept as-is.
-/// If `out_dir` ends in `Films`, its parent sibling `/TV` is used.
+/// Resolves the root destination directory for TV series rips with a custom tv subfolder name.
+pub fn resolve_tv_root_custom(out_dir: &str, tv_dir: &str) -> PathBuf {
+    resolve_tv_root_with_films(out_dir, tv_dir, "Films")
+}
+
+/// Resolves the root destination directory for TV series rips using standard "TV" default.
 pub fn resolve_tv_root(out_dir: &str) -> PathBuf {
-    let trimmed = out_dir.trim().trim_end_matches(['/', '\\']);
-    if trimmed.is_empty() || trimmed == "." {
-        return PathBuf::from("TV");
-    }
-    let p = Path::new(trimmed);
-    if is_named_tv(p) {
-        p.to_path_buf()
-    } else if is_named_films(p) {
-        match p.parent() {
-            Some(parent) if !parent.as_os_str().is_empty() => parent.join("TV"),
-            _ => PathBuf::from("TV"),
-        }
-    } else {
-        p.join("TV")
-    }
+    resolve_tv_root_custom(out_dir, "TV")
 }
 
 /// Resolves a movie output path purely from [`OutputNamingSpec`], title, and optional release year.
-/// Always places film rips into the `/Films` subfolder of the configured base directory:
-/// `<base_folder>/Films/<Title (Year)>/<Title (Year)>.<ext>`.
+/// Always places film rips into the configured films subfolder of the base directory:
+/// `<base_folder>/<films_dir>/<Title (Year)>/<Title (Year)>.<ext>`.
 pub fn resolve_movie_output_path(
     spec: &OutputNamingSpec,
     title: Option<&str>,
@@ -106,7 +150,17 @@ pub fn resolve_movie_output_path(
     }
     let ext = resolve_container_extension(spec);
     let stem = format_media_stem(title, year, "DVD_Rip");
-    let films_root = resolve_films_root(&spec.out_dir);
+    let films_dir = if spec.films_dir.trim().is_empty() {
+        "Films"
+    } else {
+        &spec.films_dir
+    };
+    let tv_dir = if spec.tv_dir.trim().is_empty() {
+        "TV"
+    } else {
+        &spec.tv_dir
+    };
+    let films_root = resolve_films_root_with_tv(&spec.out_dir, films_dir, tv_dir);
     films_root.join(&stem).join(format!("{}.{}", stem, ext))
 }
 
@@ -118,6 +172,8 @@ mod tests {
     fn test_domain_naming_conventions() {
         let spec = OutputNamingSpec {
             out_dir: "/movies".to_string(),
+            films_dir: "Films".to_string(),
+            tv_dir: "TV".to_string(),
             explicit_output: None,
             mkv: true,
             iso: false,
@@ -144,6 +200,39 @@ mod tests {
         assert_eq!(
             resolve_films_root(&base_tv.to_string_lossy()),
             base.join("Films")
+        );
+    }
+
+    #[test]
+    fn test_domain_naming_custom_folders() {
+        let spec = OutputNamingSpec {
+            out_dir: "C:\\Media".to_string(),
+            films_dir: "Movies".to_string(),
+            tv_dir: "Series".to_string(),
+            explicit_output: None,
+            mkv: true,
+            iso: false,
+            no_overwrite: false,
+        };
+        let p = resolve_movie_output_path(&spec, Some("Inception"), Some(2010));
+        assert!(p.to_string_lossy().contains("Movies"));
+        assert!(p.to_string_lossy().ends_with("Inception (2010).mkv"));
+
+        assert_eq!(
+            resolve_films_root_custom("C:\\Media", "Movies"),
+            PathBuf::from("C:\\Media\\Movies")
+        );
+        assert_eq!(
+            resolve_tv_root_custom("C:\\Media", "Series"),
+            PathBuf::from("C:\\Media\\Series")
+        );
+        assert_eq!(
+            resolve_films_root_with_tv("C:\\Media\\Series", "Movies", "Series"),
+            PathBuf::from("C:\\Media\\Movies")
+        );
+        assert_eq!(
+            resolve_tv_root_with_films("C:\\Media\\Movies", "Series", "Movies"),
+            PathBuf::from("C:\\Media\\Series")
         );
     }
 }

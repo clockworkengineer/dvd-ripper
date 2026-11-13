@@ -405,6 +405,7 @@ mod tests {
             file_extension: None,
             lookup_episode_titles: false,
             track_boxset: false,
+            tv_dir: None,
         };
 
         let res = batch_use_case.execute(&req, None, None);
@@ -510,6 +511,7 @@ mod tests {
             file_extension: None,
             lookup_episode_titles: false,
             track_boxset: false,
+            tv_dir: None,
         };
 
         let res = batch_use_case.execute(&req, None, Some(cancel_flag));

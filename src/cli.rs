@@ -24,6 +24,14 @@ pub struct Args {
     #[arg(short = 'd', long = "out-dir", default_value = "Films")]
     pub out_dir: String,
 
+    /// Subfolder name for Movie / Film rips within destination directory (default: "Films")
+    #[arg(long = "films-dir", default_value = "Films")]
+    pub films_dir: String,
+
+    /// Subfolder name for TV Series rips within destination directory (default: "TV")
+    #[arg(long = "tv-dir", default_value = "TV")]
+    pub tv_dir: String,
+
     /// Specific DVD title number to rip (e.g. 1, 2). 0 auto-detects the title with the longest duration.
     #[arg(short, long, default_value_t = 0)]
     pub title: u32,
@@ -391,6 +399,8 @@ impl Default for Args {
             input: "D:\\".to_string(),
             output: None,
             out_dir: "Films".to_string(),
+            films_dir: "Films".to_string(),
+            tv_dir: "TV".to_string(),
             title: 0,
             transcode: false,
             mkv: false,
@@ -816,6 +826,8 @@ impl From<&Args> for AudioSubtitleConfig {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StorageConfig {
     pub out_dir: String,
+    pub films_dir: String,
+    pub tv_dir: String,
     pub custom_output: Option<String>,
     pub min_free_gb: u64,
     pub no_overwrite: bool,
@@ -825,6 +837,8 @@ impl From<&Args> for StorageConfig {
     fn from(args: &Args) -> Self {
         Self {
             out_dir: args.out_dir.clone(),
+            films_dir: args.films_dir.clone(),
+            tv_dir: args.tv_dir.clone(),
             custom_output: args.output.clone(),
             min_free_gb: args.min_free_gb,
             no_overwrite: args.no_overwrite,
@@ -1090,6 +1104,8 @@ mod tests {
         let storage_cfg: StorageConfig = (&args).into();
         assert_eq!(storage_cfg.min_free_gb, 25);
         assert_eq!(storage_cfg.out_dir, "Films");
+        assert_eq!(storage_cfg.films_dir, "Films");
+        assert_eq!(storage_cfg.tv_dir, "TV");
 
         let integration_cfg: IntegrationConfig = (&args).into();
         assert_eq!(

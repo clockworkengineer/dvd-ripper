@@ -143,6 +143,8 @@ impl DvdRipperApp {
                         &mut self.film_year,
                         &mut self.out_dir,
                         &self.recent_out_dirs,
+                        &self.films_dir,
+                        &self.tv_dir,
                         &mut self.title_number,
                         &mut self.iso_mode,
                         &mut self.mkv,
@@ -457,6 +459,8 @@ impl DvdRipperApp {
                         tabs::settings_tab::render_settings_tab(
                             ui,
                             &mut self.out_dir,
+                            &mut self.films_dir,
+                            &mut self.tv_dir,
                             &mut self.codec,
                             &mut self.profile,
                             &mut self.preset,
@@ -481,6 +485,7 @@ impl DvdRipperApp {
                     }
                     if reset_req {
                         self.reset_to_defaults();
+                        self.save_current_output_dir_preference();
                     }
                 }
             }

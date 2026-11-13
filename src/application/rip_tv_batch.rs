@@ -30,6 +30,7 @@ pub struct RipTvBatchRequest {
     pub file_extension: Option<String>,
     pub lookup_episode_titles: bool,
     pub track_boxset: bool,
+    pub tv_dir: Option<String>,
 }
 
 impl RipTvBatchRequest {
@@ -88,34 +89,31 @@ impl RipTvBatchRequest {
             file_extension: None,
             lookup_episode_titles: false,
             track_boxset: false,
+            tv_dir: None,
         }
     }
 
     /// Resolves the concrete season output directory for this batch request:
     /// `<TV_ROOT>/<Show Name (Year)>/Season <XX>/`
     pub fn resolve_destination_dir(&self) -> PathBuf {
-        resolve_tv_batch_destination_dir(
+        let tv_dir = self.tv_dir.as_deref().unwrap_or("TV");
+        resolve_tv_batch_destination_dir_custom(
             &self.output_dir,
             &self.series_title,
             self.season_number,
             self.metadata.as_ref().and_then(|m| m.year),
+            tv_dir,
         )
     }
 }
 
-/// Resolves the destination directory for TV series episodes.
-///
-/// Ensures the folder path adheres to the standard Plex/Jellyfin convention:
-/// `<TV_ROOT>/<Show Name (Year)>/Season <XX>/`
-///
-/// - If `output_dir` already terminates in `Season XX`, it is retained as-is to avoid duplicate folders.
-/// - If `output_dir` terminates in the show folder, `Season <XX>` is appended.
-/// - Otherwise, `resolve_tv_root` is used, and `<Show Name (Year)>/Season <XX>/` is constructed.
-pub fn resolve_tv_batch_destination_dir(
+/// Resolves the destination directory for TV series episodes using custom TV subfolder name.
+pub fn resolve_tv_batch_destination_dir_custom(
     output_dir: &std::path::Path,
     series_title: &str,
     season_number: u32,
     series_year: Option<u32>,
+    tv_dir: &str,
 ) -> PathBuf {
     let clean_show = crate::utils::sanitize_filename(series_title);
     let effective_show = if clean_show.is_empty() {
@@ -146,8 +144,25 @@ pub fn resolve_tv_batch_destination_dir(
         }
     }
 
-    let tv_root = crate::ffmpeg::resolve_tv_root(trimmed_str);
+    let tv_root = crate::ffmpeg::resolve_tv_root_custom(trimmed_str, tv_dir);
     tv_root.join(show_folder).join(season_folder)
+}
+
+/// Resolves the destination directory for TV series episodes using standard "TV" default.
+///
+/// Ensures the folder path adheres to the standard Plex/Jellyfin convention:
+/// `<TV_ROOT>/<Show Name (Year)>/Season <XX>/`
+///
+/// - If `output_dir` already terminates in `Season XX`, it is retained as-is to avoid duplicate folders.
+/// - If `output_dir` terminates in the show folder, `Season <XX>` is appended.
+/// - Otherwise, `resolve_tv_root` is used, and `<Show Name (Year)>/Season <XX>/` is constructed.
+pub fn resolve_tv_batch_destination_dir(
+    output_dir: &std::path::Path,
+    series_title: &str,
+    season_number: u32,
+    series_year: Option<u32>,
+) -> PathBuf {
+    resolve_tv_batch_destination_dir_custom(output_dir, series_title, season_number, series_year, "TV")
 }
 
 /// Fluent builder for constructing [`RipTvBatchRequest`] instances.
@@ -165,6 +180,7 @@ pub struct RipTvBatchRequestBuilder {
     file_extension: Option<String>,
     lookup_episode_titles: bool,
     track_boxset: bool,
+    tv_dir: Option<String>,
 }
 
 impl RipTvBatchRequestBuilder {
@@ -186,6 +202,7 @@ impl RipTvBatchRequestBuilder {
             file_extension: None,
             lookup_episode_titles: false,
             track_boxset: false,
+            tv_dir: None,
         }
     }
 
@@ -234,6 +251,11 @@ impl RipTvBatchRequestBuilder {
         self
     }
 
+    pub fn tv_dir(mut self, dir: impl Into<String>) -> Self {
+        self.tv_dir = Some(dir.into());
+        self
+    }
+
     pub fn build(self) -> Result<RipTvBatchRequest> {
         Ok(RipTvBatchRequest {
             source_dvd: self.source_dvd,
@@ -248,6 +270,7 @@ impl RipTvBatchRequestBuilder {
             file_extension: self.file_extension,
             lookup_episode_titles: self.lookup_episode_titles,
             track_boxset: self.track_boxset,
+            tv_dir: self.tv_dir,
         })
     }
 }

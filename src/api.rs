@@ -650,6 +650,7 @@ pub fn execute_rip_for_drive(
                 file_extension: Some("mkv".to_string()),
                 lookup_episode_titles: true,
                 track_boxset: true,
+                tv_dir: Some(args.tv_dir.clone()),
             };
             let use_case = container.rip_tv_batch_use_case();
             use_case

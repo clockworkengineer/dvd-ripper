@@ -15,6 +15,8 @@ pub fn render_rip_tab(
     film_year: &mut String,
     out_dir: &mut String,
     recent_out_dirs: &[String],
+    films_dir: &str,
+    tv_dir: &str,
     title_number: &mut u32,
     iso_mode: &mut bool,
     mkv: &mut bool,
@@ -198,13 +200,15 @@ pub fn render_rip_tab(
         });
 
         ui.horizontal(|ui| {
-            let films_dest = crate::ffmpeg::resolve_films_root(out_dir);
-            let tv_dest = crate::ffmpeg::resolve_tv_root(out_dir);
+            let films_dest = crate::ffmpeg::resolve_films_root_custom(out_dir, films_dir);
+            let tv_dest = crate::ffmpeg::resolve_tv_root_custom(out_dir, tv_dir);
             ui.label(
                 egui::RichText::new(format!(
-                    "Rips will be saved to: {} (Films) or {} (TV)",
+                    "Rips will be saved to: {} ({}) or {} ({})",
                     films_dest.display(),
-                    tv_dest.display()
+                    films_dir,
+                    tv_dest.display(),
+                    tv_dir
                 ))
                 .weak()
                 .small(),
@@ -497,6 +501,8 @@ mod tests {
                     &mut film_year,
                     &mut out_dir,
                     &recent_out_dirs,
+                    "Films",
+                    "TV",
                     &mut title_number,
                     &mut iso_mode,
                     &mut mkv,
@@ -551,6 +557,8 @@ mod tests {
                     &mut film_year,
                     &mut out_dir,
                     &recent_out_dirs,
+                    "Films",
+                    "TV",
                     &mut title_number,
                     &mut iso_mode,
                     &mut mkv,
@@ -601,6 +609,8 @@ mod tests {
                     &mut film_year,
                     &mut out_dir,
                     &recent_out_dirs,
+                    "Films",
+                    "TV",
                     &mut title_number,
                     &mut iso_mode,
                     &mut mkv,

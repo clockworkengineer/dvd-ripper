@@ -22,7 +22,11 @@ pub fn format_episode_filename(show_name: &str, season: u32, episode: u32) -> St
     crate::utils::format_episode_name(show_name, season, episode)
 }
 
-pub use crate::domain::naming::{is_named_films, is_named_tv, resolve_films_root, resolve_tv_root};
+pub use crate::domain::naming::{
+    is_named_films, is_named_films_custom, is_named_folder, is_named_tv, is_named_tv_custom,
+    resolve_films_root, resolve_films_root_custom, resolve_films_root_with_tv,
+    resolve_tv_root, resolve_tv_root_custom, resolve_tv_root_with_films,
+};
 
 /// Helper: Ensures parent directories exist and returns absolute path with optional collision incrementing.
 fn ensure_absolute_parent_dir(path: PathBuf, no_overwrite: bool) -> Result<PathBuf> {
@@ -104,7 +108,17 @@ pub fn resolve_output_path(
         "mpg"
     };
 
-    let films_root = resolve_films_root(&args.out_dir);
+    let films_dir = if args.films_dir.trim().is_empty() {
+        "Films"
+    } else {
+        args.films_dir.trim()
+    };
+    let tv_dir = if args.tv_dir.trim().is_empty() {
+        "TV"
+    } else {
+        args.tv_dir.trim()
+    };
+    let films_root = resolve_films_root_with_tv(&args.out_dir, films_dir, tv_dir);
 
     let target_candidate = if let Some(name) = film_name.map(|s| s.trim()).filter(|s| !s.is_empty()) {
         let clean_name = crate::utils::sanitize_filename(name);
@@ -160,7 +174,17 @@ pub fn resolve_tv_output_path_with_title(
     );
     let filename = format!("{}.{}", base_name, extension);
 
-    let tv_root = resolve_tv_root(&args.out_dir);
+    let tv_dir = if args.tv_dir.trim().is_empty() {
+        "TV"
+    } else {
+        args.tv_dir.trim()
+    };
+    let films_dir = if args.films_dir.trim().is_empty() {
+        "Films"
+    } else {
+        args.films_dir.trim()
+    };
+    let tv_root = resolve_tv_root_with_films(&args.out_dir, tv_dir, films_dir);
 
     let target_candidate = tv_root.join(show_folder).join(season_folder).join(filename);
 
@@ -381,9 +405,21 @@ pub fn resolve_encoder_defaults(profile: &str) -> EncoderDefaults {
 /// Formats a standardized TV show season directory relative path (e.g., "TV/The Office (2005)/Season 01").
 #[allow(dead_code)]
 pub fn format_tv_season_folder(show_name: &str, year: Option<u32>, season: u32) -> PathBuf {
+    format_tv_season_folder_custom(show_name, year, season, "TV")
+}
+
+/// Formats a standardized TV show season directory relative path with a custom TV subfolder.
+#[allow(dead_code)]
+pub fn format_tv_season_folder_custom(
+    show_name: &str,
+    year: Option<u32>,
+    season: u32,
+    tv_dir: &str,
+) -> PathBuf {
+    let folder = if tv_dir.trim().is_empty() { "TV" } else { tv_dir.trim() };
     let clean_show = crate::utils::sanitize_filename(show_name);
     let folder_name = format_title_folder_name(&clean_show, year);
-    PathBuf::from("TV")
+    PathBuf::from(folder)
         .join(folder_name)
         .join(format!("Season {:02}", season))
 }
@@ -391,9 +427,16 @@ pub fn format_tv_season_folder(show_name: &str, year: Option<u32>, season: u32) 
 /// Formats a standardized movie directory relative path (e.g., "Films/Aliens (1986)").
 #[allow(dead_code)]
 pub fn format_movie_folder(title: &str, year: Option<u32>) -> PathBuf {
+    format_movie_folder_custom(title, year, "Films")
+}
+
+/// Formats a standardized movie directory relative path with a custom films subfolder.
+#[allow(dead_code)]
+pub fn format_movie_folder_custom(title: &str, year: Option<u32>, films_dir: &str) -> PathBuf {
+    let folder = if films_dir.trim().is_empty() { "Films" } else { films_dir.trim() };
     let clean_title = crate::utils::sanitize_filename(title);
     let folder_name = format_title_folder_name(&clean_title, year);
-    PathBuf::from("Films").join(folder_name)
+    PathBuf::from(folder).join(folder_name)
 }
 
 /// Resolves target FFmpeg library video encoder name from user codec string ("h264", "hevc", "av1").
@@ -2504,6 +2547,37 @@ mod tests {
         let base_tv_str = base_tv.to_string_lossy();
         assert_eq!(resolve_films_root(&base_tv_str), base.join("Films"));
         assert_eq!(resolve_tv_root(&base_tv_str), base.join("TV"));
+    }
+
+    #[test]
+    fn test_resolve_custom_films_and_tv_root() {
+        let base = PathBuf::from("C:\\Media\\DVD Rips");
+        let base_str = base.to_string_lossy();
+        assert_eq!(
+            resolve_films_root_custom(&base_str, "Movies"),
+            base.join("Movies")
+        );
+        assert_eq!(
+            resolve_tv_root_custom(&base_str, "Series"),
+            base.join("Series")
+        );
+
+        let temp = TestTempDir::new("custom_films_args");
+        let out_dir_str = temp.0.to_string_lossy().to_string();
+        let args = Args {
+            out_dir: out_dir_str,
+            films_dir: "Movies".to_string(),
+            tv_dir: "Series".to_string(),
+            mkv: true,
+            ..Default::default()
+        };
+        let movie_path = resolve_output_path(&args, Some("Gladiator"), Some(2000)).unwrap();
+        assert!(movie_path.to_string_lossy().contains("Movies"));
+        assert!(movie_path.to_string_lossy().contains("Gladiator (2000).mkv"));
+
+        let tv_path = resolve_tv_output_path_with_title(&args, Some("Firefly"), Some(2002), 1, 1, Some("Serenity")).unwrap();
+        assert!(tv_path.to_string_lossy().contains("Series"));
+        assert!(tv_path.to_string_lossy().contains("Firefly - S01E01 - Serenity.mkv"));
     }
 
     #[test]
